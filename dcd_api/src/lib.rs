@@ -1,10 +1,12 @@
 use std::collections::{HashMap, HashSet, BinaryHeap};
+use std::fs::File;
+use std::io::prelude::*;
+use std::path::Path;
 
-enum Source {
+pub enum Source {
     GHTorrent,
     GitHub,
 }
-
 
 /** User information
  
@@ -12,7 +14,7 @@ enum Source {
 
     TODO Alternatively, we can say that email identifies an user.
  */
-struct User {
+pub struct User {
     // id of the user
     id : u64,
     // email for the user
@@ -29,7 +31,7 @@ struct User {
     
     Snapshots are source agnostic. 
  */
-struct Snapshot {
+pub struct Snapshot {
     // snapshot id and its hash
     id : u64,
     hash : String,
@@ -39,7 +41,7 @@ struct Snapshot {
     metadata : HashMap<String, String>,
 }
 
-struct Path {
+pub struct FilePath {
     // path id
     id : u64,
     // the actual path
@@ -54,7 +56,7 @@ struct Path {
 
     TODO should commits have metadata? 
  */
-struct Commit {
+pub struct Commit {
     // commit id and its hash
     id : u64, 
     hash : String,
@@ -77,7 +79,7 @@ struct Commit {
     Projects can again come from different sources. 
     
  */
-struct Project {
+pub struct Project {
     // id of the project
     id : u64,
     // url of the project (latest used)
@@ -92,14 +94,65 @@ struct Project {
     source : Source,
 }
 
-pub fn foobar() -> u64 {
-    return 78;
+/** Basic access to the DejaCode Downloader database.
+ 
+    The API is tailored to reasonably fast random access to items identified by their IDs so that it can, in theory proceed in parallel (disk permits).  
+ */
+pub struct DCD {
+     root_ : String, 
+     num_projects_ : u64,
 }
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
+impl DCD {
+
+    pub fn new(rootFolder : & str) -> Result<DCD, std::io::Error> {
+        let mut dcd = DCD{
+            root_ : String::from(rootFolder),
+            num_projects_ : DCD::get_num_projects(rootFolder),
+        };
+
+        return Ok(dcd);
     }
+
+    pub fn num_projects(& self) -> u64 {
+        return self.num_projects_;
+    }
+    
+    pub fn get_user(& self, id : u64) -> Option<User> {
+        return None;
+    }
+
+    pub fn get_snapshot(& self, id : u64) -> Option<Snapshot> {
+        return None;
+    }
+
+    pub fn get_file_path(& self, id : u64) -> Option<FilePath> {
+        return None;
+    }
+
+    pub fn get_commit(& self, id : u64) -> Option<Commit> {
+        return None;
+    }
+
+    pub fn get_project(& self, id : u64) -> Option<Project> {
+        return None;
+    }
+
+    fn get_num_projects(rootFolder : & str) -> u64 {
+        let filename = format!{"{}/projects.csv", rootFolder};
+        if Path::new(& filename).exists() {
+            if let Ok(mut reader) = csv::Reader::from_path(& filename) {
+                if let Some(Ok(record)) = reader.records().next() {
+                    if record.len() == 1 {
+                        if let Ok(nextId) = record[0].parse::<u64>() {
+                            return nextId - 1;
+                        }
+                    }
+                }
+            }
+        } 
+        return 0;
+    }
+
+
 }

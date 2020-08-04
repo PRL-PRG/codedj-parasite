@@ -1130,12 +1130,11 @@ fn main() {
     */
     /* -- the ghtorrent data downloader
      */
-    println!("{}", dcd_api::foobar());
-    /*
+    let x = dcd_api::DCD::new("foobar").unwrap();
+    x.num_projects();
     // reset state at each iteration for now
     std::fs::remove_dir_all("/dejavuii/dejacode/dataset");
     let ghm = Ghm::new("/dejavuii/dejacode/dataset");
     let pm = ProjectsManager::new();
     GHTorrent::add_projects("/dejavuii/dejacode/ghtorrent/dump/projects.csv", & ghm, & pm);
-    */
 }

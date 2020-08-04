@@ -184,6 +184,9 @@ dependencies = [
 [[package]]
 name = "dcd_api"
 version = "0.1.0"
+dependencies = [
+ "csv",
+]
 
 [[package]]
 name = "git2"
