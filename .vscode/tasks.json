@@ -9,8 +9,6 @@
             ],
             "group": "build",
             "label": "Rust: cargo build - dcd",
-            "options": {
-                "cwd": "${workspaceFolder}/dcd"
-              }        }
+        }
     ]
 }

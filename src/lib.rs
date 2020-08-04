@@ -1,11 +1,56 @@
+mod project;
+mod commit;
+
 use std::collections::{HashMap, HashSet, BinaryHeap};
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::Path;
+use crate::project::*;
+use crate::commit::*;
+
+/** Returns current time in milliseconds.
+ */
+fn now() -> u64 {
+    use std::time::SystemTime;
+    return SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).expect("Invalid time detected").as_secs();
+}
+
+fn pretty_time(mut seconds : u64) -> String {
+    let d = seconds / (24 * 3600);
+    seconds = seconds % (24 * 3600);
+    let h = seconds / 3600;
+    seconds = seconds % 3600;
+    let m = seconds / 60;
+    seconds = seconds % 60;
+    if d > 0 {
+        return format!("{}d {}h {}m {}s", d, h, m, seconds);
+    } else if h > 0 {
+        return format!("{}h {}m {}s", h, m, seconds);
+    } else if m > 0 {
+        return format!("{}m {}s", m, seconds);
+    } else {
+        return format!("{}s", seconds);
+    }
+}
+
+
 
 pub enum Source {
     GHTorrent,
     GitHub,
+}
+
+impl Source {
+
+    fn from_string(s : & str) -> Source {
+        if *s == *"GHTorrent" {
+            return Source::GHTorrent;
+        } else if *s == *"GitHub" {
+            return Source::GitHub;
+        } else {
+            panic!("Invalid source detected: {}", s);
+        }
+    }
 }
 
 /** User information
@@ -41,6 +86,8 @@ pub struct Snapshot {
     metadata : HashMap<String, String>,
 }
 
+
+/** Path in the file */
 pub struct FilePath {
     // path id
     id : u64,
@@ -48,51 +95,7 @@ pub struct FilePath {
     path : String,
 }
 
-/** Commit information.
-  
-    The commit consists of its id, information about its parents, origin, changes made and its source (ghtorrent, github, etc). 
-    
-    If changes are empty, it means the commit has not yet been analyzed in detail. 
 
-    TODO should commits have metadata? 
- */
-pub struct Commit {
-    // commit id and its hash
-    id : u64, 
-    hash : String,
-    // id of parents
-    parents : Vec<u64>,
-    // committer id and time
-    committer_id : u64,
-    committer_time : u64,
-    // author id and time
-    author_id : u64,
-    author_time : u64,
-    // changes (path -> snapshot)
-    changes : Option<HashMap<u64, u64>>,
-    // source the commit has been obtained from
-    source : Source,
-}
-
-/** The project record.
- 
-    Projects can again come from different sources. 
-    
- */
-pub struct Project {
-    // id of the project
-    id : u64,
-    // url of the project (latest used)
-    url : String,
-    // time at which the project was updated last (i.e. time for which its data are valid)
-    last_update: u64,
-    // head refs of the project at the last update time
-    heads : Option<HashMap<String, u64>>,
-    // project metadata
-    metadata : HashMap<String, String>,
-    // source the project data comes from    
-    source : Source,
-}
 
 /** Basic access to the DejaCode Downloader database.
  
@@ -153,6 +156,5 @@ impl DCD {
         } 
         return 0;
     }
-
 
 }

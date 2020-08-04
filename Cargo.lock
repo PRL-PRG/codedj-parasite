@@ -176,16 +176,8 @@ dependencies = [
  "crossbeam",
  "csv",
  "curl",
- "dcd_api",
  "git2",
  "json",
-]
-
-[[package]]
-name = "dcd_api"
-version = "0.1.0"
-dependencies = [
- "csv",
 ]
 
 [[package]]

@@ -1,2 +1,3 @@
-dcd/target/*
-dcd_api/target/*
+src/target/*
+
+target/

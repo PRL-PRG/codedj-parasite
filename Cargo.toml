@@ -12,4 +12,3 @@ csv="1.1"
 crossbeam="0.7"
 curl="0.4"
 json="0.12"
-dcd_api={ path = "../dcd_api" }
