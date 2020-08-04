@@ -1,1 +1,2 @@
-/target
+dcd/target/*
+dcd_api/target/*

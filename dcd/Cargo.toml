@@ -1,5 +1,5 @@
 [package]
-name = "ghmrs"
+name = "dcd"
 version = "0.1.0"
 authors = ["peta <peta.maj82@gmail.com>"]
 edition = "2018"
@@ -12,3 +12,4 @@ csv="1.1"
 crossbeam="0.7"
 curl="0.4"
 json="0.12"
+dcd_api={ path = "../dcd_api" }

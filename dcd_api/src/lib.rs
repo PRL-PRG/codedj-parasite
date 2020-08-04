@@ -87,8 +87,19 @@ struct Project {
     // head refs of the project at the last update time
     heads : Option<HashMap<String, u64>>,
     // project metadata
-    metadata : HashMap<String, String>
+    metadata : HashMap<String, String>,
     // source the project data comes from    
     source : Source,
 }
 
+pub fn foobar() -> u64 {
+    return 78;
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn it_works() {
+        assert_eq!(2 + 2, 4);
+    }
+}

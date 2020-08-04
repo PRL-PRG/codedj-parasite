@@ -4,6 +4,7 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::path::Path;
 use curl::easy::Easy;
+use dcd_api;
 
 /** Returns current time in milliseconds.
  */
@@ -1129,9 +1130,12 @@ fn main() {
     */
     /* -- the ghtorrent data downloader
      */
+    println!("{}", dcd_api::foobar());
+    /*
     // reset state at each iteration for now
     std::fs::remove_dir_all("/dejavuii/dejacode/dataset");
     let ghm = Ghm::new("/dejavuii/dejacode/dataset");
     let pm = ProjectsManager::new();
     GHTorrent::add_projects("/dejavuii/dejacode/ghtorrent/dump/projects.csv", & ghm, & pm);
+    */
 }

@@ -8,7 +8,7 @@
             "name": "(gdb) Launch",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/target/debug/ghmrs",
+            "program": "${workspaceFolder}/dcd/target/debug/dcd",
             "args": [],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
