@@ -161,9 +161,12 @@ struct Project<'ghm> {
     root: String,
 
     // list of heads we have
-    heads: std::collections::HashMap<String, git2::Oid>,
+    heads: HashMap<String, git2::Oid>,
 
     log: Vec<ProjectLogEntry>,
+
+    // k-v store of extra metadata
+    metadata : HashMap<String, HashMap<u64, String>>,
 
 }
 
@@ -178,6 +181,7 @@ impl<'ghm> Project<'ghm> {
             root : root,
             heads: std::collections::HashMap::new(),
             log : Vec::new(),
+            metadata : HashMap::new(),
         };
         return p;
     }
@@ -211,6 +215,37 @@ impl<'ghm> Project<'ghm> {
             }
         }
     }
+
+    fn read_metadata(& mut self) {
+        let filename = format!("{}/metadata.csv", self.root);
+        if std::path::Path::new(& filename).exists() {
+            let mut reader = csv::Reader::from_path(& filename).unwrap();
+            for x in reader.records() {
+                if let Ok(record) = x {
+                    let key = String::from(& record[0]);
+                    let time = record[1].parse::<u64>().unwrap();
+                    let value = String::from(& record[2]);
+                    self.metadata.entry(key).or_insert(HashMap::new()).insert(time, value);
+                }
+            }
+        }
+    }
+
+    fn add_metadata(& mut self, key : String, value : String) {
+        self.metadata.entry(key).or_insert(HashMap::new()).insert(now(), value);
+    }
+
+    fn store_metadata(& self) {
+        let mut f = File::create(format!("{}/metadata.csv", self.root)).unwrap();
+        writeln!(& mut f, "key,time,value");
+        for x in & self.metadata {
+            for y in x.1 {
+                writeln!(& mut f, "\"{}\",{},\"{}\"", x.0, y.0, y.1);
+            } 
+        }
+    }
+
+
 
     /** Saves the pending log messages and clears them. 
      */
@@ -363,7 +398,6 @@ impl<'ghm> Project<'ghm> {
             writeln!(& mut f, "\"{}\",{}", head.0, head.1);
         }
     }
-
 
     fn get_new_commits(& self, repo : & git2::Repository, new_heads : & Vec<String>) -> HashSet<git2::Oid> {
         let mut q = Vec::<git2::Oid>::new();
@@ -713,8 +747,8 @@ struct Ghm {
 
 impl Ghm {
 
-    fn new() -> Ghm {
-        let root = String::from("/home/peta/ghmrs-linux");
+    fn new(rootFolder : & str) -> Ghm {
+        let root = String::from(rootFolder);
         // create the root dir and the temporary directory for cloned projects. 
         std::fs::create_dir_all(format!("{}/tmp", root)).unwrap();
         let hashes_filename = format!("{}/{}", & root, "hashes.csv");
@@ -954,7 +988,106 @@ fn reporter(ghm : & Ghm, pm : & ProjectsManager) {
     }
 }
 
+
+struct GHTorrent {
+
+
+
+}
+
+impl GHTorrent {
+    /** Reads the projects csv from ghtorrent and adds them to the dataset.
+     
+        Only projects that are not marked as deleted are added (that's because for the deleted projects we cannot guarantee that their full data can be downloaded).
+     */
+    fn add_projects(filename : & str, ghm : & Ghm, pm : & ProjectsManager) {
+        let mut reader = csv::Reader::from_path(& filename).unwrap();
+        let mut projectIds = HashMap::<u64,u64>::new();
+        let mut pendingForks = HashMap::<u64,u64>::new();
+        let mut records = 0;
+        let mut valid = 0;
+        println!("Loading ghtorrent projects...");
+        for x in reader.records() {
+            if let Ok(record) = x {
+                records = records + 1;
+                let ghId = record[0].parse::<u64>().unwrap();
+                let apiUrl : Vec<&str> = record[1].split("/").collect();
+                let language = & record[5];
+                let created_at = & record[6];
+                let forked_from = record[7].parse::<u64>();
+                let deleted = record[8].parse::<u64>().unwrap();
+                // ignore deleted projects
+                if deleted != 0 {
+                    continue;
+                }
+                // get the user and repo names
+                let name = apiUrl[apiUrl.len() - 1].to_lowercase();
+                let user = apiUrl[apiUrl.len() - 2].to_lowercase();
+                let url = format!("https://github.com/{}/{}.git", user, name);
+                // initialize the project
+                if let Some(id) = pm.add_project(& url, ghm) {
+                    projectIds.insert(ghId, id);
+                    // create the project
+                    let mut p = Project::new(id, ghm);
+                    p.add_metadata(String::from("ghId"), String::from(& record[0]));
+                    p.add_metadata(String::from("ghLanguage"), String::from(language));
+                    // if the project is a fork
+                    if let Ok(forkId) = forked_from {
+                        if let Some(ownForkId) = projectIds.get(& forkId) {
+                            p.add_metadata(String::from("forkOf"), format!("{}", ownForkId));    
+                        } else {
+                            pendingForks.insert(id, forkId);
+                        }
+                    }
+                    p.store_metadata();
+                    valid = valid + 1;
+                }
+                if records % 10000 == 0 {
+                    print!("    total: {}, valid: {} \x1b[K\r", records, valid);
+                    std::io::stdout().flush();
+                }
+            }
+        }
+        println!("\nPatching missing fork information...");
+        {
+            let mut broken = HashSet::<u64>::new();
+            println!("    pending projects: {}", pendingForks.len());
+            for x in pendingForks {
+                if let Some(ownForkId) = projectIds.get(& x.1) {
+                    let mut p = Project::new(x.0, ghm);
+                    p.read_metadata();
+                    p.add_metadata(String::from("forkOf"), format!("{}", ownForkId));    
+                    p.store_metadata();
+                } else {
+                    broken.insert(x.0);
+                }
+            }
+            println!("    broken projects: {}", broken.len());
+        }
+        // TODO what to do with the broken projects? should we delete them? 
+
+        // commits
+        /* - load all commits & their parents, can store users and can store comitters & dates and times
+           - then load all parents and update the commit parents
+           - finally, do project commits and this gives us heads
+
+
+        */
+
+
+        /* and finally, mark each project as ghTorrent updated as of the time of the ghtorrent dump
+         */
+
+    }
+
+}
+
+
+
+
+
 fn main() {
+    /*
     {
         println!("DEBUG! -- clearing the state and adding new projects...");
         std::fs::remove_dir_all("/home/peta/ghmrs-linux");
@@ -962,7 +1095,6 @@ fn main() {
         let mut pm = ProjectsManager::new();
         println!("Adding projects...");
         pm.add_project("https://github.com/torvalds/linux.git", & ghm);
-        /*
         pm.add_project("https://github.com/terminalpp/terminalpp.git", & ghm);
         pm.add_project("https://github.com/prl-prg/dejavuii.git", & ghm);
         pm.add_project("https://github.com/terminalpp/website.git", & ghm);
@@ -972,9 +1104,10 @@ fn main() {
         pm.add_project("https://github.com/microsoft/CCF.git", & ghm);
         pm.add_project("https://github.com/microsoft/terminal.git", & ghm);
         pm.add_project("https://github.com/microsoft/PowerToys.git", & ghm);
-        */
         println!("Reloading the ghm...")
     }
+    */
+    /* -- this is the real proper incremental downloader
     let ghm = Ghm::new();
     let pm = ProjectsManager::new();
     crossbeam::thread::scope(|s| {
@@ -993,4 +1126,12 @@ fn main() {
             reporter(& ghm, & pm);
         });
     }).unwrap();
+    */
+    /* -- the ghtorrent data downloader
+     */
+    // reset state at each iteration for now
+    std::fs::remove_dir_all("/dejavuii/dejacode/dataset");
+    let ghm = Ghm::new("/dejavuii/dejacode/dataset");
+    let pm = ProjectsManager::new();
+    GHTorrent::add_projects("/dejavuii/dejacode/ghtorrent/dump/projects.csv", & ghm, & pm);
 }
