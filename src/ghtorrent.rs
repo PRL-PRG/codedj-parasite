@@ -31,6 +31,10 @@ impl GHTorrent {
             if let Ok(record) = x {
                 if records % 1000 == 0 {
                     helpers::progress_line(format!("    records: {}, new projects: {}, pending forks: {}", records, project_ids.len(), pending_forks.len()));
+                    // break prematurely after first 1k... TODO
+                    if records > 0 {
+                        break;
+                    }
                 }
                 records += 1;
                 let gh_id = record[0].parse::<u64>().unwrap();

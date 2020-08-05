@@ -25,7 +25,7 @@ use crate::undecided::*;
  
     For now we only support GHTorrent and GitHub. In the future we might add more. While the downloader exports this, it should not really matter for the users in most cases, other than reliability - stuff coming from GitHub is more reliable than GhTorrent.   
  */
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub enum Source {
     NA,
     GHTorrent,
@@ -164,6 +164,9 @@ impl Database for DCD {
     /** Projects reside in their own files, so random access is simple.
      */
     fn get_project(& self, id : u64) -> Option<Project> {
+        let result = std::panic::catch_unwind(||{
+
+        });
         return None;
     }
 

@@ -45,12 +45,35 @@ impl Project {
             source : Source::NA,
         }
     }
-    /*
+
+    /** Creates new project.
+     */
     fn new(id : u64, folder : & str) -> Project {
-
-
+        let mut last_url = String::new();
+        let mut last_update: u64 = 0;
+        let mut last_source = Source::NA;
+        let log = ProjectLog::read(folder);
+        for entry in & log.entries_ {
+            match entry {
+                ProjectLogEntry::Init{time : _, url} => {
+                    last_url = String::from(url);
+                },
+                ProjectLogEntry::Update{time, source} => {
+                    last_update = *time;
+                    last_source = *source;
+                },
+                _ => {
+                }
+            }
+        }
+        return Project{
+            id,
+            url : last_url, 
+            last_update,
+            heads : None,
+            source : last_source,
+        };
     }
-    */
 }
 
 // ------------------------------------------------------------------------------------------------

@@ -14,7 +14,6 @@ pub struct DownloaderState {
     // set of live urls
     live_urls_ : Mutex<HashSet<String>>
 
-
 }
 
 

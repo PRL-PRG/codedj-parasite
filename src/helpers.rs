@@ -26,6 +26,6 @@ pub(crate) fn pretty_time(mut seconds : u64) -> String {
 }
 
 pub(crate) fn progress_line(s : String) {
-    print!("{}\x1b[K]r", s);
+    print!("{}\x1b[K\r", s);
     std::io::stdout().flush().unwrap();    
 }
