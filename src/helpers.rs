@@ -1,3 +1,5 @@
+use std::io::Write;
+
 /** Returns current time in milliseconds.
  */
 pub(crate) fn now() -> u64 {
@@ -21,4 +23,9 @@ pub(crate) fn pretty_time(mut seconds : u64) -> String {
     } else {
         return format!("{}s", seconds);
     }
+}
+
+pub(crate) fn progress_line(s : String) {
+    print!("{}\x1b[K]r", s);
+    std::io::stdout().flush().unwrap();    
 }
