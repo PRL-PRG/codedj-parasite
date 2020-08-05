@@ -48,7 +48,7 @@ impl Project {
 
     /** Creates new project.
      */
-    fn new(id : u64, folder : & str) -> Project {
+    pub(crate) fn new(id : u64, folder : & str) -> Project {
         let mut last_url = String::new();
         let mut last_update: u64 = 0;
         let mut last_source = Source::NA;

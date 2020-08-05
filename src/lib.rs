@@ -164,10 +164,13 @@ impl Database for DCD {
     /** Projects reside in their own files, so random access is simple.
      */
     fn get_project(& self, id : u64) -> Option<Project> {
-        let result = std::panic::catch_unwind(||{
-
-        });
-        return None;
+        if let Ok(project) = std::panic::catch_unwind(||{
+            return Project::new(id, & self.get_project_root(id));
+        }) {
+            return Some(project);
+        } else {
+            return None;
+        }
     }
 
 }
