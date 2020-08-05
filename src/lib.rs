@@ -65,7 +65,7 @@ impl std::fmt::Display for Source {
     }
 }
 
-trait Database {
+pub trait Database {
     fn num_projects(& self) -> u64;
     fn get_user(& self, id : u64) -> Option<User>;
     fn get_snapshot(& self, id : u64) -> Option<Snapshot>;
