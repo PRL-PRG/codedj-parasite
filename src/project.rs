@@ -10,6 +10,7 @@ use crate::*;
     Projects can again come from different sources. 
     
  */
+#[derive(Clone)]
 pub struct Project {
     // id of the project
     id : u64,
@@ -62,12 +63,11 @@ impl ProjectLogEntry {
     }
 
     fn update(source : Source) -> ProjectLogEntry {
-        return ProjectLogEntry::Update{time : now(), source };
+        return ProjectLogEntry::Update{time : helpers::now(), source };
     }
 
     fn no_change(source : Source) -> ProjectLogEntry {
-        return ProjectLogEntry::NoChange{time : now(), source };
+        return ProjectLogEntry::NoChange{time : helpers::now(), source };
     }
 }
-
 

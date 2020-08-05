@@ -1,5 +1,8 @@
 mod project;
 mod commit;
+mod helpers;
+// this will go away in the future, it contains all stuff that haven't been merged in the new multi-source API yet
+mod undecided;
 
 use std::collections::{HashMap, HashSet, BinaryHeap};
 use std::fs::File;
@@ -7,34 +10,13 @@ use std::io::prelude::*;
 use std::path::Path;
 use crate::project::*;
 use crate::commit::*;
-
-/** Returns current time in milliseconds.
- */
-fn now() -> u64 {
-    use std::time::SystemTime;
-    return SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).expect("Invalid time detected").as_secs();
-}
-
-fn pretty_time(mut seconds : u64) -> String {
-    let d = seconds / (24 * 3600);
-    seconds = seconds % (24 * 3600);
-    let h = seconds / 3600;
-    seconds = seconds % 3600;
-    let m = seconds / 60;
-    seconds = seconds % 60;
-    if d > 0 {
-        return format!("{}d {}h {}m {}s", d, h, m, seconds);
-    } else if h > 0 {
-        return format!("{}h {}m {}s", h, m, seconds);
-    } else if m > 0 {
-        return format!("{}m {}s", m, seconds);
-    } else {
-        return format!("{}s", seconds);
-    }
-}
+use crate::helpers::*;
+use crate::undecided::*;
 
 
 
+
+#[derive(Clone)]
 pub enum Source {
     GHTorrent,
     GitHub,
@@ -51,48 +33,6 @@ impl Source {
             panic!("Invalid source detected: {}", s);
         }
     }
-}
-
-/** User information
- 
-    Users may come from different platforms and therefore there can be two different users with same name and email from different platforms (i.e. Github & bitbucket). 
-
-    TODO Alternatively, we can say that email identifies an user.
- */
-pub struct User {
-    // id of the user
-    id : u64,
-    // email for the user
-    email : String,
-    // name of the user
-    name : String, 
-    // source
-    source : Source,
-}
-
-/** Snapshot information.
- 
-    The snapshot information consists of the actual value of the snapshot (given as path) and metadata that can be associated with the snapshot (such as size, lines of code, detected language, etc.).
-    
-    Snapshots are source agnostic. 
- */
-pub struct Snapshot {
-    // snapshot id and its hash
-    id : u64,
-    hash : String,
-    // file path to the snapshot
-    path : Option<String>, 
-    // metadata
-    metadata : HashMap<String, String>,
-}
-
-
-/** Path in the file */
-pub struct FilePath {
-    // path id
-    id : u64,
-    // the actual path
-    path : String,
 }
 
 
