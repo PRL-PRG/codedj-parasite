@@ -1,21 +1,5 @@
 use crate::*;
 
-/** User information
- 
-    Users may come from different platforms and therefore there can be two different users with same name and email from different platforms (i.e. Github & bitbucket). 
-
-    TODO Alternatively, we can say that email identifies an user.
- */
-pub struct User {
-    // id of the user
-    id : u64,
-    // email for the user
-    email : String,
-    // name of the user
-    name : String, 
-    // source
-    source : Source,
-}
 
 /** Snapshot information.
  

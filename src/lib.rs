@@ -6,6 +6,7 @@ pub mod ghtorrent;
 
 pub mod project;
 pub mod commit;
+pub mod user;
 mod helpers;
 // this will go away in the future, it contains all stuff that haven't been merged in the new multi-source API yet
 pub mod undecided;
@@ -16,6 +17,7 @@ use std::io::prelude::*;
 use std::path::Path;
 use crate::project::*;
 use crate::commit::*;
+use crate::user::*;
 use crate::helpers::*;
 use crate::undecided::*;
 
@@ -82,6 +84,7 @@ pub trait Database {
 pub struct DCD {
      root_ : String, 
      num_projects_ : u64,
+     users_ : Vec<User>,
 
 }
 
@@ -91,9 +94,20 @@ impl DCD {
         let mut dcd = DCD{
             root_ : String::from(root_folder),
             num_projects_ : DCD::get_num_projects(root_folder),
+            users_ : Vec::new(),
         };
 
         return Ok(dcd);
+    }
+
+    /** Loads the global table of users. This must run before any user details are obtained from the downloader. 
+     */
+    pub fn load_users(& mut self) {
+        let mut reader = csv::Reader::from_path(format!("{}/projects.csv", self.root_)).unwrap();
+        for x in reader.records() {
+            if let Ok(record) = x {
+            }
+        }
     }
 
     /** Creates empty uninitialized downloader with given root folder. 
@@ -102,6 +116,7 @@ impl DCD {
         return DCD{
             root_ : String::from(root_folder),
             num_projects_ : 0,
+            users_ : Vec::new(),
         };
     }
 
@@ -133,6 +148,10 @@ impl DCD {
         return format!("{}/projects/{}/{}", self.root_, id % 1000, id);
     }
 
+    fn get_users_file(& self) -> String {
+        return format!("{}/users.csv", self.root_);
+    }
+
 }
 
 impl Database for DCD {
@@ -143,6 +162,8 @@ impl Database for DCD {
         return self.num_projects_;
     }
     
+    /** Users reside in one large file that needs to be loaded first. 
+     */
     fn get_user(& self, id : u64) -> Option<User> {
         return None;
     }

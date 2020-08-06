@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, Condvar};
+use std::fs::OpenOptions;
 use crate::*;
 
 /** The state of the downloader. 
@@ -12,7 +13,11 @@ pub struct DownloaderState {
     pub dcd_ : DCD,
 
     // set of live urls
-    live_urls_ : Mutex<HashSet<String>>
+    live_urls_ : Mutex<HashSet<String>>,
+
+    // email to user translation and a file to append users to
+    users_ : Mutex<HashMap<String, u64>>,
+    users_file_ : Mutex<File>,
 
 }
 
@@ -28,9 +33,17 @@ impl DownloaderState {
             std::fs::remove_dir_all(& root_folder).unwrap();
         }
         std::fs::create_dir_all(root_folder).unwrap();
+        let users_file = format!("{}/users.csv", root_folder);
+        {
+            let mut f = File::create(& users_file).unwrap();
+            writeln!(& mut f, "id,email,name");
+        }
+
         let result = DownloaderState{
             dcd_ : DCD::new(root_folder),
             live_urls_ : Mutex::new(HashSet::new()),
+            users_ : Mutex::new(HashMap::new()),
+            users_file_ : Mutex::new(OpenOptions::new().append(true).open(& users_file).unwrap()),
         };
 
         return result;
@@ -51,6 +64,35 @@ impl DownloaderState {
             return Some(p);
         } else {
             return None;
+        }
+    }
+
+    // helper for the user creation so that we hold the mutex for shortest time
+    fn get_or_create_user_in_mem(& self, email : & str) -> (u64, bool) {
+        let mut users = self.users_.lock().unwrap();
+        match users.get(email) {
+            Some(id) => {
+                return (*id, false);
+            },
+            None => {
+                let id = users.len() as u64;
+                users.insert(email.to_string(), id);
+                return (id, true);
+            }
+        }
+    }
+
+    pub fn get_or_create_user(& self, email : & str, name : & str) -> u64 {
+        match self.get_or_create_user_in_mem(email) {
+            (id, false) => {
+                return id;
+            },
+            (id, true) => {
+                let user = User{ id, email : email.to_string(), name : name.to_string()};
+                let mut users_file = self.users_file_.lock().unwrap();
+                user.write_to_csv(& mut users_file);
+                return id;
+            }
         }
     }
 
