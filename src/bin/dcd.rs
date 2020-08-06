@@ -7,4 +7,5 @@ fn main() {
     ght.load_users();
     ght.add_projects(& mut dcd);
     ght.filter_commits();
+    ght.add_commits(& mut dcd);
 }

@@ -11,25 +11,40 @@ use crate::*;
     
  */
 pub struct Commit {
-    // commit id and its hash
-    CommitId : u64, 
-    hash : git2::Oid,
+    // commit id
+    pub id : CommitId, 
     // id of parents
-    parents : Vec<u64>,
+    pub parents : Vec<CommitId>,
     // committer id and time
-    committer_id : u64,
-    committer_time : u64,
+    pub committer_id : u64,
+    pub committer_time : u64,
     // author id and time
-    author_id : u64,
-    author_time : u64,
+    pub author_id : u64,
+    pub author_time : u64,
     // source the commit has been obtained from
-    source : Source,
+    pub source : Source,
 }
 
 impl Commit {
 
+    pub(crate) fn new(id : CommitId, source : Source) -> Commit {
+        return Commit {
+            id : id, 
+            parents : Vec::new(),
+            committer_id : 0,
+            committer_time : 0,
+            author_id : 0,
+            author_time : 0,
+            source : source,
+        };
+    }
+
     pub(crate) fn write_to_csv(& self, f : & mut File) {
         //writeln!(f, "{},{}")
+    }
+
+    pub(crate) fn write_parents_to_csv(& self, f : & mut File) {
+
     }
 
     

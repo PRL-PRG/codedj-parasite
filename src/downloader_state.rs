@@ -19,6 +19,12 @@ pub struct DownloaderState {
     users_ : Mutex<HashMap<String, u64>>,
     users_file_ : Mutex<File>,
 
+    commit_ids_ : Mutex<HashMap<git2::Oid, u64>>,
+    commit_ids_file_ : Mutex<File>,
+    commits_ : Mutex<Vec<Commit>>,
+    commits_file_ : Mutex<File>,
+    commit_parents_file_ : Mutex<File>,
+
 }
 
 
@@ -38,12 +44,32 @@ impl DownloaderState {
             let mut f = File::create(& users_file).unwrap();
             writeln!(& mut f, "id,email,name");
         }
+        let commit_ids_file = format!("{}/commit_ids.csv", root_folder);
+        {
+            let mut f = File::create(& commit_ids_file).unwrap();
+            writeln!(& mut f, "hash,id");
+        }
+        let commits_file = format!("{}/commits.csv", root_folder);
+        {
+            let mut f = File::create(& commits_file).unwrap();
+            writeln!(& mut f, "id,authorId,aythorTime,committerId,committerTime,source");
+        }
+        let commit_parents_file = format!("{}/commit_parents.csv", root_folder);
+        {
+            let mut f = File::create(& commit_parents_file).unwrap();
+            writeln!(& mut f, "id,parentId");
+        }
 
         let result = DownloaderState{
             dcd_ : DCD::new(root_folder),
             live_urls_ : Mutex::new(HashSet::new()),
             users_ : Mutex::new(HashMap::new()),
             users_file_ : Mutex::new(OpenOptions::new().append(true).open(& users_file).unwrap()),
+            commit_ids_ : Mutex::new(HashMap::new()),
+            commit_ids_file_ : Mutex::new(OpenOptions::new().append(true).open(& commit_ids_file).unwrap()),
+            commits_ : Mutex::new(Vec::new()),
+            commits_file_ : Mutex::new(OpenOptions::new().append(true).open(& commits_file).unwrap()),
+            commit_parents_file_ : Mutex::new(OpenOptions::new().append(true).open(& commit_parents_file).unwrap()),
         };
 
         return result;
@@ -68,7 +94,7 @@ impl DownloaderState {
     }
 
     // helper for the user creation so that we hold the mutex for shortest time
-    fn get_or_create_user_in_mem(& self, email : & str) -> (u64, bool) {
+    fn get_or_create_user_(& self, email : & str) -> (u64, bool) {
         let mut users = self.users_.lock().unwrap();
         match users.get(email) {
             Some(id) => {
@@ -83,7 +109,7 @@ impl DownloaderState {
     }
 
     pub fn get_or_create_user(& self, email : & str, name : & str) -> u64 {
-        match self.get_or_create_user_in_mem(email) {
+        match self.get_or_create_user_(email) {
             (id, false) => {
                 return id;
             },
@@ -95,6 +121,8 @@ impl DownloaderState {
             }
         }
     }
+
+    // now to add commits? 
 
     /*    
     pub fn add_projects<T>(& mut self, projects: & mut Iterator<Item = (String, & T)>, initializer : Option<fn(& mut Project, & T)>) -> u64 {
