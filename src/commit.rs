@@ -6,16 +6,13 @@ use crate::Source;
 
 /** Commit information.
   
-    The commit consists of its id, information about its parents, origin, changes made and its source (ghtorrent, github, etc). 
+    The commit consists of its id, information about its parents and its source (ghtorrent, github, etc). Commit messages and actual changes of the commit are to be obtained differently.
     
-    If changes are empty, it means the commit has not yet been analyzed in detail. 
-
-    TODO should commits have metadata? 
  */
 pub struct Commit {
     // commit id and its hash
     id : u64, 
-    hash : String,
+    hash : git2::Oid,
     // id of parents
     parents : Vec<u64>,
     // committer id and time
@@ -24,13 +21,15 @@ pub struct Commit {
     // author id and time
     author_id : u64,
     author_time : u64,
-    // changes (path -> snapshot)
-    changes : Option<HashMap<u64, u64>>,
     // source the commit has been obtained from
     source : Source,
 }
 
 impl Commit {
+
+    pub(crate) fn write_to_csv(& self, f : & mut File) {
+        //writeln!(f, "{},{}")
+    }
 
     
 }

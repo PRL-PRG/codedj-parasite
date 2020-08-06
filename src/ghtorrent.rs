@@ -162,7 +162,7 @@ impl GHTorrent {
      
         - commits.csv for hash, author id, committer id and created_at which I guess is commit time
      */
-    pub fn add_commits(& self, valid_commits : HashSet<u64>, dcd : & mut DownloaderState) {
+    pub fn add_commits(& self, dcd : & mut DownloaderState) {
 
     }
 }

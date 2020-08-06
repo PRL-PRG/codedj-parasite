@@ -21,8 +21,6 @@ use crate::user::*;
 use crate::helpers::*;
 use crate::undecided::*;
 
-
-
 /** Source of the information from the downloader. 
  
     For now we only support GHTorrent and GitHub. In the future we might add more. While the downloader exports this, it should not really matter for the users in most cases, other than reliability - stuff coming from GitHub is more reliable than GhTorrent.   
@@ -69,11 +67,12 @@ impl std::fmt::Display for Source {
 
 pub trait Database {
     fn num_projects(& self) -> u64;
-    fn get_user(& self, id : u64) -> Option<User>;
+    fn get_user(& self, id : u64) -> Option<& User>;
     fn get_snapshot(& self, id : u64) -> Option<Snapshot>;
     fn get_file_path(& self, id : u64) -> Option<FilePath>;
     fn get_commit(& self, id : u64) -> Option<Commit>;
     fn get_project(& self, id : u64) -> Option<Project>;
+    // TODO get commit changes and get commit message functions
 }
 
 
@@ -164,8 +163,8 @@ impl Database for DCD {
     
     /** Users reside in one large file that needs to be loaded first. 
      */
-    fn get_user(& self, id : u64) -> Option<User> {
-        return None;
+    fn get_user(& self, id : u64) -> Option<& User> {
+        return self.users_.get(id as usize);
     }
 
     fn get_snapshot(& self, id : u64) -> Option<Snapshot> {
