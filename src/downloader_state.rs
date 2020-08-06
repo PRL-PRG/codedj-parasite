@@ -1,4 +1,5 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::hash_map::{HashMap, Entry};
+use std::collections::HashSet;
 use std::sync::{Mutex, Condvar};
 use std::fs::OpenOptions;
 use crate::*;
@@ -122,7 +123,37 @@ impl DownloaderState {
         }
     }
 
-    // now to add commits? 
+    /** Takes iterator of git2 hashes and returns a map converting each hash to id and a set of new hashes.
+     */
+    pub fn get_or_add_commits<'a>(& self, hashes : & mut std::iter::Iterator<Item = &'a git2::Oid>) -> (HashMap<git2::Oid, CommitId>, HashSet<CommitId>) {
+        let mut commits = HashMap::new();
+        let mut new_commits = HashSet::new();
+        let mut delta = HashMap::new();
+        {
+            let mut commit_ids = self.commit_ids_.lock().unwrap();
+            for h in hashes {
+                let new_id = commit_ids.len() as u64;
+                match commit_ids.entry(*h) {
+                    Entry::Occupied(ref entry) => {
+                        commits.insert(*h, *entry.get());
+                    },
+                    Entry::Vacant(entry) => {
+                        entry.insert(new_id);
+                        new_commits.insert(new_id);
+                        commits.insert(*h, new_id);
+                        delta.insert(*h, new_id);
+                    }
+                }
+            }
+        }
+        // write the delta commits
+        let mut commit_ids_file = self.commit_ids_file_.lock().unwrap();
+        for x in delta {
+            writeln!(*commit_ids_file, "{},{}", x.0, x.1).unwrap();
+        }
+        // and return what is new
+        return (commits, new_commits);
+    }
 
     /*    
     pub fn add_projects<T>(& mut self, projects: & mut Iterator<Item = (String, & T)>, initializer : Option<fn(& mut Project, & T)>) -> u64 {

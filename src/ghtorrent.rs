@@ -185,36 +185,50 @@ impl GHTorrent {
         - commits.csv for hash, author id, committer id and created_at which I guess is commit time
      */
     pub fn add_commits(& mut self, dcd : & mut DownloaderState) {
-        let mut reader = csv::ReaderBuilder::new().has_headers(false).double_quote(false).escape(Some(b'\\')).from_path(format!("{}/commits.csv", self.root_)).unwrap();
-        let mut records = 0;
         // tentatively create commit records for all valid hashes here, then negotiate with the downloader state about how many we keep
         let mut hash_to_ght = HashMap::<git2::Oid, u64>::new();
-        println!("Adding new commits...");
-        for x in reader.records() {
-            let record = x.unwrap();
-            if records % 1000 == 0 {
-                helpers::progress_line(format!("    records: {}, commits: {} (hashes: {})", records, self.commits_.len(), hash_to_ght.len()));
-                // break prematurely after first 1k... TODO
-                /*
-                if records > 0 {
-                    break;
+        {
+            let mut reader = csv::ReaderBuilder::new().has_headers(false).double_quote(false).escape(Some(b'\\')).from_path(format!("{}/commits.csv", self.root_)).unwrap();
+            let mut records = 0;
+            println!("Adding new commits...");
+            for x in reader.records() {
+                let record = x.unwrap();
+                if records % 1000 == 0 {
+                    helpers::progress_line(format!("    records: {}, commits: {} (hashes: {})", records, self.commits_.len(), hash_to_ght.len()));
+                    // break prematurely after first 1k... TODO
+                    if self.commits_.len() > 1000 {
+                        break;
+                    }
                 }
-                */
+                records += 1;
+                let ght_id = record[0].parse::<u64>().unwrap();
+                // if the commit is not valid, ignore it
+                if ! self.valid_commits_.contains(& ght_id) {
+                    continue;
+                }
+                // if valid, create the object
+                let hash = git2::Oid::from_str(& record[1]).unwrap();
+                let mut commit = Commit::new(0, Source::GHTorrent);
+                commit.author_id = self.get_or_create_user(record[2].parse::<u64>().unwrap(), dcd);
+                commit.committer_id = self.get_or_create_user(record[3].parse::<u64>().unwrap(), dcd);
+                commit.committer_time = helpers::to_unix_epoch(& record[5]);
+                self.commits_.insert(ght_id, commit);
+                hash_to_ght.insert(hash, ght_id);
             }
-            records += 1;
-            let ght_id = record[0].parse::<u64>().unwrap();
-            // if the commit is not valid, ignore it
-            if ! self.valid_commits_.contains(& ght_id) {
-                continue;
-            }
-            // if valid, create the object
-            let hash = git2::Oid::from_str(& record[1]).unwrap();
-            let mut commit = Commit::new(0, Source::GHTorrent);
-            commit.author_id = self.get_or_create_user(record[2].parse::<u64>().unwrap(), dcd);
-            commit.committer_id = self.get_or_create_user(record[3].parse::<u64>().unwrap(), dcd);
-            commit.committer_time = helpers::to_unix_epoch(& record[5]);
-            self.commits_.insert(ght_id, commit);
-            hash_to_ght.insert(hash, ght_id);
         }
+        // now obtain the ids of the commits we need to analyze 
+        let (commit_ids, new_commit_ids) = dcd.get_or_add_commits(& mut hash_to_ght.keys());
+
+
+        // so we added commits, time to add their parents, which is all we get for a commit
+        {
+            let mut reader = csv::ReaderBuilder::new().has_headers(false).double_quote(false).escape(Some(b'\\')).from_path(format!("{}/commit_parents.csv", self.root_)).unwrap();
+            let mut records = 0;
+            println!("Translating commit parents...");
+            for x in reader.records() {
+                let record = x.unwrap();
+            }
+        }
+
     }
 }
