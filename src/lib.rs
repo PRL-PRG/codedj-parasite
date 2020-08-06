@@ -65,13 +65,19 @@ impl std::fmt::Display for Source {
     }
 }
 
+type UserId = u64;
+type BlobId = u64;
+type PathId = u64;
+type CommitId = u64;
+type ProjectId = u64;
+
 pub trait Database {
     fn num_projects(& self) -> u64;
-    fn get_user(& self, id : u64) -> Option<& User>;
-    fn get_snapshot(& self, id : u64) -> Option<Snapshot>;
-    fn get_file_path(& self, id : u64) -> Option<FilePath>;
-    fn get_commit(& self, id : u64) -> Option<Commit>;
-    fn get_project(& self, id : u64) -> Option<Project>;
+    fn get_user(& self, id : UserId) -> Option<& User>;
+    fn get_snapshot(& self, id : BlobId) -> Option<Snapshot>;
+    fn get_file_path(& self, id : PathId) -> Option<FilePath>;
+    fn get_commit(& self, id : CommitId) -> Option<Commit>;
+    fn get_project(& self, id : ProjectId) -> Option<Project>;
     // TODO get commit changes and get commit message functions
 }
 
@@ -143,7 +149,7 @@ impl DCD {
         return 0;
     }
 
-    fn get_project_root(& self, id : u64) -> String {
+    fn get_project_root(& self, id : ProjectId) -> String {
         return format!("{}/projects/{}/{}", self.root_, id % 1000, id);
     }
 
@@ -163,27 +169,27 @@ impl Database for DCD {
     
     /** Users reside in one large file that needs to be loaded first. 
      */
-    fn get_user(& self, id : u64) -> Option<& User> {
+    fn get_user(& self, id : UserId) -> Option<& User> {
         return self.users_.get(id as usize);
     }
 
-    fn get_snapshot(& self, id : u64) -> Option<Snapshot> {
+    fn get_snapshot(& self, id : BlobId) -> Option<Snapshot> {
         return None;
     }
 
-    fn get_file_path(& self, id : u64) -> Option<FilePath> {
+    fn get_file_path(& self, id : PathId) -> Option<FilePath> {
         return None;
     }
 
     /** Commits reside in their own files, so random access is simple.
      */
-    fn get_commit(& self, id : u64) -> Option<Commit> {
+    fn get_commit(& self, id : CommitId) -> Option<Commit> {
         return None;
     }
 
     /** Projects reside in their own files, so random access is simple.
      */
-    fn get_project(& self, id : u64) -> Option<Project> {
+    fn get_project(& self, id : ProjectId) -> Option<Project> {
         if let Ok(project) = std::panic::catch_unwind(||{
             return Project::new(id, & self.get_project_root(id));
         }) {

@@ -3,6 +3,7 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::path::Path;
 use crate::Source;
+use crate::*;
 
 /** Commit information.
   
@@ -11,7 +12,7 @@ use crate::Source;
  */
 pub struct Commit {
     // commit id and its hash
-    id : u64, 
+    CommitId : u64, 
     hash : git2::Oid,
     // id of parents
     parents : Vec<u64>,

@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet, BinaryHeap};
 use crate::downloader_state::*;
 use crate::project::*;
 use crate::helpers;
+use crate::*;
 
 
 /** GHTorrent Source Representation & Actions
@@ -17,12 +18,12 @@ pub struct GHTorrent {
     root_ : String, 
 
     // translates gh torrent user ids to own ids
-    user_ids_ : HashMap<u64,u64>,
+    user_ids_ : HashMap<u64, UserId>,
     // ghtorrent users (gh torrent id -> name)
     users_ : HashMap<u64, String>,
 
     // ghtorrent project id to own ids
-    project_ids_ : HashMap<u64, u64>,
+    project_ids_ : HashMap<u64, ProjectId>,
 
     // ght ids of valid commits (i.e. commits belonging to the newly added projects)
     valid_commits_ : HashSet<u64>,

@@ -12,7 +12,7 @@ use crate::*;
 #[derive(Clone)]
 pub struct Project {
     // id of the project
-    pub id : u64,
+    pub id : ProjectId,
     // url of the project (latest used)
     pub url : String,
     // time at which the project was updated last (i.e. time for which its data are valid)
@@ -29,7 +29,7 @@ impl Project {
     
         Simply creates the log file and initializes it with the init message. That's all project initialization is required to do. 
      */     
-    pub(crate) fn create_new(id : u64, url : & str, folder : & str) -> Project {
+    pub(crate) fn create_new(id : ProjectId, url : & str, folder : & str) -> Project {
         // create the function
         std::fs::create_dir_all(folder).unwrap();
         // create log, add init & save it
@@ -48,7 +48,7 @@ impl Project {
 
     /** Creates new project.
      */
-    pub(crate) fn new(id : u64, folder : & str) -> Project {
+    pub(crate) fn new(id : ProjectId, folder : & str) -> Project {
         let mut last_url = String::new();
         let mut last_update: u64 = 0;
         let mut last_source = Source::NA;
