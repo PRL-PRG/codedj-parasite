@@ -22,7 +22,6 @@ pub struct DownloaderState {
 
     commit_ids_ : Mutex<HashMap<git2::Oid, u64>>,
     commit_ids_file_ : Mutex<File>,
-    commits_ : Mutex<Vec<Commit>>,
     commits_file_ : Mutex<File>,
     commit_parents_file_ : Mutex<File>,
 
@@ -68,7 +67,6 @@ impl DownloaderState {
             users_file_ : Mutex::new(OpenOptions::new().append(true).open(& users_file).unwrap()),
             commit_ids_ : Mutex::new(HashMap::new()),
             commit_ids_file_ : Mutex::new(OpenOptions::new().append(true).open(& commit_ids_file).unwrap()),
-            commits_ : Mutex::new(Vec::new()),
             commits_file_ : Mutex::new(OpenOptions::new().append(true).open(& commits_file).unwrap()),
             commit_parents_file_ : Mutex::new(OpenOptions::new().append(true).open(& commit_parents_file).unwrap()),
         };
@@ -125,7 +123,7 @@ impl DownloaderState {
 
     /** Takes iterator of git2 hashes and returns a map converting each hash to id and a set of new hashes.
      */
-    pub fn get_or_add_commits<'a>(& self, hashes : & mut std::iter::Iterator<Item = &'a git2::Oid>) -> (HashMap<git2::Oid, CommitId>, HashSet<CommitId>) {
+    pub fn get_or_add_commits<'a>(& self, hashes : & mut dyn std::iter::Iterator<Item = &'a git2::Oid>) -> (HashMap<git2::Oid, CommitId>, HashSet<CommitId>) {
         let mut commits = HashMap::new();
         let mut new_commits = HashSet::new();
         let mut delta = HashMap::new();
@@ -133,17 +131,12 @@ impl DownloaderState {
             let mut commit_ids = self.commit_ids_.lock().unwrap();
             for h in hashes {
                 let new_id = commit_ids.len() as u64;
-                match commit_ids.entry(*h) {
-                    Entry::Occupied(ref entry) => {
-                        commits.insert(*h, *entry.get());
-                    },
-                    Entry::Vacant(entry) => {
-                        entry.insert(new_id);
-                        new_commits.insert(new_id);
-                        commits.insert(*h, new_id);
-                        delta.insert(*h, new_id);
-                    }
-                }
+                let tmp = commit_ids.entry(*h).or_insert_with(|| {
+                    new_commits.insert(new_id);
+                    delta.insert(*h, new_id);
+                    new_id
+                });
+                commits.insert(*h, *tmp);                
             }
         }
         // write the delta commits
@@ -153,6 +146,13 @@ impl DownloaderState {
         }
         // and return what is new
         return (commits, new_commits);
+    }
+
+    pub fn commit_new_commits<'a>(& self, commits : & mut dyn std::iter::Iterator<Item = &'a Commit>) {
+        let mut commits_file = self.commits_file_.lock().unwrap();
+        for c in commits {
+            writeln!(commits_file, "{},{},{},{},{},{}", c.id, c.author_id, c.author_time, c.committer_id, c.committer_time, c.source);
+        }
     }
 
     /*    

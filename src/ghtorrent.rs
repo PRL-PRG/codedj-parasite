@@ -188,9 +188,9 @@ impl GHTorrent {
         // tentatively create commit records for all valid hashes here, then negotiate with the downloader state about how many we keep
         let mut hash_to_ght = HashMap::<git2::Oid, u64>::new();
         {
+            println!("Adding new commits...");
             let mut reader = csv::ReaderBuilder::new().has_headers(false).double_quote(false).escape(Some(b'\\')).from_path(format!("{}/commits.csv", self.root_)).unwrap();
             let mut records = 0;
-            println!("Adding new commits...");
             for x in reader.records() {
                 let record = x.unwrap();
                 if records % 1000 == 0 {
@@ -216,19 +216,52 @@ impl GHTorrent {
                 hash_to_ght.insert(hash, ght_id);
             }
         }
-        // now obtain the ids of the commits we need to analyze 
-        let (commit_ids, new_commit_ids) = dcd.get_or_add_commits(& mut hash_to_ght.keys());
-
-
+        // now obtain the ids of the commits we need to analyze, keeping only the new ones for further data
+        // note that we need translation of *all* ght_ids to own ids because new commits can have old parents
+        let mut ght_to_own = HashMap::<u64,u64>::new(); 
+        {
+            println!("Pruning commits and generating ids...");
+            let (commit_ids, new_commit_ids) = dcd.get_or_add_commits(& mut hash_to_ght.keys());
+            for x in commit_ids {
+                // if the commit is new, updated its id
+                let ght_id = hash_to_ght[& x.0];
+                ght_to_own.insert(ght_id, x.1);
+                if new_commit_ids.contains(& x.1) {
+                    self.commits_.get_mut(& ght_id).unwrap().id = x.1;
+                } else {
+                    self.commits_.remove(& ght_id);
+                }
+            }
+            println!("    new commits: {}", self.commits_.len());
+            // git hash to id is no longer needed
+            hash_to_ght.clear();
+        }
         // so we added commits, time to add their parents, which is all we get for a commit
         {
+            println!("Translating commit parents...");
             let mut reader = csv::ReaderBuilder::new().has_headers(false).double_quote(false).escape(Some(b'\\')).from_path(format!("{}/commit_parents.csv", self.root_)).unwrap();
             let mut records = 0;
-            println!("Translating commit parents...");
+            let mut parents = 0;
             for x in reader.records() {
                 let record = x.unwrap();
+                if records % 1000 == 0 {
+                    helpers::progress_line(format!("    records: {}, valid parents: {} ", records, parents));
+                }
+                records += 1;
+                let commit_ght_id = record[0].parse::<u64>().unwrap();
+                match self.commits_.get_mut(& commit_ght_id) {
+                    Some(commit) => {
+                        let parent_ght_id = record[0].parse::<u64>().unwrap();
+                        let parent_id = ght_to_own[& parent_ght_id];
+                        commit.parents.push(parent_id);
+                        parents += 1;
+                    },
+                    _ => {}
+                }
+                let parent_id = record[1].parse::<u64>().unwrap();
             }
         }
-
+        // now that we have commits, the commit records should be stored 
+        dcd.commit_new_commits(& mut self.commits_.values());
     }
 }

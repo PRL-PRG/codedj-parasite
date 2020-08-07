@@ -38,14 +38,5 @@ impl Commit {
             source : source,
         };
     }
-
-    pub(crate) fn write_to_csv(& self, f : & mut File) {
-        //writeln!(f, "{},{}")
-    }
-
-    pub(crate) fn write_parents_to_csv(& self, f : & mut File) {
-
-    }
-
     
 }
