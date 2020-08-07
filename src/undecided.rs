@@ -7,6 +7,7 @@ use crate::*;
     
     Snapshots are source agnostic. 
  */
+#[derive(Clone)]
 pub struct Snapshot {
     // snapshot id and its hash
     id : u64,
@@ -19,6 +20,7 @@ pub struct Snapshot {
 
 
 /** Path in the file */
+#[derive(Clone)]
 pub struct FilePath {
     // path id
     id : u64,

@@ -236,6 +236,10 @@ impl GHTorrent {
             // git hash to id is no longer needed
             hash_to_ght.clear();
         }
+        // let's look at heads for projects we have, for this we need 
+
+
+
         // so we added commits, time to add their parents, which is all we get for a commit
         {
             println!("Translating commit parents...");
@@ -258,7 +262,6 @@ impl GHTorrent {
                     },
                     _ => {}
                 }
-                let parent_id = record[1].parse::<u64>().unwrap();
             }
         }
         // now that we have commits, the commit records should be stored 

@@ -148,6 +148,9 @@ impl DownloaderState {
         return (commits, new_commits);
     }
 
+    /* idea: actually have dcd keep the commits in its memory optionally and write a function that updates them, i.e. you just submit the new or update commit information and the dcd will then save what it possibly updating what it already has.
+     */
+
     pub fn commit_new_commits<'a>(& self, commits : & mut dyn std::iter::Iterator<Item = &'a Commit>) {
         let mut commits_file = self.commits_file_.lock().unwrap();
         for c in commits {
