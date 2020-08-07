@@ -3,268 +3,309 @@ use crate::downloader_state::*;
 use crate::project::*;
 use crate::*;
 
-
-/** GHTorrent Source Representation & Actions
- 
-    - add projects
-    - select which commits we have and to what project they belong
-    - add commit parents & calculate heads
-    - the heads are a bit annoying because they can change in time a lot, merging them together is not easiest thing to do
+/** No OOP, just pass everything as arguments.
  */
+pub fn import(rootFolder : & str, dcd : & mut DownloaderState) {
+    // first import the projects and obtain the project ght id to project id mapping 
+    let project_ids = import_projects(rootFolder, dcd);
+    // then determine which commits belong to the projects we are adding and create their objects and mapping from projects to commits
+    let (mut commits, mut project_commits) = filter_commits(rootFolder, & project_ids);
+    // now load commit details, keeping user ids in ght format as we are not saving the commits yet
+    let sha_to_ght = load_commit_details(rootFolder, & mut commits);
+    // get own ids for all the commits used and determine which ones are new (source == GhTorrent)
+    let sha_to_own = get_or_create_commit_ids(dcd, & sha_to_ght, & mut commits);
+    // we can now augment the commits with their parent information
+    load_commit_parents(rootFolder, & mut commits);
+    // calculate project heads (commits that do not have children in the project)
+    let mut project_heads = calculate_project_heads(& project_commits, & commits);
+    project_commits.clear();
 
-pub struct GHTorrent {
-    // root where the extracted ghtorrent stuff is
-    root_ : String, 
+    // translate project ids and clone ids to own ids
+    translate_commit_ids_to_own(& mut commits);
+    // and translate project heads to SHA keys directly so that incremental updates work
+    let mut project_heads_sha = translate_project_heads_to_hashes(& project_heads, & sha_to_ght);
+    project_heads.clear();
+    
+    // now let's ditch any commits we do not have to store (i.e. those that do not have source as GHTorrent)
+    prune_commits(& mut commits);
 
-    // translates gh torrent user ids to own ids
-    user_ids_ : HashMap<u64, UserId>,
-    // ghtorrent users (gh torrent id -> name)
-    users_ : HashMap<u64, String>,
+    // finally now that we have only commits we need and proper commit ids everywhere
+    load_and_update_users(rootFolder, & mut commits, dcd);
 
-    // ghtorrent project id to own ids
-    project_ids_ : HashMap<u64, ProjectId>,
-
-    // ght ids of valid commits (i.e. commits belonging to the newly added projects)
-    valid_commits_ : HashSet<u64>,
-
-    // actually created commits for which the information is constructed
-    commits_ : HashMap<u64, Commit>,
+    // write the commits 
+    dcd.append_new_commits(& mut commits.values());
 
 
+
+
+
+
+    // writing - write the commits first
+
+    // then write their parents
+
+    // finally write the project heads
+
+
+    // now that we have ids of all commits, we can translate project commits to own ids...
+    //translate_project_commit_ids_to_own(& mut project_commits, & commits);
 
 }
 
-impl GHTorrent {
-
-    pub fn new(root : & str) -> GHTorrent {
-        return GHTorrent{
-            root_ : String::from(root),
-            user_ids_ : HashMap::new(),
-            users_ : HashMap::new(),
-            project_ids_ : HashMap::new(),
-            valid_commits_ : HashSet::new(),
-            commits_ : HashMap::new(),
+fn import_projects(root : & str, dcd : & mut DownloaderState) -> HashMap<u64, ProjectId> {
+    let mut reader = csv::ReaderBuilder::new().has_headers(true).double_quote(false).escape(Some(b'\\')).from_path(format!("{}/projects.csv", root)).unwrap();
+    let mut records = 0;
+    let mut project_ids = HashMap::<u64,ProjectId>::new();
+    // hashmap from ghtorrent ids to own ids...
+    let mut pending_forks = HashMap::<u64,u64>::new();
+    println!("Adding new projects...");
+    for x in reader.records() {
+        let record = x.unwrap();
+        if records % 1000 == 0 {
+            helpers::progress_line(format!("    records: {}, new projects: {}, pending forks: {}", records, project_ids.len(), pending_forks.len()));
         }
-    }
-
-    /** Loads the users so that they can be added to the database lazily. 
-     
-        Users in ghtorrent do not contain their emails and thanks to GDPR there is no way we can obtain it at the moment. A dirty trick here is to preserve the user identities via a fake email that just contains the ghtorrent user id so that the user can be identified later. 
-
-        Note that this data is likely to change when full download is made because this will not account for non-registered contributors. 
-     */
-    pub fn load_users(& mut self) {
-        let mut reader = csv::ReaderBuilder::new().has_headers(true).double_quote(false).escape(Some(b'\\')).from_path(format!("{}/users.csv", self.root_)).unwrap();
-        println!("Preloading ghtotrrent users...");
-        let mut i = 0;
-        for x in reader.records() {
-            let record = x.unwrap();
-            if self.users_.len() % 1000 == 0 {
-                helpers::progress_line(format!("    records: {}", self.users_.len()));
-            }
-            let gh_id = record[0].parse::<u64>().unwrap();
-            i = gh_id;
-            //println!("{}", gh_id);
-            let name = String::from(& record[1]);
-            self.users_.insert(gh_id, name);
+        records += 1;
+        let gh_id = record[0].parse::<u64>().unwrap();
+        let api_url : Vec<&str> = record[1].split("/").collect();
+        let language = & record[5];
+        let forked_from = record[7].parse::<u64>();
+        let deleted = record[8].parse::<u64>().unwrap();
+        // ignore deleted projects
+        if deleted != 0 {
+            continue;
         }
-        println!("    {} users loaded", self.users_.len());
-    }
-
-    /** Adds projects from ghtorrent SQL dump to the given downloader. 
-     
-        Returns a hashmap from ghtorrent project ids to own project ids so that correct project ids can be assigned later in the process when commits & stuff are added. 
-     */
-    pub fn add_projects(& mut self, dcd : & mut DownloaderState) {
-        let mut reader = csv::ReaderBuilder::new().has_headers(true).double_quote(false).escape(Some(b'\\')).from_path(format!("{}/projects.csv", self.root_)).unwrap();
-        let mut records = 0;
-        // hashmap from ghtorrent ids to own ids...
-        let mut pending_forks = HashMap::<u64,u64>::new();
-        println!("Adding new projects...");
-        for x in reader.records() {
-            let record = x.unwrap();
-            if records % 1000 == 0 {
-                helpers::progress_line(format!("    records: {}, new projects: {}, pending forks: {}", records, self.project_ids_.len(), pending_forks.len()));
-                // break prematurely after first 1k... TODO
-                if records > 0 {
-                    break;
+        // get the user and repo names
+        let name = api_url[api_url.len() - 1].to_lowercase();
+        let user = api_url[api_url.len() - 2].to_lowercase();
+        let url = format!("https://github.com/{}/{}.git", user, name);
+        if let Some(p) = dcd.add_project(& url) {
+            // add the project to project ids
+            project_ids.insert(gh_id, p.id);
+            let mut md = ProjectMetadata::new();
+            md.insert(String::from("ght_id"), String::from(& record[0]));
+            md.insert(String::from("ght_language"), String::from(language));
+            // if the project is a fork, determine if we know its original already, if not add it to pending forks
+            if let Ok(fork_id) = forked_from {
+                if let Some(own_fork_id) = project_ids.get(& fork_id) {
+                    md.insert(String::from("fork_of"), format!("{}", own_fork_id));    
+                } else {
+                    md.insert(String::from("fork_of"), format!("ght_id: {}", gh_id));
+                    pending_forks.insert(p.id, fork_id);
                 }
             }
-            records += 1;
-            let gh_id = record[0].parse::<u64>().unwrap();
-            let api_url : Vec<&str> = record[1].split("/").collect();
-            let language = & record[5];
-            let created_at = & record[6];
-            let forked_from = record[7].parse::<u64>();
-            let deleted = record[8].parse::<u64>().unwrap();
-            // ignore deleted projects
-            if deleted != 0 {
-                continue;
-            }
-            // get the user and repo names
-            let name = api_url[api_url.len() - 1].to_lowercase();
-            let user = api_url[api_url.len() - 2].to_lowercase();
-            let url = format!("https://github.com/{}/{}.git", user, name);
-            if let Some(p) = dcd.add_project(& url) {
-                // add the project to project ids
-                self.project_ids_.insert(gh_id, p.id);
+            // !!!!!!!!!!!!!!!!!!!! TODO turn this on once we want to create the projects
+            //md.save(& dcd.dcd_.get_project_root(p.id));
+        }
+    }
+    println!("\nPatching missing fork information...");
+    {
+        let mut broken = HashSet::<u64>::new();
+        println!("    pending projects: {}", pending_forks.len());
+        for x in pending_forks {
+            if let Some(fork_id) = project_ids.get(& x.1) {
                 let mut md = ProjectMetadata::new();
-                md.insert(String::from("ght_id"), String::from(& record[0]));
-                md.insert(String::from("ght_language"), String::from(language));
-                // if the project is a fork, determine if we know its original already, if not add it to pending forks
-                if let Ok(fork_id) = forked_from {
-                    if let Some(own_fork_id) = self.project_ids_.get(& fork_id) {
-                        md.insert(String::from("fork_of"), format!("{}", own_fork_id));    
-                    } else {
-                        md.insert(String::from("fork_of"), format!("ght_id: {}", gh_id));
-                        pending_forks.insert(p.id, fork_id);
-                    }
-                }
-                md.save(& dcd.dcd_.get_project_root(p.id));
-            }
-        }
-        println!("\nPatching missing fork information...");
-        {
-            let mut broken = HashSet::<u64>::new();
-            println!("    pending projects: {}", pending_forks.len());
-            for x in pending_forks {
-                if let Some(fork_id) = self.project_ids_.get(& x.1) {
-                    let mut md = ProjectMetadata::new();
-                    md.insert(String::from("fork_of"), format!("{}", fork_id));
-                    md.append(& dcd.dcd_.get_project_root(x.0));
-                } else {
-                    broken.insert(x.0);
-                }
-            }
-            println!("    broken projects: {}", broken.len());
-        }
-    }
-
-    pub fn filter_commits(& mut self) {
-        let mut reader = csv::ReaderBuilder::new().has_headers(false).double_quote(false).escape(Some(b'\\')).from_path(format!("{}/project_commits.csv", self.root_)).unwrap();
-        let mut records = 0;
-        println!("Filtering commits for newly added projects only...");
-        for x in reader.records() {
-            let record = x.unwrap();
-            if records % 1000 == 0 {
-                helpers::progress_line(format!("    records: {}, valid commits: {}", records, self.valid_commits_.len()));
-                // todo ignore this for now
-                if records > 5000000 {
-                    break;
-                }
-            }
-            records += 1;
-            let project_id = record[0].parse::<u64>().unwrap();
-            if self.project_ids_.contains_key(& project_id) {
-                self.valid_commits_.insert(record[1].parse::<u64>().unwrap());
-            }
-        }
-        println!("    valid commits: {}", self.valid_commits_.len());
-    }
-
-
-
-    fn get_or_create_user(& mut self, ght_id : u64, dcd : & mut DownloaderState) -> UserId {
-        // if we have already seen the user, just return the new id
-        if let Some(id) = self.user_ids_.get(& ght_id) {
-            return *id;
-        } else {
-            if let Some(name) = self.users_.get(& ght_id) {
-                let id = dcd.get_or_create_user(& format!("{}@ghtorrent", ght_id), name);
-                self.user_ids_.insert(ght_id, id);
-                return id;
+                md.insert(String::from("fork_of"), format!("{}", fork_id));
+                md.append(& dcd.dcd_.get_project_root(x.0));
             } else {
-                println!("Unable to find user id {}", ght_id);
-                panic!();
+                broken.insert(x.0);
             }
+        }
+        println!("    broken projects: {}", broken.len());
+    }
+    return project_ids;
+}
+
+pub fn filter_commits(root : & str, project_ids : & HashMap<u64, ProjectId>) -> (HashMap<u64, Commit>, HashMap<u64, HashSet<u64>>) {
+    let mut reader = csv::ReaderBuilder::new().has_headers(false).double_quote(false).escape(Some(b'\\')).from_path(format!("{}/project_commits.csv", root)).unwrap();
+    let mut records = 0;
+    let mut commits = HashMap::<u64, Commit>::new();
+    let mut project_commits = HashMap::<u64, HashSet<u64>>::new();
+    println!("Filtering commits for newly added projects only...");
+    for x in reader.records() {
+        let record = x.unwrap();
+        if records % 1000 == 0 {
+            helpers::progress_line(format!("    records: {}, valid commits: {}", records, commits.len()));
+        }
+        records += 1;
+        let project_id = record[0].parse::<u64>().unwrap();
+        if project_ids.contains_key(& project_id) {
+            let commit_id = record[1].parse::<u64>().unwrap();
+            commits.insert(commit_id, Commit::new(0, Source::NA));
+            project_commits.entry(project_id).or_insert(HashSet::new()).insert(commit_id);
         }
     }
+    println!("    valid commits: {}\x1b[K", commits.len());
+    return (commits, project_commits);
+}
 
-    /** Takes the commits and loads their basic information. 
-     
-        - commits.csv for hash, author id, committer id and created_at which I guess is commit time
-     */
-    pub fn add_commits(& mut self, dcd : & mut DownloaderState) {
-        // tentatively create commit records for all valid hashes here, then negotiate with the downloader state about how many we keep
-        let mut hash_to_ght = HashMap::<git2::Oid, u64>::new();
-        {
-            println!("Adding new commits...");
-            let mut reader = csv::ReaderBuilder::new().has_headers(false).double_quote(false).escape(Some(b'\\')).from_path(format!("{}/commits.csv", self.root_)).unwrap();
-            let mut records = 0;
-            for x in reader.records() {
-                let record = x.unwrap();
-                if records % 1000 == 0 {
-                    helpers::progress_line(format!("    records: {}, commits: {} (hashes: {})", records, self.commits_.len(), hash_to_ght.len()));
-                    // break prematurely after first 1k... TODO
-                    if self.commits_.len() > 1000 {
-                        break;
-                    }
-                }
-                records += 1;
-                let ght_id = record[0].parse::<u64>().unwrap();
-                // if the commit is not valid, ignore it
-                if ! self.valid_commits_.contains(& ght_id) {
-                    continue;
-                }
-                // if valid, create the object
-                let hash = git2::Oid::from_str(& record[1]).unwrap();
-                let mut commit = Commit::new(0, Source::GHTorrent);
-                commit.author_id = self.get_or_create_user(record[2].parse::<u64>().unwrap(), dcd);
-                commit.committer_id = self.get_or_create_user(record[3].parse::<u64>().unwrap(), dcd);
-                commit.committer_time = helpers::to_unix_epoch(& record[5]);
-                self.commits_.insert(ght_id, commit);
-                hash_to_ght.insert(hash, ght_id);
+
+fn load_commit_details(root : & str, commits : & mut HashMap<u64, Commit>) -> HashMap<git2::Oid, u64> {
+    let mut sha_to_ght = HashMap::<git2::Oid, u64>::new();
+    println!("Adding new commits...");
+    let mut reader = csv::ReaderBuilder::new().has_headers(false).double_quote(false).escape(Some(b'\\')).from_path(format!("{}/commits.csv", root)).unwrap();
+    let mut records = 0;
+    let mut updates = 0;
+    for x in reader.records() {
+        let record = x.unwrap();
+        if records % 1000 == 0 {
+            helpers::progress_line(format!("    records: {}, hashes: {}", records, sha_to_ght.len()));
+        }
+        records += 1;
+        let ght_id = record[0].parse::<u64>().unwrap();
+        // if the commit is not valid, ignore it
+        if ! commits.contains_key(& ght_id) {
+            continue;
+        }
+        // if valid, create the object
+        let hash = git2::Oid::from_str(& record[1]).unwrap();
+        let ref mut commit = commits.get_mut(& ght_id).unwrap();
+        //commit.author_id = self.get_or_create_user(record[2].parse::<u64>().unwrap(), dcd);
+        //commit.committer_id = self.get_or_create_user(record[3].parse::<u64>().unwrap(), dcd);
+        commit.committer_time = helpers::to_unix_epoch(& record[5]);
+        sha_to_ght.insert(hash, ght_id);
+        updates += 1;
+    }
+    println!("    records: {}, hashes: {}", records, sha_to_ght.len());
+    return sha_to_ght;
+}
+
+fn get_or_create_commit_ids(dcd : & mut DownloaderState, sha_to_ght : & HashMap<git2::Oid, u64>, commits : & mut HashMap<u64, Commit>) -> HashMap<git2::Oid, CommitId> {
+    println!("Pruning commits and generating ids...");
+    let (sha_to_own, new_own) = dcd.get_or_add_commits(& mut sha_to_ght.keys());
+    for ref x in sha_to_own.iter() {
+        let ght_id = sha_to_ght[x.0];
+        let ref mut commit = commits.get_mut(& ght_id).unwrap();
+        commit.id = *x.1;
+        if new_own.contains(x.1) {
+            commit.source = Source::GHTorrent;
+        }
+    }
+    return sha_to_own;
+}
+
+/** Loads the commit parents. 
+ 
+    The commit parents are in ght indexes for now. 
+ */
+fn load_commit_parents(root : & str, commits : & mut HashMap<u64, Commit>) {
+    println!("Loading commit parents...");
+    let mut reader = csv::ReaderBuilder::new().has_headers(false).double_quote(false).escape(Some(b'\\')).from_path(format!("{}/commit_parents.csv", root)).unwrap();
+    let mut records = 0;
+    let mut parents = 0;
+    for x in reader.records() {
+        let record = x.unwrap();
+        if records % 1000 == 0 {
+            helpers::progress_line(format!("    records: {}, valid parents: {} ", records, parents));
+        }
+        records += 1;
+        let ght_id = record[0].parse::<u64>().unwrap();
+        if commits.contains_key(& ght_id) {
+            let parent_id_ght = record[1].parse::<u64>().unwrap() as CommitId;
+            match commits.get_mut(& ght_id) {
+                Some(commit) => {
+                    commit.parents.push(parent_id_ght);
+                    parents += 1;
+                },
+                _ => {}
             }
         }
-        // now obtain the ids of the commits we need to analyze, keeping only the new ones for further data
-        // note that we need translation of *all* ght_ids to own ids because new commits can have old parents
-        let mut ght_to_own = HashMap::<u64,u64>::new(); 
-        {
-            println!("Pruning commits and generating ids...");
-            let (commit_ids, new_commit_ids) = dcd.get_or_add_commits(& mut hash_to_ght.keys());
-            for x in commit_ids {
-                // if the commit is new, updated its id
-                let ght_id = hash_to_ght[& x.0];
-                ght_to_own.insert(ght_id, x.1);
-                if new_commit_ids.contains(& x.1) {
-                    self.commits_.get_mut(& ght_id).unwrap().id = x.1;
-                } else {
-                    self.commits_.remove(& ght_id);
-                }
-            }
-            println!("    new commits: {}", self.commits_.len());
-            // git hash to id is no longer needed
-            hash_to_ght.clear();
-        }
-        // let's look at heads for projects we have, for this we need 
-
-
-
-        // so we added commits, time to add their parents, which is all we get for a commit
-        {
-            println!("Translating commit parents...");
-            let mut reader = csv::ReaderBuilder::new().has_headers(false).double_quote(false).escape(Some(b'\\')).from_path(format!("{}/commit_parents.csv", self.root_)).unwrap();
-            let mut records = 0;
-            let mut parents = 0;
-            for x in reader.records() {
-                let record = x.unwrap();
-                if records % 1000 == 0 {
-                    helpers::progress_line(format!("    records: {}, valid parents: {} ", records, parents));
-                }
-                records += 1;
-                let commit_ght_id = record[0].parse::<u64>().unwrap();
-                match self.commits_.get_mut(& commit_ght_id) {
-                    Some(commit) => {
-                        let parent_ght_id = record[0].parse::<u64>().unwrap();
-                        let parent_id = ght_to_own[& parent_ght_id];
-                        commit.parents.push(parent_id);
-                        parents += 1;
-                    },
-                    _ => {}
-                }
-            }
-        }
-        // now that we have commits, the commit records should be stored 
-        dcd.commit_new_commits(& mut self.commits_.values());
     }
 }
+
+/** Determines project heads. 
+ 
+    Given all commits in a project, project heads can be obtained by removing all commits that are parents of some other commits in the project. This only leaves the top commits with a guarantee that all other project commits are accessible through them.
+ */
+fn calculate_project_heads(project_commits : & HashMap<u64, HashSet<u64>>, commits : & HashMap<u64, Commit>) -> HashMap<u64,HashSet<u64>> {
+    println!("Calculating project heads...");
+    let mut project_heads = HashMap::<u64,HashSet<u64>>::new();
+    for (project_id, commit_ids) in project_commits.iter() {
+        if project_heads.len() % 1000 == 0 {
+            helpers::progress_line(format!("    projects: {}", project_heads.len()));
+        }
+        let mut heads = commit_ids.clone();
+        for commit_id in commit_ids.iter() {
+            let commit = & commits[commit_id];
+            for parent_id in & commit.parents {
+                heads.remove(& parent_id);
+            }
+        }
+        //println!("  project {}, commits {}, heads {}", project_id, commit_ids.len(), heads.len());
+        project_heads.insert(* project_id, heads);
+    }
+    return project_heads;
+}
+
+fn translate_commit_ids_to_own(commits : & mut HashMap<u64, Commit>) {
+    println!("Building ght to own id mapping for commit ids...");
+    let ght_to_own : HashMap<u64, u64> = commits.iter()
+        .map(|(ght_id, commit)| (*ght_id, commit.id))
+        .collect();
+    println!("Translating commit parents...");
+    for (_, commit) in commits.iter_mut() {
+        commit.parents = commit.parents.iter()
+            .map(|ght_id| ght_to_own[ght_id])
+            .collect();
+    }
+}
+
+fn translate_project_heads_to_hashes(project_heads : & HashMap<u64, HashSet<u64>>, sha_to_ght : & HashMap<git2::Oid, u64>) -> HashMap<u64, Vec<(String,git2::Oid)>> {
+    println!("Building reverse iterator from ght id to sha...");
+    let ght_to_sha : HashMap<u64, git2::Oid> = sha_to_ght.iter().
+        map(|(sha, id)| (*id, *sha)).
+        collect();
+    println!("Translating project heads...");
+    let mut result = HashMap::<u64, Vec<(String,git2::Oid)>>::new();
+    for (project_id, heads) in project_heads.iter() {
+        let heads_sha : Vec<(String, git2::Oid)> = heads.iter()
+            .map(|ght_id| (String::new(), ght_to_sha[ght_id]))
+            .collect();
+        result.insert(*project_id, heads_sha);
+    }
+    return result;
+}
+
+/** Prunes the commits so that only new commits that need to be stored remain.
+ 
+    This is determined by the source tag of the commit, commits with GHTorrent as their source are new commits, those with NA do not have to be saved
+ */
+fn prune_commits(commits : & mut HashMap<u64, Commit>) {
+    println!("Detecting commits to be pruned...");
+    let to_be_deleted : Vec<u64> = commits.iter()
+        .filter(|(_, commit)| commit.source != Source::GHTorrent)
+        .map(|(ght_id, _)| *ght_id)
+        .collect();
+    println!("Pruning...");
+    for x in to_be_deleted {
+        commits.remove(& x);
+    }
+}
+
+fn load_and_update_users(root : & str, commits : & mut HashMap<u64, Commit>, dcd : & mut DownloaderState) {
+    println!("Calculating valid users...");
+    let mut valid_users = HashSet::<u64>::new();
+    for (_, commit) in commits.iter() {
+        valid_users.insert(commit.author_id as u64);
+        valid_users.insert(commit.committer_id as u64);
+    }
+    println!("    {} users detected", valid_users.len());
+    println!("Getting or creating own ids...");
+    let mut ght_to_own = HashMap::<u64, UserId>::new();
+    let mut reader = csv::ReaderBuilder::new().has_headers(true).double_quote(false).escape(Some(b'\\')).from_path(format!("{}/users.csv", root)).unwrap();
+    for x in reader.records() {
+        let record = x.unwrap();
+        let ght_id = record[0].parse::<u64>().unwrap();
+        if valid_users.contains(& ght_id) {
+            let name = String::from(& record[1]);
+            let email = format!("{}@ghtorrent", ght_id);
+            let id = dcd.get_or_create_user(& email, & name);
+            ght_to_own.insert(ght_id, id);
+        }
+    }
+    println!("Updating user ids...");
+    for (_, commit) in commits.iter_mut() {
+        commit.author_id = ght_to_own[& commit.author_id];
+        commit.committer_id = ght_to_own[& commit.committer_id];
+    }
+}
+

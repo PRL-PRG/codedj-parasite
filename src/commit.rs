@@ -8,6 +8,8 @@ use crate::*;
 /** Commit information.
   
     The commit consists of its id, information about its parents and its source (ghtorrent, github, etc). Commit messages and actual changes of the commit are to be obtained differently.
+
+    
     
  */
 #[derive(Clone)]
@@ -24,6 +26,10 @@ pub struct Commit {
     pub author_time : u64,
     // source the commit has been obtained from
     pub source : Source,
+    // commit message
+    pub message: Option<String>,
+    // changes made by the commit 
+    pub changes: Option<HashMap<PathId, BlobId>>,
 }
 
 impl Commit {
@@ -37,6 +43,8 @@ impl Commit {
             author_id : 0,
             author_time : 0,
             source : source,
+            message : None,
+            changes : None, 
         };
     }
     

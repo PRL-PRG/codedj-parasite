@@ -6,6 +6,19 @@ use crate::*;
 
 /** The state of the downloader. 
  
+    # Projects 
+
+    Each project's information is stored in its separate folder and in multiple files. This is because the number of projects is expected to be relatively small (hundreds of millions) and over the time with incremental downloading, the files might actually be reasonably big. 
+
+    # Commits
+
+    Commits are stored in a few global CSV files:
+
+    commits.csv - basic commit information (id, authors, committers)
+    parents.csv - commit id, parent id
+
+
+ 
 
 
  */
@@ -20,6 +33,10 @@ pub struct DownloaderState {
     users_ : Mutex<HashMap<String, u64>>,
     users_file_ : Mutex<File>,
 
+    /** TODO this will need to know the source of the commit so that when the commit is visited from better source, its information can be upgraded.
+     
+        Or maybe only keep list of those that do not have full information? 
+     */
     commit_ids_ : Mutex<HashMap<git2::Oid, u64>>,
     commit_ids_file_ : Mutex<File>,
     commits_file_ : Mutex<File>,
@@ -148,13 +165,18 @@ impl DownloaderState {
         return (commits, new_commits);
     }
 
-    /* idea: actually have dcd keep the commits in its memory optionally and write a function that updates them, i.e. you just submit the new or update commit information and the dcd will then save what it possibly updating what it already has.
+    /** Stores the new commit. 
+     
+        It is the responsibility of the caller to make sure that the commit has not been stored yet. Stores the commit information and its parents. 
      */
-
-    pub fn commit_new_commits<'a>(& self, commits : & mut dyn std::iter::Iterator<Item = &'a Commit>) {
+    pub fn append_new_commits<'a>(& self, commits : & mut dyn std::iter::Iterator<Item = &'a Commit>) {
         let mut commits_file = self.commits_file_.lock().unwrap();
+        let mut commit_parents_file = self.commit_parents_file_.lock().unwrap();
         for c in commits {
             writeln!(commits_file, "{},{},{},{},{},{}", c.id, c.author_id, c.author_time, c.committer_id, c.committer_time, c.source);
+            for parent_id in & c.parents {
+                writeln!(commit_parents_file, "{},{}", c.id, parent_id);
+            }
         }
     }
 

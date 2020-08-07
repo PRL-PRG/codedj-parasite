@@ -18,7 +18,7 @@ pub struct Project {
     // time at which the project was updated last (i.e. time for which its data are valid)
     pub last_update: u64,
     // head refs of the project at the last update time
-    pub heads : Option<HashMap<String, u64>>,
+    pub heads : Option<Vec<(String, CommitId)>>,
     // source the project data comes from    
     pub source : Source,
 }
@@ -30,12 +30,13 @@ impl Project {
         Simply creates the log file and initializes it with the init message. That's all project initialization is required to do. 
      */     
     pub(crate) fn create_new(id : ProjectId, url : & str, folder : & str) -> Project {
+        // !!!!!!!!!!! TODO ighnore this for now, not saving the project
         // create the function
-        std::fs::create_dir_all(folder).unwrap();
+        //std::fs::create_dir_all(folder).unwrap();
         // create log, add init & save it
-        let mut log = ProjectLog::new();
-        log.add(ProjectLogEntry::init(url));
-        log.save(folder);
+        //let mut log = ProjectLog::new();
+        //log.add(ProjectLogEntry::init(url));
+        //log.save(folder);
         // return the newly created project information
         return Project{
             id : id, 
@@ -123,21 +124,23 @@ impl ProjectMetadata {
 
     pub(crate) fn save(& self, project_folder : & str) {
         let mut f = File::create(format!("{}/metadata.csv", project_folder)).unwrap();
-        writeln!(& mut f, "key,time,value");
+        writeln!(& mut f, "key,time,value").unwrap();
         for x in & self.metadata_ {
             for y in x.1 {
-                writeln!(& mut f, "{},{},\"{}\"", & x.0, & y.time, & y.value);
+                writeln!(& mut f, "{},{},\"{}\"", & x.0, & y.time, & y.value).unwrap();
             }
         }
     }
 
     pub(crate) fn append(& self, project_folder : & str) {
+        /* !!!!!!!!!!!!!!!!!!!!!!!!!!!! fix this when I want to actually create projects
         let mut f = std::fs::OpenOptions::new().append(true).write(true).open(format!("{}/metadata.csv", project_folder)).unwrap();
         for x in & self.metadata_ {
             for y in x.1 {
                 writeln!(& mut f, "{},{},\"{}\"", & x.0, & y.time, & y.value);
             }
         }
+        */
     }
 
 }
@@ -175,7 +178,7 @@ impl ProjectLog {
 
     fn save(& self, project_folder : & str) {
          let mut f = File::create(format!("{}/log.csv", project_folder)).unwrap();
-         writeln!(& mut f, "time,kind,comment");
+         writeln!(& mut f, "time,kind,comment").unwrap();
          for x in & self.entries_ {
              writeln!(& mut f, "{}", x);
          }
@@ -184,7 +187,7 @@ impl ProjectLog {
     fn append(& self, project_folder : & str) {
         let mut f = std::fs::OpenOptions::new().append(true).write(true).open(format!("{}/log.csv", project_folder)).unwrap();
         for x in & self.entries_ {
-            write!(& mut f, "{}\n", x);
+            write!(& mut f, "{}\n", x).unwrap();
         }
 
     }
