@@ -35,11 +35,6 @@ pub fn import(rootFolder : & str, dcd : & mut DownloaderState) {
     // write the commits 
     dcd.append_new_commits(& mut commits.values());
 
-
-
-
-
-
     // writing - write the commits first
 
     // then write their parents
@@ -51,6 +46,28 @@ pub fn import(rootFolder : & str, dcd : & mut DownloaderState) {
     //translate_project_commit_ids_to_own(& mut project_commits, & commits);
 
 }
+
+/** Creates a valid subset, starting from projects */
+pub fn create_subset(rootFolder : & str, outFolder : & str, numProjects : u64) {
+    // first subset projects
+    let mut valid_projects = HashSet::<u64>::new();
+    {
+        let mut reader = csv::ReaderBuilder::new().has_headers(true).double_quote(false).escape(Some(b'\\')).from_path(format!("{}/projects.csv", rootFolder)).unwrap();
+        let mut writer = csv::WriterBuilder::new().has_headers(true).double_quote(false).escape(b'\\').from_path(format!("{}/projects.csv", outFolder)).unwrap();
+        for x in reader.records() {
+            let record = x.unwrap();
+            if valid_projects.len() % 1000 == 0 {
+                helpers::progress_line(format!("    projects: {}", valid_projects.len()));
+            }
+            let gh_id = record[0].parse::<u64>().unwrap();
+            writer.write_record(& record);
+        }
+
+    }
+
+}
+
+
 
 fn import_projects(root : & str, dcd : & mut DownloaderState) -> HashMap<u64, ProjectId> {
     let mut reader = csv::ReaderBuilder::new().has_headers(true).double_quote(false).escape(Some(b'\\')).from_path(format!("{}/projects.csv", root)).unwrap();

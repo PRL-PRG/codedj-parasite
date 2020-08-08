@@ -9,7 +9,7 @@ use crate::*;
   
     The commit consists of its id, information about its parents and its source (ghtorrent, github, etc). Commit messages and actual changes of the commit are to be obtained differently.
 
-    
+
     
  */
 #[derive(Clone)]
@@ -49,3 +49,5 @@ impl Commit {
     }
     
 }
+
+// the actual implementation
