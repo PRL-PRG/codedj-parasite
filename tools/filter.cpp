@@ -133,7 +133,7 @@ void FilterDataset(std::unordered_set<uint64_t> & valid_projects) {
                   << "\"\"," // countryCode (ignored)
                   << "\"\"," // state (ignored)
                   << "\"\"," // city (ignored)
-                  << "\"\"," << std::endl; // location (ignored)
+                  << "\"\"" << std::endl; // location (ignored)
             }
        });
     }
