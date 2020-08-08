@@ -7,7 +7,7 @@
 
 std::string InputDir = "/dejavuii/dejacode/ghtorrent/dump";
 
-std::string OutputDir = "/dejavuii/dejacode/ghtorrent/dump-filter";
+std::string OutputDir = "/dejavuii/dejacode/ghtorrent/dump-cpp";
 
 
 struct Done {};
@@ -44,6 +44,8 @@ std::unordered_set<uint64_t> FilterFirstProjects(size_t n) {
 }
 
 /** Filters only projects of certain language.
+
+    To keep the contents as small as possible for now we also filter out any forks and deleted projects.
  */
 std::unordered_set<uint64_t> FilterLanguageProjects(std::string const & language) {
     std::cout << "Filtering projects..." << std::endl;
@@ -51,7 +53,7 @@ std::unordered_set<uint64_t> FilterLanguageProjects(std::string const & language
     std::ofstream w{OutputDir + "/projects.csv"};
     w << "id,url,ownerId,name,desc,lang,createdAt,forkedFrom,deleted,updatedAt,forkedCommitId" << std::endl;
     CSVReader::Parse(InputDir + "/projects.csv", [&](std::vector<std::string> & row) {
-        if (row[5] != language)
+        if (row[5] != language || row[8] == "1" || row[7] != "\\N")
             return;
         result.insert(std::stoull(row[0]));
         w << row[0] << "," // id
@@ -139,7 +141,8 @@ void FilterDataset(std::unordered_set<uint64_t> & valid_projects) {
 
 int main() {
     std::filesystem::create_directories(OutputDir);
-    std::unordered_set<uint64_t> validProjects{FilterFirstProjects(10000)};
+    //std::unordered_set<uint64_t> validProjects{FilterFirstProjects(10000)};
+    std::unordered_set<uint64_t> validProjects{FilterLanguageProjects("C++")};
     FilterDataset(validProjects);
     return EXIT_SUCCESS;
 }
