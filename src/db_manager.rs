@@ -77,7 +77,7 @@ impl DatabaseManager {
 
     /** Returns the root folder for project of given id. 
      */
-    fn get_project_folder(& self, id : ProjectId) -> String {
+    pub fn get_project_folder(& self, id : ProjectId) -> String {
         return format!("{}/projects/{}/{}", self.root_, id % 1000, id);
     }
 

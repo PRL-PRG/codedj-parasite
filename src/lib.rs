@@ -13,22 +13,17 @@ use std::path::Path;
 //pub mod user;
 pub mod db_manager;
 pub mod record;
-
-
-
-
-
-mod helpers;
+pub mod helpers;
 
 
 /** Different ids for the entities the database contains.
  */
-type UserId = u64;
-type SnapshotId = u64;
-type BlobId = u64;
-type PathId = u64;
-type CommitId = u64;
-type ProjectId = u64;
+pub type UserId = u64;
+pub type SnapshotId = u64;
+pub type BlobId = u64;
+pub type PathId = u64;
+pub type CommitId = u64;
+pub type ProjectId = u64;
 
 /** Source of the information from the downloader. 
  
@@ -217,11 +212,11 @@ impl Source {
     /** Creates source from string.
      */
     pub fn from_str(s : & str) -> Source {
-        if (*s == *"NA") {
+        if *s == *"NA" {
             return Source::NA;
-        } else if *s == *"GHTorrent" {
+        } else if *s == *"GHT" {
             return Source::GHTorrent;
-        } else if *s == *"GitHub" {
+        } else if *s == *"GH" {
             return Source::GitHub;
         } else {
             panic!("Invalid source detected: {}", s);
@@ -238,10 +233,10 @@ impl std::fmt::Display for Source {
                 return write!(f, "NA");
             },
             Source::GHTorrent => {
-                return write!(f, "GhTorrent");
+                return write!(f, "GHT");
             },
             Source::GitHub => {
-                return write!(f, "GitHub");
+                return write!(f, "GH");
             }
         }
     }

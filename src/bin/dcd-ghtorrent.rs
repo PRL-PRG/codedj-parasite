@@ -8,8 +8,13 @@ use dcd::db_manager::DatabaseManager;
  */
 fn main() {
     let mut db = DatabaseManager::initialize_new("/dejavuii/dejacode/dataset-small".to_owned());
-    //let mut dcd = DownloaderState::create_new("/dejavuii/dejacode/dataset");
-    //ghtorrent::import("/dejavuii/dejacode/ghtorrent/dump", & mut dcd);
+    let root = String::from("/dejavuii/dejacode/ghtorrent/dump-filter");
+    // first filter the projects 
+    let project_ids = initialize_projects(& root, & mut db);
+    // the filter the commits and assign them to their projects
+    let (mut commits, project_commits) = filter_commits(& root, & project_ids);
+
+    // TODO mark all projects as updated with GHTorrent 
 }
 
 
@@ -23,7 +28,7 @@ fn initialize_projects(root : & str, db : & mut DatabaseManager) -> HashMap<u64,
     for x in reader.records() {
         let record = x.unwrap();
         if records % 1000 == 0 {
-            helpers::progress_line(format!("    records: {}, new projects: {}, pending forks: {}", records, project_ids.len(), pending_forks.len()));
+            helpers::progress_line(format!("    records: {}, new projects: {}", records, project_ids.len()));
         }
         records += 1;
         // ignore deleted projects and forks so check these first...
@@ -39,18 +44,46 @@ fn initialize_projects(root : & str, db : & mut DatabaseManager) -> HashMap<u64,
         let url = format!("https://github.com/{}/{}.git", user, name);
         // see if the project should be added 
         // get the user and repo names
-        if let Some(own_id) = db.add_project(& url) {
+        if let Some(own_id) = db.add_project(url.clone()) {
             // add the ght_id and language to the project's metadata
             let mut md = record::ProjectMetadata::new();
-            md.insert(String::from("ght_id"), String::from(& record[0]));
-            md.insert(String::from("ght_language"), String::from(& record[5]));
-            md.save(& db.get_project_root(own_id));
+            md.add(String::from("ght_id"), String::from(& record[0]), Source::GHTorrent);
+            md.add(String::from("ght_language"), String::from(& record[5]), Source::GHTorrent);
+            md.save(& db.get_project_folder(own_id));
             // add the ght to own id mapping to the result projects...
             let ght_id = record[0].parse::<u64>().unwrap();
             project_ids.insert(ght_id, own_id);
         }
     }
+    println!("    records: {}, new projects: {}", records, project_ids.len());
     return project_ids;
+}
+
+/** Reads all commits in the ghtorrent database and determines which commits belong to the projects we are adding. 
+ 
+    Returns first set of ght ids of all commits we are going to retain and a map from ght project id to a vector of its commits. 
+ */
+fn filter_commits(root : & str, project_ids : & HashMap<u64, ProjectId>) -> (HashSet<u64>, HashMap<u64,Vec<u64>>) {
+    let mut reader = csv::ReaderBuilder::new().has_headers(false).double_quote(false).escape(Some(b'\\')).from_path(format!("{}/project_commits.csv", root)).unwrap();
+    let mut records = 0;
+    let mut commits = HashSet::<u64>::new();
+    let mut project_commits = HashMap::<u64, Vec<u64>>::new();
+    println!("Filtering commits for newly added projects only...");
+    for x in reader.records() {
+        let record = x.unwrap();
+        if records % 1000 == 0 {
+            helpers::progress_line(format!("    records: {}, valid commits: {}", records, commits.len()));
+        }
+        records += 1;
+        let project_id = record[0].parse::<u64>().unwrap();
+        if project_ids.contains_key(& project_id) {
+            let commit_id = record[1].parse::<u64>().unwrap();
+            commits.insert(commit_id);
+            project_commits.entry(project_id).or_insert(Vec::new()).push(commit_id);
+        }
+    }
+    println!("    records: {}, valid commits: {}", records, commits.len());
+    return (commits, project_commits);
 }
 
 

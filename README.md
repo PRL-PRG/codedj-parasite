@@ -9,8 +9,6 @@
 Immediate:
 
 
-
-
 - log & metadata should be scanned only up to a certain time when retrieved
 - add commits to the dataset
 - what to do with project stats, i.e. starts, watchers, etc. 

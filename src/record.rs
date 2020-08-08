@@ -1,6 +1,7 @@
 use crate::*;
 
 // Projects ---------------------------------------------------------------------------------------
+// Projects - Log ---------------------------------------------------------------------------------
 
 pub(super) enum ProjectLogEntry {
     Init{time : u64, url : String },
@@ -93,6 +94,73 @@ impl ProjectLog {
     }
 }
 
+// Projects - Metadata ----------------------------------------------------------------------------
+
+#[derive(Eq)]
+pub struct MetadataValue {
+    time : u64,
+    value : String,
+    source : Source,
+}
+
+// all this to have ordered map of metadata values...
+
+impl Ord for MetadataValue {
+    fn cmp(& self, other : & Self) -> std::cmp::Ordering {
+        return self.time.cmp(& other.time);
+    }
+}
+
+impl PartialOrd for MetadataValue {
+    fn partial_cmp(& self, other : & Self) -> Option<std::cmp::Ordering> {
+        return Some(self.time.cmp(& other.time));
+    }
+}
+
+impl PartialEq for MetadataValue {
+    fn eq(& self, other : & Self) -> bool {
+        return self.time == other.time;
+    }
+}
+
+
+pub struct ProjectMetadata {
+    // project metadata
+    metadata_ : HashMap<String, BinaryHeap<MetadataValue>>,
+}
+
+impl ProjectMetadata {
+
+    pub fn new() -> ProjectMetadata {
+        return ProjectMetadata{
+            metadata_ : HashMap::new(),
+        }
+    }
+
+    pub fn add(& mut self, key : String, value : String, source : Source) {
+        self.metadata_.entry(key).or_insert(BinaryHeap::new()).push(MetadataValue{ time : helpers::now(), value, source });
+    }
+
+    pub fn save(& self, project_folder : & str) {
+        let mut f = File::create(format!("{}/metadata.csv", project_folder)).unwrap();
+        writeln!(& mut f, "time,key,value,source").unwrap();
+        for x in & self.metadata_ {
+            for y in x.1 {
+                writeln!(& mut f, "{},{},\"{}\",{}", & y.time, & x.0, & y.value, & y.source).unwrap();
+            }
+        }
+    }
+
+    pub fn append(& self, project_folder : & str) {
+        let mut f = std::fs::OpenOptions::new().append(true).write(true).open(format!("{}/metadata.csv", project_folder)).unwrap();
+        for x in & self.metadata_ {
+            for y in x.1 {
+                writeln!(& mut f, "{},{},\"{}\",{}", & y.time, & x.0, & y.value, & y.source).unwrap();
+            }
+        }
+    }
+
+}
 
 // Commits ----------------------------------------------------------------------------------------
 
