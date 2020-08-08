@@ -1,8 +1,10 @@
-use std::collections::hash_map::{HashMap, Entry};
+/* use std::collections::hash_map::{HashMap, Entry};
 use std::collections::HashSet;
 use std::sync::{Mutex, Condvar};
 use std::fs::OpenOptions;
 use crate::*;
+
+
 
 /** The state of the downloader. 
  
@@ -198,4 +200,4 @@ impl DownloaderState {
         return count;
     }
     */
-}
+} */

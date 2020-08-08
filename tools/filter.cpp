@@ -106,9 +106,9 @@ void FilterDataset(std::unordered_set<uint64_t> & valid_projects) {
         std::ofstream w{OutputDir + "/commit_parents.csv"};
         CSVReader::Parse(InputDir + "/commit_parents.csv", [&](std::vector<std::string> & row) {
             if (valid_commits.find(std::stoull(row[0])) != valid_commits.end()) {
+                // note that there are issues in ghtorrent database and in this step we can reference commits that have not been selected before, so the subsequent ghtorrent analyzer must deal with this and be ready to process incomplete data. To keep as close to real ghtorrent as possible, the filter is not cleaning the data
                 w << row[0] << "," // commitId
                   << row[1] << std::endl; // parentId
-                assert(valid_commits.find(std::stoull(row[1])) != valid_commits.end());
             }
        }, /* headers */ false);
     }

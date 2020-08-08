@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet, BinaryHeap};
+/* use std::collections::{HashMap, HashSet, BinaryHeap};
 use std::fs::File;
 use std::io::prelude::*;
 use crate::*;
@@ -149,49 +149,6 @@ impl ProjectMetadata {
 
 /** Project Log
  */
-struct ProjectLog {
-    entries_ : Vec<ProjectLogEntry>,
-}
-
-impl ProjectLog {
-
-    fn new() -> ProjectLog {
-        return ProjectLog{
-            entries_ : Vec::new(),
-        }
-    }
-
-    fn read(project_folder: & str) -> ProjectLog {
-        let mut result = ProjectLog::new();
-        let mut reader = csv::Reader::from_path(format!("{}/log.csv", project_folder)).unwrap();
-        for x in reader.records() {
-            if let Ok(record) = x {
-                result.entries_.push(ProjectLogEntry::from_csv(record));
-            }
-        }
-        return result;
-    }
-
-    fn add(& mut self, entry : ProjectLogEntry) {
-        self.entries_.push(entry);
-    }
-
-    fn save(& self, project_folder : & str) {
-         let mut f = File::create(format!("{}/log.csv", project_folder)).unwrap();
-         writeln!(& mut f, "time,kind,comment").unwrap();
-         for x in & self.entries_ {
-             writeln!(& mut f, "{}", x);
-         }
-    }
-
-    fn append(& self, project_folder : & str) {
-        let mut f = std::fs::OpenOptions::new().append(true).write(true).open(format!("{}/log.csv", project_folder)).unwrap();
-        for x in & self.entries_ {
-            write!(& mut f, "{}\n", x).unwrap();
-        }
-
-    }
-}
 
 enum ProjectLogEntry {
     Init{time : u64, url : String },
@@ -241,3 +198,4 @@ impl std::fmt::Display for ProjectLogEntry {
         }
     }
 }
+ */

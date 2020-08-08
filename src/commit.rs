@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet, BinaryHeap};
+/* use std::collections::{HashMap, HashSet, BinaryHeap};
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::Path;
@@ -51,3 +51,4 @@ impl Commit {
 }
 
 // the actual implementation
+ */

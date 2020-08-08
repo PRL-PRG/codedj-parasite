@@ -1,42 +1,222 @@
-// this should be package-only
-pub mod downloader_state;
-pub mod ghtorrent;
-
-
-
-pub mod project;
-pub mod commit;
-pub mod user;
-mod helpers;
-// this will go away in the future, it contains all stuff that haven't been merged in the new multi-source API yet
-pub mod undecided;
-
 use std::collections::{HashMap, HashSet, BinaryHeap};
+use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::Path;
-use crate::project::*;
-use crate::commit::*;
-use crate::user::*;
-use crate::helpers::*;
-use crate::undecided::*;
+
+// TODO how can I make these package only?
+// this should be package-only
+//pub mod downloader_state;
+//pub mod ghtorrent;
+//pub mod project;
+//pub mod commit;
+//pub mod user;
+pub mod db_manager;
+pub mod record;
+
+
+
+
+
+mod helpers;
+
+
+/** Different ids for the entities the database contains.
+ */
+type UserId = u64;
+type SnapshotId = u64;
+type BlobId = u64;
+type PathId = u64;
+type CommitId = u64;
+type ProjectId = u64;
 
 /** Source of the information from the downloader. 
  
     For now we only support GHTorrent and GitHub. In the future we might add more. While the downloader exports this, it should not really matter for the users in most cases, other than reliability - stuff coming from GitHub is more reliable than GhTorrent.   
  */
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Source {
     NA,
     GHTorrent,
     GitHub,
 }
 
+/** Project is the main gateway to the database. 
+
+    Each project comes with 
+    
+ */
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Project {
+    // id of the project
+    pub id : ProjectId,
+    // url of the project (latest used)
+    pub url : String,
+    // time at which the project was updated last (i.e. time for which its data are valid)
+    pub last_update: u64,
+    // metadata information for the project
+    pub metadata : HashMap<String,String>,
+    // head refs of the project at the last update time
+    pub heads : Vec<(String, CommitId)>,
+    // source the project data comes from    
+    pub source : Source,
+}
+
+/** Single commit information. 
+ 
+    The basic information is required for all commits in the database. Some commits will optionally also return their commit message and changes.
+    
+    TODO message should I think be bytes, not string because of non-utf-8 garbage. 
+ */
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Commit {
+    // commit id
+    pub id : CommitId, 
+    // id of parents
+    pub parents : Vec<CommitId>,
+    // committer id and time
+    pub committer_id : u64,
+    pub committer_time : u64,
+    // author id and time
+    pub author_id : u64,
+    pub author_time : u64,
+    // commit message
+    pub message: Option<String>,
+    // changes made by the commit 
+    pub changes: Option<HashMap<PathId, SnapshotId>>,
+    // source the commit has been obtained from
+    pub source : Source,
+}
+
+/** User information. 
+ 
+    Users are unique based on their email.
+ */
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct User {
+    // id of the user
+    pub id : UserId,
+    // email for the user
+    pub email : String,
+    // name of the user
+    pub name : String, 
+    // source of the user information
+    pub source : Source,
+}
+
+/** Snapshot is an unique particular file contents. 
+ 
+    Each snapshot can have metadata and optionally be associated with downloaded contents, which can be retrieved using the blob api.  
+ */
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Snapshot {
+    // id of the snapshot
+    pub id : SnapshotId,
+    // contents id, None if the contents was not downloaded
+    pub contents : Option<BlobId>,
+    // metadata for the snapshot
+    pub metadata : HashMap<String, String>,
+}
+
+/** Actual contents identified by its  hash. 
+    
+    TODO the string here should also likely be bytes.
+ */
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Blob {
+    // id of the blob
+    pub id : BlobId, 
+    // hash of the contents
+    pub hash : git2::Oid,
+    // the contents
+    pub contents : String,
+}
+
+/** File path
+ */
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FilePath {
+    // path id
+    id : u64,
+    // the actual path
+    path : String,
+}
+
+/** A trait for tests. */
+pub trait Database {
+    fn num_projects(& self) -> u64;
+    fn get_user(& self, id : UserId) -> Option<& User>;
+    fn get_snapshot(& self, id : BlobId) -> Option<Snapshot>;
+    fn get_file_path(& self, id : PathId) -> Option<FilePath>;
+    fn get_commit(& self, id : CommitId) -> Option<Commit>;
+    fn get_project(& self, id : ProjectId) -> Option<Project>;
+}
+
+/** The dejacode downloader interface.
+ 
+    Notes on how things are stored (so far only the following things are):
+
+    # Projects
+
+    Each project lives in its own folder and in order to return its representation, notably the log file, metadata file and heads. These must be loaded and analyzed for the project to be constructed. As such projects are not cached and each request will be the disk access. 
+
+    # Commits
+
+    Commit information lives in the following global files:
+
+    - commit_hashes.csv (SHA1 to commit id)
+    - commits.csv (time, id, author, committer, author time, committer time, source)
+    - commit_parents.csv (time, commit id, parent id)
+
+    Inside the commits and commit parents files each record has a time and newer records *completely* override the information provided in the old records (i.e. first the commit is filled in via ghTorrent, but later when reanalyzed from github directly the information can be updated). The timestamps will allow us to reconstruct the database to any particular time in the past precisely. 
+
+    Commits from the above files are preloaded when DCD is initialized. 
+    
+    TODO in the future there will also be commit_changes.csv and commit_messages and commit_messages_index.csv for getting changes and messages. 
+
+    # Users
+
+    Similarly to commits, users live in a few global files:
+
+    - user_emails.csv (email to user id)
+    - users.csv (time, id, name, source)
+
+    the users file is also timed. 
+
+    TODO in the future perhaps more files, such as metadata. 
+
+
+ */
+pub struct DCD {
+    // the root folder
+    root_ : String, 
+}
+
+impl DCD {
+
+    pub fn new(root : String) -> DCD {
+        let mut result = DCD{
+            root_ : root,
+        };
+
+
+
+
+        return result;
+    }
+
+    fn load_commits(& mut self) {
+        println!("Loading commit records...");
+        // loads the records for the projects and commits...
+    }
+
+}
+
 impl Source {
 
     /** Creates source from string.
      */
-    pub fn from_string(s : & str) -> Source {
+    pub fn from_str(s : & str) -> Source {
         if (*s == *"NA") {
             return Source::NA;
         } else if *s == *"GHTorrent" {
@@ -48,6 +228,8 @@ impl Source {
         }
     }
 }
+
+
 
 impl std::fmt::Display for Source {
     fn fmt(& self, f : & mut std::fmt::Formatter) -> std::fmt::Result {
@@ -65,35 +247,31 @@ impl std::fmt::Display for Source {
     }
 }
 
-type UserId = u64;
-type BlobId = u64;
-type PathId = u64;
-type CommitId = u64;
-type ProjectId = u64;
 
-pub trait Database {
-    fn num_projects(& self) -> u64;
-    fn get_user(& self, id : UserId) -> Option<& User>;
-    fn get_snapshot(& self, id : BlobId) -> Option<Snapshot>;
-    fn get_file_path(& self, id : PathId) -> Option<FilePath>;
-    fn get_commit(& self, id : CommitId) -> Option<Commit>;
-    fn get_project(& self, id : ProjectId) -> Option<Project>;
-    // TODO get commit changes and get commit message functions
-}
+/*
+
+
+
+
+
+
+
+
+
 
 
 /** Basic access to the DejaCode Downloader database.
  
     The API is tailored to reasonably fast random access to items identified by their IDs so that it can, in theory proceed in parallel (disk permits).
  */
-pub struct DCD {
+pub struct DCDx {
      root_ : String, 
      num_projects_ : u64,
      users_ : Vec<User>,
 
 }
 
-impl DCD {
+impl DCDx {
 
     pub fn from(root_folder : & str) -> Result<DCD, std::io::Error> {
         let mut dcd = DCD{
@@ -190,6 +368,7 @@ impl Database for DCD {
     /** Projects reside in their own files, so random access is simple.
      */
     fn get_project(& self, id : ProjectId) -> Option<Project> {
+        /*
         if let Ok(project) = std::panic::catch_unwind(||{
             return Project::new(id, & self.get_project_root(id));
         }) {
@@ -197,6 +376,9 @@ impl Database for DCD {
         } else {
             return None;
         }
+        */
+        return None;
     }
 
 }
+*/
