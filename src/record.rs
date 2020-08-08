@@ -38,13 +38,13 @@ impl ProjectLogEntry {
     fn to_csv(& self, f : & mut File) -> Result<(), std::io::Error> {
         match & self {
             ProjectLogEntry::Init{time,url} => {
-                return write!(f, "{},init,\"{}\"", time, url);
+                return writeln!(f, "{},init,\"{}\"", time, url);
             },
             ProjectLogEntry::Update{time, source} => {
-                 return write!(f, "{},update,{}", time, source);
+                 return writeln!(f, "{},update,{}", time, source);
             },
             ProjectLogEntry::NoChange{time, source} => {
-                return write!(f, "{},nochange,{}", time, source);
+                return writeln!(f, "{},nochange,{}", time, source);
             }
         }
     }
@@ -164,12 +164,54 @@ impl ProjectMetadata {
 
 // Commits ----------------------------------------------------------------------------------------
 
-struct Commit {
+pub struct Commit {
     time : u64,
     id : CommitId,
-    committer_id : u64, 
-    committer_time : u64,
+    committer_id : UserId, 
+    committer_time : UserId,
     author_id : u64,
     author_time : u64,
     source : Source,
+}
+
+impl Commit {
+    pub fn new(id : CommitId, committer_id : UserId, committer_time : u64, author_id : UserId, author_time : u64, source : Source) -> Commit {
+        return Commit{
+            time : helpers::now(),
+            id, 
+            committer_id, 
+            committer_time, 
+            author_id, 
+            author_time,
+            source
+        };
+    }
+
+    pub fn to_csv(& self, f : & mut File) -> Result<(), std::io::Error> {
+        return writeln!(f, "{},{},{},{},{},{},{}", self.time, self.id, self.committer_id, self.committer_time, self.author_id, self.author_time, self.source);
+    }
+
+
+}
+
+// Users ------------------------------------------------------------------------------------------
+
+pub struct User {
+    time : u64, 
+    id : u64,
+    name : String,
+    source : Source,
+}
+
+impl User {
+    pub fn new(id : u64, name : String, source : Source) -> User {
+        return User{
+            time : helpers::now(),
+            id, name, source
+        };
+    }
+
+    pub fn to_csv(& self, f : & mut File) -> Result<(), std::io::Error> {
+        return writeln!(f, "{},{},\"{}\",{}", self.time, self.id, self.name, self.source);
+    }
 }
