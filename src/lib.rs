@@ -77,8 +77,6 @@ pub struct Commit {
     pub message: Option<String>,
     // changes made by the commit 
     pub changes: Option<HashMap<PathId, SnapshotId>>,
-    // source the commit has been obtained from
-    pub source : Source,
 }
 
 /** User information. 
@@ -93,8 +91,6 @@ pub struct User {
     pub email : String,
     // name of the user
     pub name : String, 
-    // source of the user information
-    pub source : Source,
 }
 
 /** Snapshot is an unique particular file contents. 
@@ -139,9 +135,10 @@ pub struct FilePath {
 pub trait Database {
     fn num_projects(& self) -> u64;
     fn num_commits(& self) -> u64;
+    fn num_users(& self) -> u64;
 
     fn get_project(& self, id : ProjectId) -> Option<Project>;
-    //fn get_user(& self, id : UserId) -> Option<& User>;
+    fn get_user(& self, id : UserId) -> Option<& User>;
     //fn get_snapshot(& self, id : BlobId) -> Option<Snapshot>;
     //fn get_file_path(& self, id : PathId) -> Option<FilePath>;
     //fn get_commit(& self, id : CommitId) -> Option<Commit>;
@@ -185,6 +182,7 @@ pub trait Database {
 pub struct DCD {
     root_ : String,
     num_projects_ : u64,
+    users_ : Vec<User>,
     commit_ids_ : HashMap<git2::Oid, CommitId>,
 }
 
@@ -194,19 +192,50 @@ impl DCD {
         println!("Loading dejacode database...");
         let num_projects = db_manager::DatabaseManager::get_num_projects(& root);
         println!("    {} projects", num_projects);
+        let users = Self::get_users(& root);
+        println!("    {} users", users.len());
         let commit_ids = db_manager::DatabaseManager::get_commit_ids(& root);
         println!("    {} commits", commit_ids.len());
 
-        let mut result = DCD{
+        let result = DCD{
             root_ : root, 
             num_projects_ : num_projects,
+            users_ : users,
             commit_ids_ : commit_ids,
         };
         return result;
     }
 
 
-    // this is really a code share between DCD and DBManager, but db_manager uses mutexes which are completely useless in the reader
+    fn get_users(root : & str) -> Vec<User> {
+        let mut result = Vec::<User>::new();
+        // first load the immutable email to id mapping
+        {
+            let mut reader = csv::ReaderBuilder::new().has_headers(true).double_quote(false).escape(Some(b'\\')).from_path(format!("{}/user_ids.csv", root)).unwrap();
+            for x in reader.records() {
+                let record = x.unwrap();
+                let email = String::from(& record[0]);
+                let id = record[1].parse::<u64>().unwrap() as UserId;
+                assert_eq!(id as usize, result.len());
+                result.push(User{
+                    id,
+                    email,
+                    name : String::new()
+                });
+            }
+        }
+        // now load the records
+        {
+            let mut reader = csv::ReaderBuilder::new().has_headers(true).double_quote(false).escape(Some(b'\\')).from_path(format!("{}/user_records.csv", root)).unwrap();
+            for x in reader.records() {
+                let record = x.unwrap();
+                let id = record[1].parse::<u64>().unwrap();
+                let name = String::from(& record[2]);
+                result[id as usize].name = name;
+            }
+        }
+        return result;
+    }
 
 }
 
@@ -221,6 +250,10 @@ impl Database for DCD {
     fn num_commits(& self) -> u64 {
         return self.commit_ids_.len() as u64;
     }
+
+    fn num_users(& self) -> u64 {
+        return self.users_.len() as u64;
+    }
     
     fn get_project(& self, id : ProjectId) -> Option<Project> {
         if let Ok(project) = std::panic::catch_unwind(||{
@@ -230,6 +263,10 @@ impl Database for DCD {
         } else {
             return None;
         }
+    }
+
+    fn get_user(& self, id : UserId) -> Option<&User> {
+        return self.users_.get(id as usize);
     }
 }
 
