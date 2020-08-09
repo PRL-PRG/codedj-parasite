@@ -53,7 +53,7 @@ fn initialize_projects(root : & str, db : & mut DatabaseManager) -> HashMap<u64,
         let url = format!("https://github.com/{}/{}.git", user, name);
         // see if the project should be added 
         // get the user and repo names
-        if let Some(own_id) = db.add_project(url.clone()) {
+        if let Some(own_id) = db.add_project(url.clone(), Source::GHTorrent) {
             // add the ght_id and language to the project's metadata
             let mut md = record::ProjectMetadata::new();
             md.add(String::from("ght_id"), String::from(& record[0]), Source::GHTorrent);
@@ -224,22 +224,32 @@ fn calculate_project_heads(
     project_ids : & HashMap<u64, ProjectId>,
     project_commits : HashMap<u64, Vec<u64>>,
     commit_parents : HashMap<u64, Vec<u64>>,
-    ght_to_sha_and_own : HashMap<u64, (git2::Oid, CommitId)>,
+    ght_to_sha_and_own : HashMap<u64, (git2::Oid, u64)>,
     db : & mut DatabaseManager) {
-    println!("Calculating project heads...");
-    for (ght_id, own_id) in project_ids {
-        let pc = & project_commits[ght_id];
-        // TODO why must I do the map? 
-        let mut commits : HashSet<u64> = pc.iter().map(|x| *x).collect();
-        for ght_commit_id in pc {
-            for parent_id in & commit_parents[ght_commit_id] {
-                commits.remove(parent_id);
+        println!("Calculating project heads...");
+        for (ght_id, own_id) in project_ids {
+            // there can be projects with no commits 
+            if let Some(pc) = project_commits.get(ght_id) {
+                // TODO why must I do the map? 
+                let mut heads : HashSet<u64> = pc.iter().map(|x| *x).collect();
+                for ght_commit_id in pc {
+                    // note that there are holes in the ghtorrent info and not every commit in a project may have parent information available, or it can be initial commit with no parents
+                    if let Some(parent_commits) = commit_parents.get(ght_commit_id) {
+                        for parent_id in parent_commits {
+                            heads.remove(parent_id);
+                        }
+                    }
+                }
+                // create the head records and save the in the project's log
+                let mut log = record::ProjectLog::new();
+                for ght_commit_id in heads {
+                    let hash = ght_to_sha_and_own[& ght_commit_id].0;
+                    log.add(record::ProjectLogEntry::head(Source::GHTorrent, String::new(), hash));
+                }
+                // save the log 
+                log.save(& db.get_project_folder(* own_id));
             }
         }
-        println!("    project {}, commits {}, heads {}", ght_id, pc.len(), commits.len());
-    }
-    
-
     }
 
 

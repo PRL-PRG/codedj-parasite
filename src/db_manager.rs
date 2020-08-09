@@ -103,7 +103,7 @@ impl DatabaseManager {
 
         Note that the function does not commit the changes to the database. 
      */
-    pub fn add_project(& self, url : String) -> Option<ProjectId> {
+    pub fn add_project(& self, url : String, source : Source) -> Option<ProjectId> {
         let mut live_urls = self.live_urls_.lock().unwrap(); // we lock for too long, but not care now
         // don't know how to do this on single lookup in rust yet
         if live_urls.contains(& url) {
@@ -118,7 +118,7 @@ impl DatabaseManager {
         // initialize the log for the project
         {
             let mut project_log = record::ProjectLog::new();
-            project_log.add(record::ProjectLogEntry::init(url.clone()));
+            project_log.add(record::ProjectLogEntry::init(source, url.clone()));
             project_log.save(& self.get_project_folder(id));
         }
         // now that the log is ok, increment total number of projects, add the live url and return the id

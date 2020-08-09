@@ -3,33 +3,81 @@ use crate::*;
 // Projects ---------------------------------------------------------------------------------------
 // Projects - Log ---------------------------------------------------------------------------------
 
-pub(super) enum ProjectLogEntry {
-    Init{time : u64, url : String },
+pub enum ProjectLogEntry {
+    Init{time : u64, source: Source, url : String },
+    UpdateStart{time : u64, source : Source},
     Update{time : u64, source : Source },
     NoChange{time : u64, source : Source },
+    Metadata{time : u64, source: Source, key : String, value : String },
+    Head{time : u64, source: Source, name: String, hash: git2::Oid }
 }
 
 impl ProjectLogEntry {
 
-    pub(super) fn init(url : String) -> ProjectLogEntry {
-        return ProjectLogEntry::Init{time : helpers::now(), url};
+    fn write_headers(f : & mut File) {
+        writeln!(f, "time,source,kind,key,value");
     }
 
-    pub(super) fn update(source : Source) -> ProjectLogEntry {
+    pub fn init(source: Source, url : String) -> ProjectLogEntry {
+        return ProjectLogEntry::Init{time : helpers::now(), source, url};
+    }
+
+    pub fn update(source : Source) -> ProjectLogEntry {
         return ProjectLogEntry::Update{time : helpers::now(), source };
     }
 
-    pub(super) fn no_change(source : Source) -> ProjectLogEntry {
+    pub fn update_start(source : Source) -> ProjectLogEntry {
+        return ProjectLogEntry::UpdateStart{time : helpers::now(), source };
+    }
+
+    pub fn no_change(source : Source) -> ProjectLogEntry {
         return ProjectLogEntry::NoChange{time : helpers::now(), source };
     }
 
+    pub fn metadata(source: Source, key : String, value : String) -> ProjectLogEntry {
+        return ProjectLogEntry::Metadata{time : helpers::now(), source, key, value};
+    }
+
+    pub fn head(source : Source, name: String, hash : git2::Oid) -> ProjectLogEntry {
+        return ProjectLogEntry::Head{time : helpers::now(), source, name, hash};
+    }
+
     fn from_csv(record : csv::StringRecord) -> ProjectLogEntry {
-        if record[1] == *"init" {
-            return ProjectLogEntry::Init{ time : record[0].parse::<u64>().unwrap(), url : String::from(& record[2]) };
-        } else if record[1] == *"update" {
-            return ProjectLogEntry::Update{ time : record[0].parse::<u64>().unwrap(), source : Source::from_str(& record[2])};
-        } else if record[1] == *"nochange" {
-            return ProjectLogEntry::NoChange{ time : record[0].parse::<u64>().unwrap(), source : Source::from_str(& record[2])};
+        if record[2] == *"init" {
+            return ProjectLogEntry::Init{ 
+                time : record[0].parse::<u64>().unwrap(),
+                source : Source::from_str(& record[1]),
+                url : String::from(& record[4])
+            };
+        } else if record[2] == *"update" {
+            return ProjectLogEntry::Update{
+                time : record[0].parse::<u64>().unwrap(),
+                source : Source::from_str(& record[1])
+            };
+        } else if record[2] == *"start" {
+            return ProjectLogEntry::UpdateStart{
+                time : record[0].parse::<u64>().unwrap(),
+                source : Source::from_str(& record[1])
+            };
+        } else if record[2] == *"nochange" {
+            return ProjectLogEntry::NoChange{ 
+                time : record[0].parse::<u64>().unwrap(),
+                source : Source::from_str(& record[1])
+            };
+        } else if record[2] == *"meta" {
+            return ProjectLogEntry::Metadata{ 
+                time : record[0].parse::<u64>().unwrap(),
+                source : Source::from_str(& record[1]),
+                key : String::from(& record[3]),
+                value : String::from(& record[4])
+            };
+        } else if record[2] == *"head" {
+            return ProjectLogEntry::Head{ 
+                time : record[0].parse::<u64>().unwrap(),
+                source : Source::from_str(& record[1]),
+                name : String::from(& record[3]),
+                hash : git2::Oid::from_str(& record[4]).unwrap()
+            };
         } else {
             panic!("Invalid log entry");
         }
@@ -37,32 +85,41 @@ impl ProjectLogEntry {
 
     fn to_csv(& self, f : & mut File) -> Result<(), std::io::Error> {
         match & self {
-            ProjectLogEntry::Init{time,url} => {
-                return writeln!(f, "{},init,\"{}\"", time, url);
+            ProjectLogEntry::Init{time, source, url} => {
+                return writeln!(f, "{},{},init,\"\",\"{}\"", time, source, url);
             },
             ProjectLogEntry::Update{time, source} => {
-                 return writeln!(f, "{},update,{}", time, source);
+                return writeln!(f, "{},{},update,\"\",\"\"", time, source);
+            },
+            ProjectLogEntry::UpdateStart{time, source} => {
+                return writeln!(f, "{},{},start,\"\",\"\"", time, source);
             },
             ProjectLogEntry::NoChange{time, source} => {
-                return writeln!(f, "{},nochange,{}", time, source);
-            }
+                return writeln!(f, "{},{},nochange,\"\",\"\"", time, source);
+            },
+            ProjectLogEntry::Metadata{time, source, key, value} => {
+                return writeln!(f, "{},{},meta,\"{}\",\"{}\"", time, source, key, value);
+            },
+            ProjectLogEntry::Head{time, source, name, hash} => {
+                return writeln!(f, "{},{},head,\"{}\",{}", time, source, name, hash);
+            },
         }
     }
 }
 
-pub(super) struct ProjectLog {
+pub struct ProjectLog {
     entries_ : Vec<ProjectLogEntry>,
 }
 
 impl ProjectLog {
 
-    pub(super) fn new() -> ProjectLog {
+    pub fn new() -> ProjectLog {
         return ProjectLog{
             entries_ : Vec::new(),
         }
     }
 
-    pub(super) fn read(project_folder: & str) -> ProjectLog {
+    pub fn read(project_folder: & str) -> ProjectLog {
         let mut result = ProjectLog::new();
         let mut reader = csv::Reader::from_path(format!("{}/log.csv", project_folder)).unwrap();
         for x in reader.records() {
@@ -73,11 +130,11 @@ impl ProjectLog {
         return result;
     }
 
-    pub(super) fn add(& mut self, entry : ProjectLogEntry) {
+    pub fn add(& mut self, entry : ProjectLogEntry) {
         self.entries_.push(entry);
     }
 
-    pub(super) fn save(& self, project_folder : & str) {
+    pub fn save(& self, project_folder : & str) {
         let mut f = File::create(format!("{}/log.csv", project_folder)).unwrap();
         writeln!(& mut f, "time,kind,comment").unwrap();
         for x in & self.entries_ {
@@ -85,7 +142,7 @@ impl ProjectLog {
         }
     }
 
-    pub(super) fn append(& self, project_folder : & str) {
+    pub fn append(& self, project_folder : & str) {
         let mut f = std::fs::OpenOptions::new().append(true).write(true).open(format!("{}/log.csv", project_folder)).unwrap();
         for x in & self.entries_ {
             x.to_csv(& mut f).unwrap();
