@@ -21,13 +21,9 @@ fn main() {
     let commit_parents = load_commit_parents(& root, new_commits, & ght_to_sha_and_own, & mut db);
     // last thing we need to calculate is project heads
     calculate_project_heads(& project_ids, project_commits, commit_parents, ght_to_sha_and_own, & mut db);
-
-
-    // TODO mark all projects as updated with GHTorrent 
+    // mark all projects as updated with GHTorrent 
+    finalize_project_updates(& project_ids, & mut db);
 }
-
-
-
 
 fn initialize_projects(root : & str, db : & mut DatabaseManager) -> HashMap<u64, ProjectId> {
     let mut reader = csv::ReaderBuilder::new().has_headers(true).double_quote(false).escape(Some(b'\\')).from_path(format!("{}/projects.csv", root)).unwrap();
@@ -55,10 +51,24 @@ fn initialize_projects(root : & str, db : & mut DatabaseManager) -> HashMap<u64,
         // get the user and repo names
         if let Some(own_id) = db.add_project(url.clone(), Source::GHTorrent) {
             // add the ght_id and language to the project's metadata
-            let mut md = record::ProjectMetadata::new();
-            md.add(String::from("ght_id"), String::from(& record[0]), Source::GHTorrent);
-            md.add(String::from("ght_language"), String::from(& record[5]), Source::GHTorrent);
-            md.save(& db.get_project_folder(own_id));
+            let mut project_log = db.get_project_log(own_id);
+            // start the update
+            project_log.add(record::ProjectLogEntry::update_start(
+                Source::GHTorrent
+            ));
+            // fill in metadata
+            project_log.add(record::ProjectLogEntry::metadata(
+                Source::GHTorrent, 
+                "ght_id".to_owned(),
+                String::from(& record[0])
+            ));
+            project_log.add(record::ProjectLogEntry::metadata(
+                Source::GHTorrent, 
+                "ght_language".to_owned(),
+                String::from(& record[5])
+            ));
+            // append the log
+            project_log.append();
             // add the ght to own id mapping to the result projects...
             let ght_id = record[0].parse::<u64>().unwrap();
             project_ids.insert(ght_id, own_id);
@@ -226,8 +236,13 @@ fn calculate_project_heads(
     commit_parents : HashMap<u64, Vec<u64>>,
     ght_to_sha_and_own : HashMap<u64, (git2::Oid, u64)>,
     db : & mut DatabaseManager) {
+        let mut records = 0;
         println!("Calculating project heads...");
         for (ght_id, own_id) in project_ids {
+            if records % 1000 == 0 {
+                helpers::progress_line(format!("    projects: {}", records));
+            }
+            records += 1;
             // there can be projects with no commits 
             if let Some(pc) = project_commits.get(ght_id) {
                 // TODO why must I do the map? 
@@ -241,15 +256,34 @@ fn calculate_project_heads(
                     }
                 }
                 // create the head records and save the in the project's log
-                let mut log = record::ProjectLog::new();
+                let mut log = db.get_project_log(*own_id);
                 for ght_commit_id in heads {
                     let hash = ght_to_sha_and_own[& ght_commit_id].0;
                     log.add(record::ProjectLogEntry::head(Source::GHTorrent, String::new(), hash));
                 }
                 // save the log 
-                log.save(& db.get_project_folder(* own_id));
+                log.append();
             }
         }
+        println!("    projects: {}", records);
     }
+
+/** Finalizes update phase for the projects being added. 
+ */
+fn finalize_project_updates(project_ids : & HashMap<u64, ProjectId>, db : & mut DatabaseManager) {
+    println!("Loading commit parents...");
+    let mut records = 0;
+    for (_, own_id) in project_ids {
+        if records % 1000 == 0 {
+            helpers::progress_line(format!("    projects: {}", records));
+        }
+        records += 1;
+        // finalize project update with the update message
+        let mut log = db.get_project_log(*own_id);
+        log.add(record::ProjectLogEntry::update(Source::GHTorrent));
+        log.append();
+    }
+    println!("    projects: {}", records);
+}
 
 

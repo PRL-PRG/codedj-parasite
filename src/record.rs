@@ -14,10 +14,6 @@ pub enum ProjectLogEntry {
 
 impl ProjectLogEntry {
 
-    fn write_headers(f : & mut File) {
-        writeln!(f, "time,source,kind,key,value");
-    }
-
     pub fn init(source: Source, url : String) -> ProjectLogEntry {
         return ProjectLogEntry::Init{time : helpers::now(), source, url};
     }
@@ -108,17 +104,18 @@ impl ProjectLogEntry {
 }
 
 pub struct ProjectLog {
-    entries_ : Vec<ProjectLogEntry>,
+    // file where the log is stored
+    pub filename_ : String,
+    pub entries_ : Vec<ProjectLogEntry>,
 }
 
 impl ProjectLog {
 
-    pub fn new() -> ProjectLog {
-        return ProjectLog{
-            entries_ : Vec::new(),
-        }
+    pub fn add(& mut self, entry : ProjectLogEntry) {
+        self.entries_.push(entry);
     }
 
+    /*
     pub fn read(project_folder: & str) -> ProjectLog {
         let mut result = ProjectLog::new();
         let mut reader = csv::Reader::from_path(format!("{}/log.csv", project_folder)).unwrap();
@@ -128,22 +125,22 @@ impl ProjectLog {
             }
         }
         return result;
+    }*/
+
+    fn write_headers(& self, f : & mut File) {
+        writeln!(f, "time,source,kind,key,value").unwrap();
     }
 
-    pub fn add(& mut self, entry : ProjectLogEntry) {
-        self.entries_.push(entry);
-    }
-
-    pub fn save(& self, project_folder : & str) {
-        let mut f = File::create(format!("{}/log.csv", project_folder)).unwrap();
-        writeln!(& mut f, "time,kind,comment").unwrap();
+    pub fn create_and_save(& self) {
+        let mut f = File::create(& self.filename_).unwrap();
+        self.write_headers(& mut f);
         for x in & self.entries_ {
             x.to_csv(& mut f).unwrap();
         }
     }
 
-    pub fn append(& self, project_folder : & str) {
-        let mut f = std::fs::OpenOptions::new().append(true).write(true).open(format!("{}/log.csv", project_folder)).unwrap();
+    pub fn append(& self) {
+        let mut f = std::fs::OpenOptions::new().append(true).write(true).open(& self.filename_).unwrap();
         for x in & self.entries_ {
             x.to_csv(& mut f).unwrap();
         }
@@ -153,6 +150,7 @@ impl ProjectLog {
 
 // Projects - Metadata ----------------------------------------------------------------------------
 
+/*
 #[derive(Eq)]
 pub struct MetadataValue {
     time : u64,
@@ -217,7 +215,7 @@ impl ProjectMetadata {
         }
     }
 
-}
+}*/
 
 // Commits ----------------------------------------------------------------------------------------
 

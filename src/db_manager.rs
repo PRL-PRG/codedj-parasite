@@ -113,19 +113,32 @@ impl DatabaseManager {
         let mut num_projects = self.num_projects_.lock().unwrap();
         let id = *num_projects as ProjectId;
         // get the project folder and create it 
-        let project_folder = self.get_project_folder(id);
+        let project_folder = self.get_project_log_folder(id);
         std::fs::create_dir_all(& project_folder).unwrap();
         // initialize the log for the project
         {
-            let mut project_log = record::ProjectLog::new();
+            let mut project_log = self.get_project_log(id);
             project_log.add(record::ProjectLogEntry::init(source, url.clone()));
-            project_log.save(& self.get_project_folder(id));
+            project_log.create_and_save();
         }
         // now that the log is ok, increment total number of projects, add the live url and return the id
         *num_projects += 1;
         live_urls.insert(url);
         return Some(id);
     }
+
+    /** Returns project log corresponding to given project.
+     
+        It is assumed that the project already exists. The log is not read.
+     */ 
+    pub fn get_project_log(& self, id : ProjectId) -> record::ProjectLog {
+        return record::ProjectLog{
+            filename_ : self.get_project_log_file(id),
+            entries_ : Vec::new(),
+        };
+    }
+
+    // TODO read project log? 
 
     /** Returns existing user id, or creates new user from given data.
      
@@ -191,10 +204,18 @@ impl DatabaseManager {
         }
     }
 
-    /** Returns the root folder for project of given id. 
+    /** Returns the log file for given project id. 
+     
+        
      */
-    pub fn get_project_folder(& self, id : ProjectId) -> String {
-        return format!("{}/projects/{}/{}", self.root_, id % 1000, id);
+    pub fn get_project_log_file(& self, id : ProjectId) -> String {
+        return format!("{}/projects/{}/{}/{}.csv", self.root_, id / 1000000, id % 1000, id);
+    }
+
+    /** Returns only the folder where the project log should exist so that we can ensure its presence. 
+     */
+    fn get_project_log_folder(& self, id : ProjectId) -> String {
+        return format!("{}/projects/{}/{}", self.root_, id / 1000000, id % 1000);
     }
 
 }

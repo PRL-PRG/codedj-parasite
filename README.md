@@ -8,7 +8,7 @@
 
 Immediate:
 
-- maybe make single file per project? This file will contain *all* the information (i.e. log, metadata, heads, etc etc. ) I think this is much much better, then from the log the project information can be constructed - we save 4x inodes at least
+- global log for the updater (is needed?)
 
 - log & metadata should be scanned only up to a certain time when retrieved
 - add commits to the dataset
