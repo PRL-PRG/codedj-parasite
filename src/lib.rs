@@ -1,8 +1,7 @@
-use std::collections::{HashMap, HashSet, BinaryHeap};
+use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::prelude::*;
-use std::path::Path;
 
 // TODO how can I make these package only?
 // this should be package-only
@@ -138,10 +137,10 @@ pub trait Database {
     fn num_users(& self) -> u64;
 
     fn get_project(& self, id : ProjectId) -> Option<Project>;
+    fn get_commit(& self, id : CommitId) -> Option<Commit>;
     fn get_user(& self, id : UserId) -> Option<& User>;
     //fn get_snapshot(& self, id : BlobId) -> Option<Snapshot>;
     //fn get_file_path(& self, id : PathId) -> Option<FilePath>;
-    //fn get_commit(& self, id : CommitId) -> Option<Commit>;
 }
 
 /** The dejacode downloader interface.
@@ -184,6 +183,7 @@ pub struct DCD {
     num_projects_ : u64,
     users_ : Vec<User>,
     commit_ids_ : HashMap<git2::Oid, CommitId>,
+    commits_ : Vec<CommitBase>,
 }
 
 impl DCD {
@@ -196,12 +196,15 @@ impl DCD {
         println!("    {} users", users.len());
         let commit_ids = db_manager::DatabaseManager::get_commit_ids(& root);
         println!("    {} commits", commit_ids.len());
+        let commits = Self::get_commits(& root, commit_ids.len());
+        println!("    {} commit records", commit_ids.len());
 
         let result = DCD{
             root_ : root, 
             num_projects_ : num_projects,
             users_ : users,
             commit_ids_ : commit_ids,
+            commits_ : commits,
         };
         return result;
     }
@@ -237,6 +240,51 @@ impl DCD {
         return result;
     }
 
+    fn get_commits(root : & str, num_commits : usize) -> Vec<CommitBase> {
+        let mut result = Vec::<CommitBase>::with_capacity(num_commits);
+        for _ in 0..num_commits {
+            result.push(CommitBase{
+                parents : Vec::new(),
+                committer_id : 0,
+                committer_time : 0,
+                author_id : 0,
+                author_time : 0,
+            })
+        }
+        {
+            let mut reader = csv::ReaderBuilder::new().has_headers(true).double_quote(false).escape(Some(b'\\')).from_path(format!("{}/commit_records.csv", root)).unwrap();
+            for x in reader.records() {
+                let record = x.unwrap();
+                let id = record[1].parse::<usize>().unwrap();
+                let ref mut commit = result[id];
+                commit.committer_id = record[2].parse::<u64>().unwrap() as UserId;
+                commit.committer_time = record[3].parse::<u64>().unwrap();
+                commit.author_id = record[4].parse::<u64>().unwrap() as UserId;
+                commit.author_time = record[5].parse::<u64>().unwrap();
+            }
+        }
+        // and now load the parents
+        let mut parents_update_times = Vec::<u64>::with_capacity(num_commits);
+        for _ in 0..num_commits {
+            parents_update_times.push(0);
+        }
+        {
+            let mut reader = csv::ReaderBuilder::new().has_headers(true).double_quote(false).escape(Some(b'\\')).from_path(format!("{}/commit_parents.csv", root)).unwrap();
+            for x in reader.records() {
+                let record = x.unwrap();
+                let t = record[0].parse::<u64>().unwrap();
+                let id = record[1].parse::<usize>().unwrap();
+                // clear the parent records if the update time differs
+                if t != parents_update_times[id] {
+                    parents_update_times[id] = t;
+                    result[id].parents.clear();
+                }
+                result[id].parents.push(record[2].parse::<u64>().unwrap() as CommitId);
+            }
+        }
+        return result;
+    }
+
 }
 
 impl Database for DCD {
@@ -260,6 +308,16 @@ impl Database for DCD {
             return Project::from_log(id, & db_manager::DatabaseManager::get_project_log_file(& self.root_, id), & self);
         }) {
             return Some(project);
+        } else {
+            return None;
+        }
+    }
+
+    fn get_commit(& self, id : CommitId) -> Option<Commit> {
+        if let Some(base) = self.commits_.get(id as usize) {
+            let result = Commit::new(id, base);
+            // TODO check lazily for message and changes
+            return Some(result);
         } else {
             return None;
         }
@@ -349,6 +407,36 @@ impl Project {
     }
 
 }
+
+impl Commit {
+    fn new(id : CommitId, base : & CommitBase) -> Commit {
+        return Commit{
+            id : id, 
+            parents : base.parents.clone(),
+            committer_id : base.committer_id,
+            committer_time : base.committer_time,
+            author_id : base.author_id,
+            author_time : base.author_time,
+            message : None, 
+            changes : None,
+        };
+    } 
+}
+
+
+/** Smaller struct for containing the non-lazy elements of the commit. 
+ */
+struct CommitBase {
+    // id of parents
+    pub parents : Vec<CommitId>,
+    // committer id and time
+    pub committer_id : u64,
+    pub committer_time : u64,
+    // author id and time
+    pub author_id : u64,
+    pub author_time : u64,
+}
+
 
 
 /*

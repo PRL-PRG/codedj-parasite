@@ -70,7 +70,7 @@ impl DatabaseManager {
         let commit_parents_file = format!("{}/commit_parents.csv", root_folder);
         {
             let mut f = File::create(& commit_parents_file).unwrap();
-            writeln!(& mut f, "commitId,parentId").unwrap();
+            writeln!(& mut f, "time,commitId,parentId").unwrap();
         }
         // create the manager and return it
         let result = DatabaseManager{
@@ -230,8 +230,9 @@ impl DatabaseManager {
 
     pub fn append_commit_parents_record(& self, iter : & mut dyn std::iter::Iterator<Item = &(CommitId, CommitId)>) {
         let mut commit_parents_file = self.commit_parents_file_.lock().unwrap();
+        let t = helpers::now();
         for (commit_id, parent_id) in iter {
-            writeln!(commit_parents_file, "{},{}", commit_id, parent_id).unwrap();
+            writeln!(commit_parents_file, "{},{},{}", t, commit_id, parent_id).unwrap();
         }
     }
 
