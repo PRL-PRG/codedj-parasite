@@ -96,7 +96,7 @@ impl DatabaseManager {
     /** Creates database manager from existing database folder.
      */
     pub fn from(root_folder : String) -> DatabaseManager {
-        let num_projects = Self::get_num_projects(& root_folder);
+        //let num_projects = Self::get_num_projects(& root_folder);
         // load user ids mapping
         /*
         let mut user_ids = HashMap::<String,UserId>::new();
@@ -153,7 +153,7 @@ impl DatabaseManager {
         Technically this could happen after each new project is created, but that is too prohibitive so it is the responsibility of the code that adds projects to actually commit the number once the projects are created. 
      */
     pub fn commit_created_projects(& self) {
-        let mut num_projects = self.num_projects_.lock().unwrap();
+        let num_projects = self.num_projects_.lock().unwrap();
         let mut f = File::create(format!("{}/num_projects.csv", self.root_)).unwrap();
         write!(& mut f, "numProjects\n{}\n", num_projects).unwrap();
     }
