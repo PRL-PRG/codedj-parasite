@@ -96,6 +96,25 @@ impl DatabaseManager {
     /** Creates database manager from existing database folder.
      */
     pub fn from(root_folder : String) -> DatabaseManager {
+        let num_projects = Self::get_num_projects(& root_folder);
+        // load user ids mapping
+        /*
+        let mut user_ids = HashMap::<String,UserId>::new();
+        let user_ids_file = format!("{}/user_ids.csv", root_folder);
+        {
+            let mut reader = csv::ReaderBuilder::new().has_headers(true).double_quote(false).escape(Some(b'\\')).from_path(& user_ids_file).unwrap();
+            println!("Loading user ids...");
+            for x in reader.records() {
+                let record = x.unwrap();
+                let email = String::from(& record[0]);
+                let user_id = record[1].parse::<u64>().unwrap() as UserId;
+                user_ids.insert(email, user_id);
+            }
+            println!("    {} users loaded", user_ids.len());
+        }
+        */
+        // load commit ids mapping
+        // and so on...
         unimplemented!();
     }
 
@@ -115,7 +134,7 @@ impl DatabaseManager {
         let mut num_projects = self.num_projects_.lock().unwrap();
         let id = *num_projects as ProjectId;
         // get the project folder and create it 
-        let project_folder = self.get_project_log_folder(id);
+        let project_folder = Self::get_project_log_folder(& self.root_, id);
         std::fs::create_dir_all(& project_folder).unwrap();
         // initialize the log for the project
         {
@@ -145,7 +164,7 @@ impl DatabaseManager {
      */ 
     pub fn get_project_log(& self, id : ProjectId) -> record::ProjectLog {
         return record::ProjectLog{
-            filename_ : self.get_project_log_file(id),
+            filename_ : Self::get_project_log_file(& self.root_, id),
             entries_ : Vec::new(),
         };
     }
@@ -216,18 +235,29 @@ impl DatabaseManager {
         }
     }
 
+    // bookkeeping & stuff
+
     /** Returns the log file for given project id. 
      
         
      */
-    pub fn get_project_log_file(& self, id : ProjectId) -> String {
-        return format!("{}/projects/{}/{}/{}.csv", self.root_, id / 1000000, id % 1000, id);
+    pub fn get_project_log_file(root : & str, id : ProjectId) -> String {
+        return format!("{}/projects/{}/{}/{}.csv", root, id / 1000000, id % 1000, id);
     }
 
     /** Returns only the folder where the project log should exist so that we can ensure its presence. 
      */
-    fn get_project_log_folder(& self, id : ProjectId) -> String {
-        return format!("{}/projects/{}/{}", self.root_, id / 1000000, id % 1000);
+    fn get_project_log_folder(root : & str, id : ProjectId) -> String {
+        return format!("{}/projects/{}/{}", root, id / 1000000, id % 1000);
+    }
+
+    pub fn get_num_projects(root : & str) -> u64 {
+        let mut reader = csv::ReaderBuilder::new().has_headers(true).double_quote(false).escape(Some(b'\\')).from_path(format!("{}/num_projects.csv", root)).unwrap();
+        for x in reader.records() {
+            let record = x.unwrap();
+            return record[0].parse::<u64>().unwrap();
+        }
+        panic!("Invalid number of projects format.");
     }
 
 }

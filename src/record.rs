@@ -38,7 +38,7 @@ impl ProjectLogEntry {
         return ProjectLogEntry::Head{time : helpers::now(), source, name, hash};
     }
 
-    fn from_csv(record : csv::StringRecord) -> ProjectLogEntry {
+    pub fn from_csv(record : csv::StringRecord) -> ProjectLogEntry {
         if record[2] == *"init" {
             return ProjectLogEntry::Init{ 
                 time : record[0].parse::<u64>().unwrap(),

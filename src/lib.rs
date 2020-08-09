@@ -138,10 +138,10 @@ pub struct FilePath {
 /** A trait for tests. */
 pub trait Database {
     fn num_projects(& self) -> u64;
-    fn get_user(& self, id : UserId) -> Option<& User>;
-    fn get_snapshot(& self, id : BlobId) -> Option<Snapshot>;
-    fn get_file_path(& self, id : PathId) -> Option<FilePath>;
-    fn get_commit(& self, id : CommitId) -> Option<Commit>;
+    //fn get_user(& self, id : UserId) -> Option<& User>;
+    //fn get_snapshot(& self, id : BlobId) -> Option<Snapshot>;
+    //fn get_file_path(& self, id : PathId) -> Option<FilePath>;
+    //fn get_commit(& self, id : CommitId) -> Option<Commit>;
     fn get_project(& self, id : ProjectId) -> Option<Project>;
 }
 
@@ -181,28 +181,46 @@ pub trait Database {
 
  */
 pub struct DCD {
-    // the root folder
-    root_ : String, 
+    root_ : String,
+    num_projects_ : u64,
 }
 
 impl DCD {
 
     pub fn new(root : String) -> DCD {
+        println!("Loading dejacode database...");
+        let num_projects = db_manager::DatabaseManager::get_num_projects(& root);
+        println!("    {} projects", num_projects);
+
         let mut result = DCD{
-            root_ : root,
+            root_ : root, 
+            num_projects_ : num_projects,
         };
-
-
-
-
         return result;
     }
 
-    fn load_commits(& mut self) {
-        println!("Loading commit records...");
-        // loads the records for the projects and commits...
-    }
 
+    // this is really a code share between DCD and DBManager, but db_manager uses mutexes which are completely useless in the reader
+
+}
+
+impl Database for DCD {
+
+    /** Returns the number of projects the downloader contains.
+     */
+    fn num_projects(& self) -> u64 {
+        return self.num_projects_;
+    }
+    
+    fn get_project(& self, id : ProjectId) -> Option<Project> {
+        if let Ok(project) = std::panic::catch_unwind(||{
+            return Project::from_log(id, & db_manager::DatabaseManager::get_project_log_file(& self.root_, id));
+        }) {
+            return Some(project);
+        } else {
+            return None;
+        }
+    }
 }
 
 impl Source {
@@ -238,6 +256,52 @@ impl std::fmt::Display for Source {
             }
         }
     }
+}
+
+
+impl Project {
+    /** Constructs the project information from given log file. 
+     */
+    fn from_log(id : ProjectId, log_file : & str) -> Project {
+        let mut result = Project{
+            id, 
+            url : String::new(),
+            last_update : 0,
+            metadata : HashMap::new(),
+            heads : Vec::new(),
+        };
+        let mut reader = csv::ReaderBuilder::new().has_headers(true).double_quote(false).escape(Some(b'\\')).from_path(log_file).unwrap();
+        let mut clear_heads = false;
+        for x in reader.records() {
+            match record::ProjectLogEntry::from_csv(x.unwrap()) {
+                record::ProjectLogEntry::Init{ time : _, source : _, url } => {
+                    result.url = url;
+                },
+                record::ProjectLogEntry::UpdateStart{ time : _, source : _ } => {
+                    clear_heads = true;
+                },
+                record::ProjectLogEntry::Update{ time, source : _ } => {
+                    result.last_update = time;
+                },
+                record::ProjectLogEntry::NoChange{ time, source : _} => {
+                    result.last_update = time;
+                },
+                record::ProjectLogEntry::Metadata{ time : _, source : _, key, value } => {
+                    result.metadata.insert(key, value);
+                },
+                record::ProjectLogEntry::Head{ time : _, source : _, name, hash} => {
+                    if clear_heads {
+                        result.heads.clear();
+                        clear_heads = false;
+                    } 
+                    // TODO convert hash to commit id
+                    result.heads.push((name, 0 as CommitId));
+                }
+            }
+        }
+        return result;
+    }
+
 }
 
 

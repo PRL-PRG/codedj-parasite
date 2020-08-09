@@ -8,7 +8,7 @@
             "name": "(gdb) Launch",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/target/debug/dcd-ghtorrent",
+            "program": "${workspaceFolder}/target/debug/dcd-reader",
             "args": [],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
