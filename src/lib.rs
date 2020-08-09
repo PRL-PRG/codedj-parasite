@@ -53,8 +53,6 @@ pub struct Project {
     pub metadata : HashMap<String,String>,
     // head refs of the project at the last update time
     pub heads : Vec<(String, CommitId)>,
-    // source the project data comes from    
-    pub source : Source,
 }
 
 /** Single commit information. 

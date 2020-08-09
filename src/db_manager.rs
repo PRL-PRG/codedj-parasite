@@ -72,10 +72,8 @@ impl DatabaseManager {
             let mut f = File::create(& commit_parents_file).unwrap();
             writeln!(& mut f, "commitId,parentId").unwrap();
         }
-
-
         // create the manager and return it
-        return DatabaseManager{
+        let result = DatabaseManager{
             root_ : root_folder,
             live_urls_ : Mutex::new(HashSet::new()),
             num_projects_ : Mutex::new(0),
@@ -89,6 +87,10 @@ impl DatabaseManager {
             commit_records_file_ : Mutex::new(OpenOptions::new().append(true).open(& commit_records_file).unwrap()),
             commit_parents_file_ : Mutex::new(OpenOptions::new().append(true).open(& commit_parents_file).unwrap()),
         };
+        // commit the 0 created projects to begin with
+        result.commit_created_projects();
+        // and return the new database manager
+        return result;
     }
 
     /** Creates database manager from existing database folder.
@@ -125,6 +127,16 @@ impl DatabaseManager {
         *num_projects += 1;
         live_urls.insert(url);
         return Some(id);
+    }
+
+    /** Commits the total number of projects which makes them reachable. 
+     
+        Technically this could happen after each new project is created, but that is too prohibitive so it is the responsibility of the code that adds projects to actually commit the number once the projects are created. 
+     */
+    pub fn commit_created_projects(& self) {
+        let mut num_projects = self.num_projects_.lock().unwrap();
+        let mut f = File::create(format!("{}/num_projects.csv", self.root_)).unwrap();
+        write!(& mut f, "numProjects\n{}\n", num_projects).unwrap();
     }
 
     /** Returns project log corresponding to given project.

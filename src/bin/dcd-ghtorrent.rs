@@ -11,6 +11,7 @@ fn main() {
     let root = String::from("/dejavuii/dejacode/ghtorrent/dump-filter");
     // first filter the projects 
     let project_ids = initialize_projects(& root, & mut db);
+    db.commit_created_projects();
     // the filter the commits and assign them to their projects
     let (commits, project_commits) = filter_commits(& root, & project_ids);
     // load all users as they come cheap
