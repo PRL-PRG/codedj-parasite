@@ -260,4 +260,16 @@ impl DatabaseManager {
         panic!("Invalid number of projects format.");
     }
 
+    pub fn get_commit_ids(root : & str) -> HashMap<git2::Oid, CommitId> {
+        let mut result = HashMap::<git2::Oid,CommitId>::new();
+        let mut reader = csv::ReaderBuilder::new().has_headers(true).double_quote(false).escape(Some(b'\\')).from_path(format!("{}/commit_ids.csv", root)).unwrap();
+        for x in reader.records() {
+            let record = x.unwrap();
+            let hash = git2::Oid::from_str(& record[0]).unwrap();
+            let id = record[1].parse::<u64>().unwrap() as CommitId;
+            result.insert(hash, id);
+        }
+        return result;
+    }
+
 }

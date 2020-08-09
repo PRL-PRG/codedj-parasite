@@ -138,11 +138,13 @@ pub struct FilePath {
 /** A trait for tests. */
 pub trait Database {
     fn num_projects(& self) -> u64;
+    fn num_commits(& self) -> u64;
+
+    fn get_project(& self, id : ProjectId) -> Option<Project>;
     //fn get_user(& self, id : UserId) -> Option<& User>;
     //fn get_snapshot(& self, id : BlobId) -> Option<Snapshot>;
     //fn get_file_path(& self, id : PathId) -> Option<FilePath>;
     //fn get_commit(& self, id : CommitId) -> Option<Commit>;
-    fn get_project(& self, id : ProjectId) -> Option<Project>;
 }
 
 /** The dejacode downloader interface.
@@ -183,6 +185,7 @@ pub trait Database {
 pub struct DCD {
     root_ : String,
     num_projects_ : u64,
+    commit_ids_ : HashMap<git2::Oid, CommitId>,
 }
 
 impl DCD {
@@ -191,10 +194,13 @@ impl DCD {
         println!("Loading dejacode database...");
         let num_projects = db_manager::DatabaseManager::get_num_projects(& root);
         println!("    {} projects", num_projects);
+        let commit_ids = db_manager::DatabaseManager::get_commit_ids(& root);
+        println!("    {} commits", commit_ids.len());
 
         let mut result = DCD{
             root_ : root, 
             num_projects_ : num_projects,
+            commit_ids_ : commit_ids,
         };
         return result;
     }
@@ -211,10 +217,14 @@ impl Database for DCD {
     fn num_projects(& self) -> u64 {
         return self.num_projects_;
     }
+
+    fn num_commits(& self) -> u64 {
+        return self.commit_ids_.len() as u64;
+    }
     
     fn get_project(& self, id : ProjectId) -> Option<Project> {
         if let Ok(project) = std::panic::catch_unwind(||{
-            return Project::from_log(id, & db_manager::DatabaseManager::get_project_log_file(& self.root_, id));
+            return Project::from_log(id, & db_manager::DatabaseManager::get_project_log_file(& self.root_, id), & self);
         }) {
             return Some(project);
         } else {
@@ -262,7 +272,7 @@ impl std::fmt::Display for Source {
 impl Project {
     /** Constructs the project information from given log file. 
      */
-    fn from_log(id : ProjectId, log_file : & str) -> Project {
+    fn from_log(id : ProjectId, log_file : & str, dcd : & DCD) -> Project {
         let mut result = Project{
             id, 
             url : String::new(),
@@ -294,8 +304,7 @@ impl Project {
                         result.heads.clear();
                         clear_heads = false;
                     } 
-                    // TODO convert hash to commit id
-                    result.heads.push((name, 0 as CommitId));
+                    result.heads.push((name, dcd.commit_ids_[& hash]));
                 }
             }
         }
