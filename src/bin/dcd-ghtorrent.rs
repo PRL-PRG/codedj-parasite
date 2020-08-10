@@ -7,8 +7,8 @@ use dcd::db_manager::DatabaseManager;
 /** Actually initializes stuff from ghtorrent.
  */
 fn main() {
-    let mut db = DatabaseManager::initialize_new("/dejavuii/dejacode/dataset-small".to_owned());
-    let root = String::from("/dejavuii/dejacode/ghtorrent/dump-filter");
+    let mut db = DatabaseManager::initialize_new("/dejavuii/dejacode/dataset-cpp".to_owned());
+    let root = String::from("/dejavuii/dejacode/ghtorrent/dump-cpp");
     // first filter the projects 
     let project_ids = initialize_projects(& root, & mut db);
     db.commit_created_projects();
@@ -17,7 +17,9 @@ fn main() {
     // load all users as they come cheap
     let users = load_users(& root);
     // now we can load commit details, storing the new commits as we get them and obtaining their ids
-    let (new_commits, ght_to_sha_and_own) = load_commit_details(& root, commits, users, & mut db);
+    let (new_commits, ght_to_sha_and_own) = load_commit_details(& root, commits, & users, & mut db);
+    // load stargazers 
+    load_stargazers(& root, & project_ids, & users, & mut db);
     // determine commit parents for all commits and store parents for new commits
     let commit_parents = load_commit_parents(& root, new_commits, & ght_to_sha_and_own, & mut db);
     // last thing we need to calculate is project heads
@@ -139,7 +141,7 @@ fn get_or_create_user(ght_id : u64, translated_users : & mut HashMap<u64, UserId
  
     Goes through all valid ghtorrent commits and obtains their ids from the database. For new commits determines the author and commiter ids (creates new users if necessary) and stores their records in the database.
  */
-fn load_commit_details(root : & str, commits : HashSet<u64>, users : HashMap<u64,String>, db : & mut DatabaseManager) -> (HashSet<u64>, HashMap<u64,(git2::Oid,CommitId)>) {
+fn load_commit_details(root : & str, commits : HashSet<u64>, users : & HashMap<u64,String>, db : & mut DatabaseManager) -> (HashSet<u64>, HashMap<u64,(git2::Oid,CommitId)>) {
     let mut reader = csv::ReaderBuilder::new().has_headers(false).double_quote(false).escape(Some(b'\\')).from_path(format!("{}/commits.csv", root)).unwrap();
     let mut records = 0;
     let mut new_commits = HashSet::<u64>::new();
@@ -193,6 +195,51 @@ fn load_commit_details(root : & str, commits : HashSet<u64>, users : HashMap<u64
     }
     println!("    records: {}, new commits: {}", records, new_commits.len());
     return (new_commits, ght_to_sha_and_own);
+}
+
+/** Loads stars information from ghtorrent and store them in the metadata of the project, one line per record. 
+ 
+    These are called watchers in the GHTorrent because of an old GitHub API name they had.
+
+    Note that this is not really super precise as GHTorrent has no provision of knowing whether stars were removed.
+ */
+fn load_stargazers(root: & str, project_ids : & HashMap<u64, ProjectId>, users : & HashMap<u64, String>, db : & mut DatabaseManager) {
+    let mut reader = csv::ReaderBuilder::new().has_headers(false).double_quote(false).escape(Some(b'\\')).from_path(format!("{}/watchers.csv", root)).unwrap();
+    let mut stars = HashMap::<ProjectId, Vec<(UserId,u64)>>::new();
+    let mut translated_users = HashMap::<u64, UserId>::new();
+    println!("Loading commit parents...");
+    for x in reader.records() {
+        let record = x.unwrap();
+        let project_ght_id = record[0].parse::<u64>().unwrap();
+        if let Some(project_id) = project_ids.get(& project_ght_id) {
+            let user_ght_id = record[1].parse::<u64>().unwrap();
+            let time = record[2].parse::<u64>().unwrap();
+            // this is not the speediest since some users have already been crated when we dealt with commits, but who cares for now...
+            let user_id = get_or_create_user(
+                user_ght_id,
+                & mut translated_users,
+                & users, 
+                db
+            );
+            stars.entry(*project_id).or_insert(Vec::new()).push((user_id, time));
+        }
+    }
+    println!("    {} projects have stars", stars.len());
+    for (project_id, stars) in stars.iter_mut() {
+        stars.sort_by(|(_, timea), (_, timeb) | timea.cmp(timeb));
+        let mut log = db.get_project_log(*project_id);
+        let mut num_stars = 0;
+        for (user_id, time) in stars {
+            num_stars += 1;
+            log.add(record::ProjectLogEntry::Metadata{
+                time : *time,
+                source : Source::GHTorrent,
+                key : "stars".to_owned(),
+                value : format!("{}({})", num_stars, user_id),
+            });
+            log.append();
+        }
+    }
 }
 
 fn load_commit_parents(root : & str, new_commits : HashSet<u64>, ght_to_sha_and_own : & HashMap<u64,(git2::Oid, CommitId)>, db : & mut DatabaseManager) -> HashMap<u64,Vec<u64>> {
@@ -286,5 +333,4 @@ fn finalize_project_updates(project_ids : & HashMap<u64, ProjectId>, db : & mut 
     }
     println!("    projects: {}", records);
 }
-
 

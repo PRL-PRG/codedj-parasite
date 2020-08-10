@@ -7,7 +7,7 @@
 
 std::string InputDir = "/dejavuii/dejacode/ghtorrent/dump";
 
-std::string OutputDir = "/dejavuii/dejacode/ghtorrent/dump-c";
+std::string OutputDir = "/dejavuii/dejacode/ghtorrent/dump-java";
 
 
 struct Done {};
@@ -86,6 +86,18 @@ void FilterDataset(std::unordered_set<uint64_t> & valid_projects) {
             }
        }, /* headers */ false);
     }
+    {
+        std::cout << "Filtering project stars (watchers)..." << std::endl;
+        std::ofstream w{OutputDir + "/watchers.csv"};
+        CSVReader::Parse(InputDir + "/watchers.csv", [&](std::vector<std::string> & row) {
+            if (valid_projects.find(std::stoull(row[0])) != valid_projects.end()) {
+                w << row[0] << "," // repo id
+                  << row[1] << "," // user id
+                  << EscapeQuotes(row[2]) << std::endl; // time
+                valid_users.insert(std::stoull(row[1]));
+            }
+       }, /* headers */ false);
+    }
     valid_projects.clear(); // no longer needed
     {
         std::cout << "Filtering commit details..." << std::endl;
@@ -141,8 +153,8 @@ void FilterDataset(std::unordered_set<uint64_t> & valid_projects) {
 
 int main() {
     std::filesystem::create_directories(OutputDir);
-    //std::unordered_set<uint64_t> validProjects{FilterFirstProjects(10000)};
-    std::unordered_set<uint64_t> validProjects{FilterLanguageProjects("C")};
+    std::unordered_set<uint64_t> validProjects{FilterFirstProjects(10000)};
+    //std::unordered_set<uint64_t> validProjects{FilterLanguageProjects("Java")};
     FilterDataset(validProjects);
     return EXIT_SUCCESS;
 }

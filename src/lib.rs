@@ -38,7 +38,8 @@ pub enum Source {
 /** Project is the main gateway to the database. 
 
     Each project comes with 
-    
+
+    TODO zap last_update
  */
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Project {
@@ -67,10 +68,10 @@ pub struct Commit {
     // id of parents
     pub parents : Vec<CommitId>,
     // committer id and time
-    pub committer_id : u64,
+    pub committer_id : UserId,
     pub committer_time : u64,
     // author id and time
-    pub author_id : u64,
+    pub author_id : UserId,
     pub author_time : u64,
     // commit message
     pub message: Option<String>,
@@ -125,7 +126,7 @@ pub struct Blob {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FilePath {
     // path id
-    id : u64,
+    id : PathId,
     // the actual path
     path : String,
 }

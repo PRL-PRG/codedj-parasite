@@ -8,6 +8,10 @@
 
 Immediate:
 
+- add ghtorrent stars to metadata (ASAP)
+- add github download of projects we want
+
+
 - global log for the updater (is needed?)
 
 - log & metadata should be scanned only up to a certain time when retrieved
@@ -16,3 +20,4 @@ Immediate:
   (idea: source in metadata, watchers.csv then in project)
 - heads can be nameless, have provision for that - perhaps heads are vector really
 - calculate heads in time...
+
