@@ -105,6 +105,12 @@ impl DatabaseManager {
         }
     }
 
+    /** Returns the number of projects the database contains.
+     */
+    pub fn num_projects(& self) -> u64 {
+        return * self.num_projects_.lock().unwrap();
+    }
+
     /** Creates new project with given url and source.
      
         If the url is new, returns the id assigned to the project, ortherwise returns None. The project log is initialized with init message of the appropriate url and source.  
@@ -125,7 +131,7 @@ impl DatabaseManager {
         std::fs::create_dir_all(& project_folder).unwrap();
         // initialize the log for the project
         {
-            let mut project_log = self.get_project_log(id);
+            let mut project_log = record::ProjectLog::new(self.get_project_log_filename(id));
             project_log.add(record::ProjectLogEntry::init(source, url.clone()));
             project_log.create_and_save();
         }
@@ -145,18 +151,9 @@ impl DatabaseManager {
         write!(& mut f, "numProjects\n{}\n", num_projects).unwrap();
     }
 
-    /** Returns project log corresponding to given project.
-     
-        It is assumed that the project already exists. The log is not read.
-     */ 
-    pub fn get_project_log(& self, id : ProjectId) -> record::ProjectLog {
-        return record::ProjectLog{
-            filename_ : Self::get_project_log_file(& self.root_, id),
-            entries_ : Vec::new(),
-        };
+    pub fn get_project_log_filename(& self, id : ProjectId) -> String{
+        return Self::get_project_log_file(& self.root_, id);
     }
-
-    // TODO read project log? 
 
     /** Returns existing user id, or creates new user from given data.
      

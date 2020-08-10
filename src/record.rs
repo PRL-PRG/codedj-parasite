@@ -111,6 +111,13 @@ pub struct ProjectLog {
 
 impl ProjectLog {
 
+    pub fn new(filename : String) -> ProjectLog {
+        return ProjectLog{
+            filename_ : filename,
+            entries_ : Vec::new(),
+        };
+    }
+
     pub fn add(& mut self, entry : ProjectLogEntry) {
         self.entries_.push(entry);
     }

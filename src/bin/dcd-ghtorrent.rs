@@ -7,8 +7,8 @@ use dcd::db_manager::DatabaseManager;
 /** Actually initializes stuff from ghtorrent.
  */
 fn main() {
-    let mut db = DatabaseManager::initialize_new("/dejavuii/dejacode/dataset-cpp");
-    let root = String::from("/dejavuii/dejacode/ghtorrent/dump-cpp");
+    let mut db = DatabaseManager::initialize_new("/dejavuii/dejacode/dataset-small-stars");
+    let root = String::from("/dejavuii/dejacode/ghtorrent/dump-filter");
     // first filter the projects 
     let project_ids = initialize_projects(& root, & mut db);
     db.commit_created_projects();
@@ -54,7 +54,7 @@ fn initialize_projects(root : & str, db : & mut DatabaseManager) -> HashMap<u64,
         // get the user and repo names
         if let Some(own_id) = db.add_project(url.clone(), Source::GHTorrent) {
             // add the ght_id and language to the project's metadata
-            let mut project_log = db.get_project_log(own_id);
+            let mut project_log = record::ProjectLog::new(db.get_project_log_filename(own_id));
             // start the update
             project_log.add(record::ProjectLogEntry::update_start(
                 Source::GHTorrent
@@ -207,13 +207,13 @@ fn load_stargazers(root: & str, project_ids : & HashMap<u64, ProjectId>, users :
     let mut reader = csv::ReaderBuilder::new().has_headers(false).double_quote(false).escape(Some(b'\\')).from_path(format!("{}/watchers.csv", root)).unwrap();
     let mut stars = HashMap::<ProjectId, Vec<(UserId,u64)>>::new();
     let mut translated_users = HashMap::<u64, UserId>::new();
-    println!("Loading commit parents...");
+    println!("Loading stargazers...");
     for x in reader.records() {
         let record = x.unwrap();
         let project_ght_id = record[0].parse::<u64>().unwrap();
         if let Some(project_id) = project_ids.get(& project_ght_id) {
             let user_ght_id = record[1].parse::<u64>().unwrap();
-            let time = record[2].parse::<u64>().unwrap();
+            let time = helpers::to_unix_epoch(& record[2]);
             // this is not the speediest since some users have already been crated when we dealt with commits, but who cares for now...
             let user_id = get_or_create_user(
                 user_ght_id,
@@ -227,7 +227,7 @@ fn load_stargazers(root: & str, project_ids : & HashMap<u64, ProjectId>, users :
     println!("    {} projects have stars", stars.len());
     for (project_id, stars) in stars.iter_mut() {
         stars.sort_by(|(_, timea), (_, timeb) | timea.cmp(timeb));
-        let mut log = db.get_project_log(*project_id);
+        let mut log = record::ProjectLog::new(db.get_project_log_filename(*project_id));
         let mut num_stars = 0;
         for (user_id, time) in stars {
             num_stars += 1;
@@ -237,8 +237,8 @@ fn load_stargazers(root: & str, project_ids : & HashMap<u64, ProjectId>, users :
                 key : "stars".to_owned(),
                 value : format!("{}({})", num_stars, user_id),
             });
-            log.append();
         }
+        log.append();
     }
 }
 
@@ -304,7 +304,7 @@ fn calculate_project_heads(
                     }
                 }
                 // create the head records and save the in the project's log
-                let mut log = db.get_project_log(*own_id);
+                let mut log = record::ProjectLog::new(db.get_project_log_filename(*own_id));
                 for ght_commit_id in heads {
                     let hash = ght_to_sha_and_own[& ght_commit_id].0;
                     log.add(record::ProjectLogEntry::head(Source::GHTorrent, String::new(), hash));
@@ -327,7 +327,7 @@ fn finalize_project_updates(project_ids : & HashMap<u64, ProjectId>, db : & mut 
         }
         records += 1;
         // finalize project update with the update message
-        let mut log = db.get_project_log(*own_id);
+        let mut log = record::ProjectLog::new(db.get_project_log_filename(*own_id));
         log.add(record::ProjectLogEntry::update(Source::GHTorrent));
         log.append();
     }
