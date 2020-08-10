@@ -2,22 +2,17 @@
 
     sudo apt-get install libssl-dev libgit2-dev
 
+# Future Features
 
+These are the features that we are currently bound to implement in the order of their implementation:
 
-# TODO
+- integration with (non-incremental) GitHub downloader. This will give us for projects we give it all the information required (i.e. changes and messages in commits)
+- making sure the ghtorrent updater can add stuff to existing datasets all right
 
-Immediate:
+# Distant Future Features
 
-- add ghtorrent stars to metadata (ASAP)
-- add github download of projects we want
+These will likely happen *after* the paper deadline, but should be available for the artifact deadline if the paper gets accepted:
 
-
-- global log for the updater (is needed?)
-
-- log & metadata should be scanned only up to a certain time when retrieved
-- add commits to the dataset
-- what to do with project stats, i.e. starts, watchers, etc. 
-  (idea: source in metadata, watchers.csv then in project)
-- heads can be nameless, have provision for that - perhaps heads are vector really
-- calculate heads in time...
-
+- user friendliness (i.e. decent commandline, encapsulation of stuff, better reporting, etc.)
+- file snapshots & github linguist & cloc and other tools information (not sure this is needed for the paper)
+- incremental downloading
