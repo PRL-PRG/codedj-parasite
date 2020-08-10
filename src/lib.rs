@@ -2,6 +2,8 @@ use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::prelude::*;
+use std::marker::Sized;
+use std::iter::FromIterator;
 
 // TODO how can I make these package only?
 // this should be package-only
@@ -143,6 +145,13 @@ pub trait Database {
     fn get_user(& self, id : UserId) -> Option<& User>;
     //fn get_snapshot(& self, id : BlobId) -> Option<Snapshot>;
     //fn get_file_path(& self, id : PathId) -> Option<FilePath>;
+
+    fn projects(&self) -> ProjectIter where Self: Sized { ProjectIter::from(self) }
+    fn commits(&self)  -> CommitIter  where Self: Sized { CommitIter::from(self)  }
+    fn users(&self)    -> UserIter    where Self: Sized { UserIter::from(self)    }
+
+    fn commits_from(&self, project: &Project) -> ProjectCommitIter where Self: Sized { ProjectCommitIter::from(self, project) }
+    fn users_from(&self, _project: &Project)  -> ProjectUserIter   where Self: Sized { unimplemented!()                       }
 }
 
 /** The dejacode downloader interface.
@@ -407,7 +416,6 @@ impl Project {
         }
         return result;
     }
-
 }
 
 impl Commit {
@@ -439,18 +447,157 @@ struct CommitBase {
     pub author_time : u64,
 }
 
+// /** Provides methods for iterating over the Database object.
+//   */
+// trait TraversableDatabase {
+//     fn projects(&self) -> ProjectIter;
+//     fn commits(&self) -> CommitIter;
+//     fn users(&self) -> UserIter;
+// }
+//
+// impl TraversableDatabase for dyn Database {
+//
+// }
+
+/** Iterates over all projects in the dataset.
+ */
+pub struct ProjectIter<'a> {
+    current:  ProjectId,
+    total:    u64,
+    database: &'a dyn Database,
+}
+
+impl<'a> ProjectIter<'a> {
+    pub fn from(database: &impl Database) -> ProjectIter {
+        let total = database.num_projects();
+        ProjectIter { current: 0, total, database }
+    }
+}
+
+impl<'a> Iterator for ProjectIter<'a> {
+    type Item = Project;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if !(self.current < self.total) {
+            return None;
+        }
+
+        if let Some(project) = self.database.get_project(self.current) {
+            self.current += 1;
+            return Some(project);
+        }
+
+        panic!("Database returned None for ProjectId={}", self.current); // FIXME maybe better handling
+    }
+}
+
+/** Iterates over all commits in the dataset.
+ */
+pub struct CommitIter<'a> {
+    current:  CommitId,
+    total:    u64,
+    database: &'a dyn Database,
+}
+
+impl<'a> CommitIter<'a> {
+    pub fn from(database: &impl Database) -> CommitIter {
+        let total = database.num_projects();
+        CommitIter { current: 0, total, database }
+    }
+}
+
+impl<'a> Iterator for CommitIter<'a> {
+    type Item = Commit;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if !(self.current < self.total) {
+            return None;
+        }
+
+        if let Some(commit) = self.database.get_commit(self.current) {
+            self.current += 1;
+            return Some(commit);
+        }
+
+        panic!("Database returned None for CommitId={}", self.current); // FIXME maybe better handling
+    }
+}
+
+/** Iterates over all users in the dataset.
+ */
+pub struct UserIter<'a> {
+    current:  UserId,
+    total:    u64,
+    database: &'a dyn Database,
+}
+
+impl<'a> UserIter<'a> {
+    pub fn from(database: &impl Database) -> UserIter {
+        UserIter {
+            current: 0,
+            total: database.num_users(),
+            database,
+        }
+    }
+}
+
+impl<'a> Iterator for UserIter<'a> {
+    type Item = &'a User;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if !(self.current < self.total) {
+            return None;
+        }
+
+        if let Some(user) = self.database.get_user(self.current) {
+            self.current += 1;
+            return Some(user);
+        }
+
+        panic!("Database returned None for UserId={}", self.current); // FIXME maybe better handling
+    }
+}
+
+/** Iterates over all commits within a specific project.
+ */
+pub struct ProjectCommitIter<'a> {
+    visited:  HashSet<CommitId>,
+    to_visit: HashSet<u64>,
+    database: &'a dyn Database,
+}
+
+impl<'a> ProjectCommitIter<'a> {
+    pub(crate) fn from(database: &'a impl Database, project: &Project) -> ProjectCommitIter<'a> {
+        let visited: HashSet<CommitId> = HashSet::new();
+        let head_commits: Vec<CommitId> = project.heads.iter().map(|(_, id)| *id).collect();
+        let to_visit: HashSet<CommitId> = HashSet::from_iter(head_commits);
+        ProjectCommitIter { visited, to_visit, database }
+    }
+}
+
+impl<'a> Iterator for ProjectCommitIter<'a> {
+    type Item = Commit;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            return match self.to_visit.iter().next() { // Blergh.
+                Some(commit_id) => {
+                    if !self.visited.insert(*commit_id) {
+                        continue; // Commit already visited - ignoring, going to the next one.
+                    }
+                    self.database.get_commit(*commit_id)
+                },
+                None => None, // Iterator is empty
+            };
+        }
+    }
+}
+
+pub struct ProjectUserIter { /* TODO */ }
+
 
 
 /*
-
-
-
-
-
-
-
-
-
 
 
 /** Basic access to the DejaCode Downloader database.
