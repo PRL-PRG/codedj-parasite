@@ -7,7 +7,7 @@ use dcd::db_manager::DatabaseManager;
 /** Actually initializes stuff from ghtorrent.
  */
 fn main() {
-    let mut db = DatabaseManager::initialize_new("/dejavuii/dejacode/dataset-cpp".to_owned());
+    let mut db = DatabaseManager::initialize_new("/dejavuii/dejacode/dataset-cpp");
     let root = String::from("/dejavuii/dejacode/ghtorrent/dump-cpp");
     // first filter the projects 
     let project_ids = initialize_projects(& root, & mut db);

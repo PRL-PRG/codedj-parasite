@@ -40,82 +40,69 @@ impl DatabaseManager {
      
         If the folder exists, all its contents is deleted first. 
      */
-    pub fn initialize_new(root_folder : String) -> DatabaseManager {
+    pub fn initialize_new(root : & str) -> DatabaseManager {
         // initialize the folder
-        if std::path::Path::new(& root_folder).exists() {
-            std::fs::remove_dir_all(& root_folder).unwrap();
+        if std::path::Path::new(root).exists() {
+            std::fs::remove_dir_all(root).unwrap();
         }
-        std::fs::create_dir_all(& root_folder).unwrap();
+        std::fs::create_dir_all(root).unwrap();
         // create the necessary files
-        let user_ids_file = format!("{}/user_ids.csv", root_folder);
         {
-            let mut f = File::create(& user_ids_file).unwrap();
+            let mut f = File::create(Self::get_num_projects_file(root)).unwrap();
+            writeln!(& mut f, "numProjects").unwrap();
+            writeln!(& mut f, "0").unwrap();
+        }
+        {
+            let mut f = File::create(Self::get_user_ids_file(root)).unwrap();
             writeln!(& mut f, "email,id").unwrap();
         }
-        let user_records_file = format!("{}/user_records.csv", root_folder);
         {
-            let mut f = File::create(& user_records_file).unwrap();
+            let mut f = File::create(Self::get_user_records_file(root)).unwrap();
             writeln!(& mut f, "time,id,name,source").unwrap();
         }
-        let commit_ids_file = format!("{}/commit_ids.csv", root_folder);
         {
-            let mut f = File::create(& commit_ids_file).unwrap();
+            let mut f = File::create(Self::get_commit_ids_file(root)).unwrap();
             writeln!(& mut f, "hash,id").unwrap();
         }
-        let commit_records_file = format!("{}/commit_records.csv", root_folder);
         {
-            let mut f = File::create(& commit_records_file).unwrap();
+            let mut f = File::create(Self::get_commit_records_file(root)).unwrap();
             writeln!(& mut f, "time,id,committerId,committerTime,authorId,authorTime,source").unwrap();
         }
-        let commit_parents_file = format!("{}/commit_parents.csv", root_folder);
         {
-            let mut f = File::create(& commit_parents_file).unwrap();
+            let mut f = File::create(Self::get_commit_parents_file(root)).unwrap();
             writeln!(& mut f, "time,commitId,parentId").unwrap();
         }
-        // create the manager and return it
-        let result = DatabaseManager{
-            root_ : root_folder,
-            live_urls_ : Mutex::new(HashSet::new()),
-            num_projects_ : Mutex::new(0),
-
-            user_ids_ : Mutex::new(HashMap::new()),
-            user_ids_file_ : Mutex::new(OpenOptions::new().append(true).open(& user_ids_file).unwrap()), 
-            user_records_file_ : Mutex::new(OpenOptions::new().append(true).open(& user_records_file).unwrap()),
-
-            commit_ids_ : Mutex::new(HashMap::new()),
-            commit_ids_file_ : Mutex::new(OpenOptions::new().append(true).open(& commit_ids_file).unwrap()), 
-            commit_records_file_ : Mutex::new(OpenOptions::new().append(true).open(& commit_records_file).unwrap()),
-            commit_parents_file_ : Mutex::new(OpenOptions::new().append(true).open(& commit_parents_file).unwrap()),
-        };
-        // commit the 0 created projects to begin with
-        result.commit_created_projects();
-        // and return the new database manager
-        return result;
+        return Self::from(root);
     }
 
     /** Creates database manager from existing database folder.
+     
+        For this to work we need to load the right data and to open the right files. 
      */
-    pub fn from(root_folder : String) -> DatabaseManager {
-        //let num_projects = Self::get_num_projects(& root_folder);
-        // load user ids mapping
-        /*
-        let mut user_ids = HashMap::<String,UserId>::new();
-        let user_ids_file = format!("{}/user_ids.csv", root_folder);
-        {
-            let mut reader = csv::ReaderBuilder::new().has_headers(true).double_quote(false).escape(Some(b'\\')).from_path(& user_ids_file).unwrap();
-            println!("Loading user ids...");
-            for x in reader.records() {
-                let record = x.unwrap();
-                let email = String::from(& record[0]);
-                let user_id = record[1].parse::<u64>().unwrap() as UserId;
-                user_ids.insert(email, user_id);
-            }
-            println!("    {} users loaded", user_ids.len());
+    pub fn from(root : & str) -> DatabaseManager {
+        println!("Loading database from {}", root);        
+        let num_projects = Self::get_num_projects(root);
+        println!("    {} projects", num_projects);
+        let user_ids = Self::get_user_ids(root);
+        println!("    {} users", user_ids.len());
+        let commit_ids = Self::get_commit_ids(root);
+        println!("    {} commits", commit_ids.len());
+        return DatabaseManager{
+            root_ : String::from(root),
+            // live urls will be lazy loaded as they are only necessary for adding new projects which should not happen often
+            live_urls_ : Mutex::new(HashSet::new()),
+            num_projects_ : Mutex::new(num_projects),
+
+            user_ids_ : Mutex::new(user_ids),
+            user_ids_file_ : Mutex::new(OpenOptions::new().append(true).open(Self::get_user_ids_file(root)).unwrap()), 
+            user_records_file_ : Mutex::new(OpenOptions::new().append(true).open(Self::get_user_records_file(root)).unwrap()),
+
+            commit_ids_ : Mutex::new(commit_ids),
+            commit_ids_file_ : Mutex::new(OpenOptions::new().append(true).open(Self::get_commit_ids_file(root)).unwrap()), 
+            commit_records_file_ : Mutex::new(OpenOptions::new().append(true).open(Self::get_commit_records_file(root)).unwrap()),
+            commit_parents_file_ : Mutex::new(OpenOptions::new().append(true).open(Self::get_commit_parents_file(root)).unwrap()),
+
         }
-        */
-        // load commit ids mapping
-        // and so on...
-        unimplemented!();
     }
 
     /** Creates new project with given url and source.
@@ -237,6 +224,29 @@ impl DatabaseManager {
     }
 
     // bookkeeping & stuff
+    pub fn get_num_projects_file(root : & str) -> String {
+        return format!("{}/num_projects.csv", root);
+    }
+
+    pub fn get_user_ids_file(root : & str) -> String {
+        return format!("{}/user_ids.csv", root);
+    }
+
+    pub fn get_user_records_file(root : & str) -> String {
+        return format!("{}/user_records.csv", root);
+    }
+
+    pub fn get_commit_ids_file(root : & str) -> String {
+        return format!("{}/commit_ids.csv", root);
+    }
+
+    pub fn get_commit_records_file(root : & str) -> String {
+        return format!("{}/commit_records.csv", root);
+    }
+
+    pub fn get_commit_parents_file(root : & str) -> String {
+        return format!("{}/commit_parents.csv", root);
+    }
 
     /** Returns the log file for given project id. 
      
@@ -248,12 +258,12 @@ impl DatabaseManager {
 
     /** Returns only the folder where the project log should exist so that we can ensure its presence. 
      */
-    fn get_project_log_folder(root : & str, id : ProjectId) -> String {
+    pub fn get_project_log_folder(root : & str, id : ProjectId) -> String {
         return format!("{}/projects/{}/{}", root, id / 1000000, id % 1000);
     }
 
     pub fn get_num_projects(root : & str) -> u64 {
-        let mut reader = csv::ReaderBuilder::new().has_headers(true).double_quote(false).escape(Some(b'\\')).from_path(format!("{}/num_projects.csv", root)).unwrap();
+        let mut reader = csv::ReaderBuilder::new().has_headers(true).double_quote(false).escape(Some(b'\\')).from_path(Self::get_num_projects_file(root)).unwrap();
         for x in reader.records() {
             let record = x.unwrap();
             return record[0].parse::<u64>().unwrap();
@@ -261,9 +271,21 @@ impl DatabaseManager {
         panic!("Invalid number of projects format.");
     }
 
+    pub fn get_user_ids(root : & str) -> HashMap<String, UserId> {
+        let mut result = HashMap::<String,UserId>::new();
+        let mut reader = csv::ReaderBuilder::new().has_headers(true).double_quote(false).escape(Some(b'\\')).from_path(Self::get_user_ids_file(root)).unwrap();
+        for x in reader.records() {
+            let record = x.unwrap();
+            let email = String::from(&record[0]);
+            let id = record[1].parse::<u64>().unwrap() as CommitId;
+            result.insert(email, id);
+        }
+        return result;
+    }
+
     pub fn get_commit_ids(root : & str) -> HashMap<git2::Oid, CommitId> {
         let mut result = HashMap::<git2::Oid,CommitId>::new();
-        let mut reader = csv::ReaderBuilder::new().has_headers(true).double_quote(false).escape(Some(b'\\')).from_path(format!("{}/commit_ids.csv", root)).unwrap();
+        let mut reader = csv::ReaderBuilder::new().has_headers(true).double_quote(false).escape(Some(b'\\')).from_path(Self::get_commit_ids_file(root)).unwrap();
         for x in reader.records() {
             let record = x.unwrap();
             let hash = git2::Oid::from_str(& record[0]).unwrap();
