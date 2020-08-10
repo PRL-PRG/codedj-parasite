@@ -23,6 +23,7 @@ pub type BlobId = u64;
 pub type PathId = u64;
 pub type CommitId = u64;
 pub type ProjectId = u64;
+pub type Message = Vec<u8>;
 
 /** Source of the information from the downloader. 
  
@@ -74,7 +75,7 @@ pub struct Commit {
     pub author_id : UserId,
     pub author_time : u64,
     // commit message
-    pub message: Option<String>,
+    pub message: Option<Message>,
     // changes made by the commit 
     pub changes: Option<HashMap<PathId, SnapshotId>>,
 }
