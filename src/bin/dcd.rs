@@ -25,7 +25,8 @@ struct Project {
     url : String, 
     last_update : u64, 
     metadata : HashMap<String, (String,Source)>,
-    heads : HashMap<String, (git2::Oid, Source)>,
+    heads : Vec<(String, git2::Oid, Source)>,
+    log : record::ProjectLog,
 }
 
 
@@ -39,10 +40,15 @@ struct Project {
 
     First we have to analyze the project information, the we can start the git download & things...
  */
-fn update_project(id : ProjectId, db : & DatabaseManager) {
+fn update_project(id : ProjectId, db : & DatabaseManager) -> Result<bool, git2::Error> {
     let project = Project::from_database(id, db);
     println!("{} : {}", project.id, project.url);
+    // create the bare git repository 
+    // TODO in the future, we can check whether the repo exists and if it does do just update 
+    let repo = git2::Repository::init_bare(format!("{}/tmp/{}", db.root(), id))?;
 
+
+    return Ok(true);
 }
 
 // Structs impls & helper functions
@@ -54,7 +60,8 @@ impl Project {
             url : String::new(),
             last_update : 0,
             metadata : HashMap::new(),
-            heads : HashMap::new(),
+            heads : Vec::new(),
+            log : record::ProjectLog::new(db.get_project_log_filename(id)),
         };
         let mut reader = csv::ReaderBuilder::new()
             .has_headers(true)
@@ -84,11 +91,31 @@ impl Project {
                         result.heads.clear();
                         clear_heads = false;
                     } 
-                    result.heads.insert(name, (hash, source));
+                    result.heads.push((name, hash, source));
                 }
             }
         }
         return result;
+    }
+
+    pub fn fetch_new_heads(& mut self, repo : & mut git2::Repository) -> Result<HashSet<git2::Oid>, git2::Error> {
+        // create a remote to own url and connect
+        let mut remote = repo.remote("ghm", & self.url)?;
+        remote.connect(git2::Direction::Fetch)?;
+        // now load the heads from remote,
+        let mut remote_heads = HashMap::<String, git2::Oid>::new();
+        for x in remote.list()? {
+            if x.name().starts_with("refs/heads/") {
+                remote_heads.insert(String::from(x.name()), x.oid());
+            }
+        }
+        // now determine new heads and if there are any, update the project log accordingly
+        let mut result = HashSet::<git2::Oid>::new();
+        
+
+
+
+        return Ok(result);
     }
 }
 

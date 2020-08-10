@@ -105,6 +105,10 @@ impl DatabaseManager {
         }
     }
 
+    pub fn root(& self) -> & str {
+        return & self.root_;
+    }
+
     /** Returns the number of projects the database contains.
      */
     pub fn num_projects(& self) -> u64 {

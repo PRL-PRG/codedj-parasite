@@ -7,7 +7,7 @@
 
 std::string InputDir = "/dejavuii/dejacode/ghtorrent/dump";
 
-std::string OutputDir = "/dejavuii/dejacode/ghtorrent/dump-java";
+std::string OutputDir = "/dejavuii/dejacode/ghtorrent/dump-tiny";
 
 
 struct Done {};
@@ -153,7 +153,7 @@ void FilterDataset(std::unordered_set<uint64_t> & valid_projects) {
 
 int main() {
     std::filesystem::create_directories(OutputDir);
-    std::unordered_set<uint64_t> validProjects{FilterFirstProjects(10000)};
+    std::unordered_set<uint64_t> validProjects{FilterFirstProjects(100)};
     //std::unordered_set<uint64_t> validProjects{FilterLanguageProjects("Java")};
     FilterDataset(validProjects);
     return EXIT_SUCCESS;
