@@ -7,11 +7,6 @@ use std::iter::FromIterator;
 
 // TODO how can I make these package only?
 // this should be package-only
-//pub mod downloader_state;
-//pub mod ghtorrent;
-//pub mod project;
-//pub mod commit;
-//pub mod user;
 pub mod db_manager;
 pub mod record;
 pub mod helpers;
@@ -31,7 +26,7 @@ pub type Message = Vec<u8>;
  
     For now we only support GHTorrent and GitHub. In the future we might add more. While the downloader exports this, it should not really matter for the users in most cases, other than reliability - stuff coming from GitHub is more reliable than GhTorrent.   
  */
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub enum Source {
     NA,
     GHTorrent,

@@ -41,12 +41,12 @@ struct Project {
     First we have to analyze the project information, the we can start the git download & things...
  */
 fn update_project(id : ProjectId, db : & DatabaseManager) -> Result<bool, git2::Error> {
-    let project = Project::from_database(id, db);
-    println!("{} : {}", project.id, project.url);
+    let mut project = Project::from_database(id, db);
     // create the bare git repository 
     // TODO in the future, we can check whether the repo exists and if it does do just update 
-    let repo = git2::Repository::init_bare(format!("{}/tmp/{}", db.root(), id))?;
-
+    let mut repo = git2::Repository::init_bare(format!("{}/tmp/{}", db.root(), id))?;
+    let new_heads = project.fetch_new_heads(& mut repo)?;
+    println!("{} : {}, new heads: {}", project.id, project.url, new_heads.len());
 
     return Ok(true);
 }
@@ -103,19 +103,48 @@ impl Project {
         let mut remote = repo.remote("ghm", & self.url)?;
         remote.connect(git2::Direction::Fetch)?;
         // now load the heads from remote,
-        let mut remote_heads = HashMap::<String, git2::Oid>::new();
+        let mut remote_heads = HashSet::<(String, git2::Oid, Source)>::new();
         for x in remote.list()? {
             if x.name().starts_with("refs/heads/") {
-                remote_heads.insert(String::from(x.name()), x.oid());
+                remote_heads.insert((String::from(x.name()), x.oid(), Source::GitHub));
             }
         }
-        // now determine new heads and if there are any, update the project log accordingly
-        let mut result = HashSet::<git2::Oid>::new();
-        
+        // once we obtained the remote heads, we must check if there are (a) any changes to the heads we have stored already and (b) if there are any new head commits that we might have to traverse. Note that if there are no changes to hashes, then trivially there are no new commits, but the reverse is not true 
+        let new_heads = self.update_heads(& remote_heads);
+        // now determine if we need to download the contents - this is when new heads are non-empty and the commits are unknown, or their source is not github...
+        // TODO TODO TODO 
+        return Ok(new_heads);
+    }
 
+    /** Updates the heads of the project to the given state if there is any change. 
+    
+        Returns list of new commit hashes that differ from the previously stored heads (including their source).
 
-
-        return Ok(result);
+        This is wasteful as each update of heads stores *all* heads, maybe in the future we want new log messages that will just replace/add or remove heads from previous iterations in cases the changes are just incremental. 
+     */
+    fn update_heads(& mut self, remote_heads : & HashSet<(String, git2::Oid, Source)>) -> HashSet<git2::Oid> {
+        if self.heads.len() == remote_heads.len() {
+            let old_heads : HashSet<(String, git2::Oid, Source)> = self.heads.iter().map(|(name, hash, source)| (name.to_owned(), *hash, *source)).collect();
+            // if there is no difference between the old and new heads, return false
+            if remote_heads.symmetric_difference(& old_heads).next().is_none() {
+                return HashSet::new();
+            }
+        }
+        // first calculate new heads
+        let new_heads : HashSet<git2::Oid> = remote_heads.iter()
+            .map(|(_, hash, source)| (*hash, *source)).collect::<HashSet<(git2::Oid, Source)>>()
+            .difference(
+                & self.heads.iter()
+                .map(|(_, hash, source)| (*hash, *source))
+                .collect::<HashSet<(git2::Oid, Source)>>()
+            ).map(|(hash, _)| *hash).collect();
+        // then clear the heads stored in project and update the log accordingly (without committing it)
+        self.heads.clear();
+        for (name, hash, source) in remote_heads {
+            self.heads.push((name.to_owned(), *hash, *source));
+            self.log.add(record::ProjectLogEntry::head(*source, name.to_owned(), *hash));
+        }
+        return new_heads;
     }
 }
 
