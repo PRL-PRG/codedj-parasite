@@ -145,8 +145,8 @@ pub trait Database {
     fn commits(&self)  -> CommitIter  where Self: Sized { CommitIter::from(self)  }
     fn users(&self)    -> UserIter    where Self: Sized { UserIter::from(self)    }
 
-    fn commits_from(&self, project: &Project) -> ProjectCommitIter where Self: Sized { ProjectCommitIter::from(self, project) }
-    fn users_from(&self, _project: &Project)  -> ProjectUserIter   where Self: Sized { unimplemented!()                       }
+    fn commits_from(&self, project: &Project)  -> ProjectCommitIter where Self: Sized { ProjectCommitIter::from(self, project) }
+    fn user_ids_from(&self, project: &Project) -> ProjectUserIdIter where Self: Sized { ProjectUserIdIter::from(self, project) }
 }
 
 /** The dejacode downloader interface.
@@ -557,12 +557,12 @@ impl<'a> Iterator for UserIter<'a> {
  */
 pub struct ProjectCommitIter<'a> {
     visited:  HashSet<CommitId>,
-    to_visit: HashSet<u64>,
+    to_visit: HashSet<CommitId>,
     database: &'a dyn Database,
 }
 
 impl<'a> ProjectCommitIter<'a> {
-    pub(crate) fn from(database: &'a impl Database, project: &Project) -> ProjectCommitIter<'a> {
+    pub fn from(database: &'a impl Database, project: &Project) -> ProjectCommitIter<'a> {
         let visited: HashSet<CommitId> = HashSet::new();
         let head_commits: Vec<CommitId> = project.heads.iter().map(|(_, id)| *id).collect();
         let to_visit: HashSet<CommitId> = HashSet::from_iter(head_commits);
@@ -575,22 +575,89 @@ impl<'a> Iterator for ProjectCommitIter<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            return match self.to_visit.iter().next() { // Blergh.
-                Some(commit_id) => {
-                    if !self.visited.insert(*commit_id) {
-                        continue; // Commit already visited - ignoring, going to the next one.
-                    }
-                    self.database.get_commit(*commit_id)
-                },
-                None => None, // Iterator is empty
-            };
+            let commit_id = self.to_visit.iter().next().map(|u| *u); // Blergh...
+
+            if let Some(commit_id) = commit_id {
+                self.visited.remove(&commit_id); // There are only unseen user_ids in cache.
+
+                if !self.visited.insert(commit_id) {
+                    continue; // Commit already visited - ignoring, going to the next one.
+                }
+
+                return self.database.get_commit(commit_id)
+            }
         }
     }
 }
 
-pub struct ProjectUserIter { /* TODO */ }
+pub struct ProjectUserIdIter<'a> {
+    commit_iter: ProjectCommitIter<'a>,
+    seen_users: HashSet<UserId>,
+    user_cache: HashSet<UserId>,
+    desired_cache_size: usize,
+}
 
+impl<'a> ProjectUserIdIter<'a> {
+    pub fn from(database: &'a impl Database, project: &Project) -> ProjectUserIdIter<'a> {
+        let desired_cache_size = 100usize;
+        let seen_users: HashSet<CommitId> = HashSet::new();
+        let user_cache: HashSet<CommitId> = HashSet::with_capacity(desired_cache_size);
+        let commit_iter = ProjectCommitIter::from(database, project);
+        ProjectUserIdIter { commit_iter, seen_users, user_cache, desired_cache_size }
+    }
 
+    fn next_from_cache(&mut self) -> Option<UserId> {
+        let user_id = self.user_cache.iter().next().map(|u| *u); // Blergh...
+
+        if let Some(user_id) = user_id {
+            self.user_cache.remove(&user_id); // There are only unseen user_ids in cache.
+            return Some(user_id)
+        }
+
+        return None
+    }
+
+    fn populate_cache(&mut self) -> bool {
+        loop {
+            return match self.commit_iter.next() {
+                Some(commit) => {
+                    if self.seen_users.insert(commit.author_id) {
+                        self.user_cache.insert(commit.author_id); // User not yet seen.
+                    }
+
+                    if self.seen_users.insert(commit.committer_id) {
+                        self.user_cache.insert(commit.committer_id); // User not yet seen.
+                    }
+
+                    if self.user_cache.len() < self.desired_cache_size {
+                        continue;
+                    }
+
+                    true
+                },
+                None => self.user_cache.len() != 0
+            }
+        }
+    }
+}
+
+impl<'a> Iterator for ProjectUserIdIter<'a> {
+    type Item = UserId;
+
+     fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let user_opt = self.next_from_cache();
+
+            if user_opt.is_some() {
+                return user_opt
+            }
+
+            if !self.populate_cache() {
+                return None
+            }
+        }
+    }
+}
 
 /*
 
