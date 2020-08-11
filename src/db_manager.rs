@@ -55,6 +55,16 @@ pub struct DatabaseManager {
      */
     commit_messages_files_ : Mutex<(File, File)>, 
 
+    /** Commit changes index (with additions and deletions) and commit changes. 
+     */
+    commit_changes_files_ : Mutex<(File, File)>,
+
+    path_ids_ : Mutex<HashMap<String, PathId>>,
+    path_ids_file_ : Mutex<File>,
+
+    snapshot_ids_ : Mutex<HashMap<git2::Oid, SnapshotId>>,
+    snapshot_ids_file_ : Mutex<File>,
+
 }
 
 impl DatabaseManager {
@@ -97,9 +107,27 @@ impl DatabaseManager {
         }
         {
             let mut f = File::create(Self::get_commit_messages_index_file(root)).unwrap();
-            writeln!(& mut f, "commitId,offset,size").unwrap();
+            writeln!(& mut f, "commitId,offset").unwrap();
         }
-        
+        {
+            let mut f = File::create(Self::get_commit_changes_index_file(root)).unwrap();
+            writeln!(& mut f, "commitId,offset,additions,deletions").unwrap();
+        }
+        {
+            let mut f = File::create(Self::get_commit_changes_file(root)).unwrap();
+            writeln!(& mut f, "pathId,snapshotId").unwrap();
+        }
+        {
+            let mut f = File::create(Self::get_path_ids_file(root)).unwrap();
+            writeln!(& mut f, "path,id").unwrap();
+            writeln!(& mut f, "\"\",0").unwrap();
+        }
+        {
+            let mut f = File::create(Self::get_snapshot_ids_file(root)).unwrap();
+            writeln!(& mut f, "hash,id").unwrap();
+            writeln!(& mut f, "\"0000000000000000000000000000000000000000\",0").unwrap();
+        }
+
         return Self::from(root);
     }
 
@@ -115,6 +143,10 @@ impl DatabaseManager {
         println!("    {} users", user_ids.len());
         let commit_ids = Self::get_commit_ids(root);
         println!("    {} commits", commit_ids.len());
+        let path_ids = Self::get_path_ids(root);
+        println!("    {} paths", path_ids.len());
+        let snapshot_ids = Self::get_snapshot_ids(root);
+        println!("    {} snapshots", snapshot_ids.len());
         return DatabaseManager{
             root_ : String::from(root),
             // live urls will be lazy loaded as they are only necessary for adding new projects which should not happen often
@@ -136,6 +168,19 @@ impl DatabaseManager {
                 OpenOptions::new().append(true).open(Self::get_commit_messages_index_file(root)).unwrap(),
                 OpenOptions::new().create(true).append(true).open(Self::get_commit_messages_file(root)).unwrap()
             )),
+
+            commit_changes_files_ : Mutex::new((
+                OpenOptions::new().append(true).open(Self::get_commit_changes_index_file(root)).unwrap(),
+                OpenOptions::new().create(true).append(true).open(Self::get_commit_changes_file(root)).unwrap()
+            )),
+
+            path_ids_ : Mutex::new(path_ids),
+            path_ids_file_ : Mutex::new(OpenOptions::new().append(true).open(Self::get_path_ids_file(root)).unwrap()), 
+
+            snapshot_ids_ : Mutex::new(snapshot_ids),
+            snapshot_ids_file_ : Mutex::new(OpenOptions::new().append(true).open(Self::get_snapshot_ids_file(root)).unwrap()), 
+
+
         }
     }
 
@@ -371,6 +416,29 @@ impl DatabaseManager {
         }
     }
 
+    /* TODO update this to something nice. 
+
+        Like how to get decent mutexes on the things...
+    pub fn translate_commit_changes(& self, changes : & HashMap<String, git2::Oid>) -> HashMap<PathId, (SnapshotId, bool)> {
+        let mut path_ids = self.path_ids_.lock().unwrap();
+        let mut snapshot_ids = self.snapshot_ids_.lock().unwrap();
+        return changes.map(|(path, hash| {
+            (Self::get_or_create_path_id(path_ids, path),
+             Self::get_or_create_snapshot_id(snapshot_ids, )    
+
+
+        }).collect();
+    }
+
+    fn get_or_create_path_id(path_ids : & mut HashMap<String, PathId>, path : & str) -> PathId {
+
+    }
+
+    fn get_or_create_snapshot_id(snapshot_ids : & mut HashMap<git2::Oid, SnapshotId>, hash: git2::Oid) -> (SnapshotId, bool) {
+
+    }
+    */
+
     /** Appends commit parents information. 
      
         If the commit is incomplete, first verifies whether the parent information differs and only updates the parents if there is change. 
@@ -433,6 +501,22 @@ impl DatabaseManager {
         return format!("{}/commit_messages.dat", root);
     }
 
+    pub fn get_commit_changes_index_file(root : & str) -> String {
+        return format!("{}/commit_changes_index.dat", root);
+    }
+
+    pub fn get_commit_changes_file(root : & str) -> String {
+        return format!("{}/commit_changes.dat", root);
+    }
+
+    pub fn get_path_ids_file(root : & str) -> String {
+        return format!("{}/path_ids.dat", root);
+    }
+
+    pub fn get_snapshot_ids_file(root : & str) -> String {
+        return format!("{}/snapshot_ids.dat", root);
+    }
+
     /** Returns the log file for given project id. 
      
         
@@ -479,6 +563,32 @@ impl DatabaseManager {
         }
         return result;
     }
+
+    pub fn get_path_ids(root : & str) -> HashMap<String, PathId> {
+        let mut result = HashMap::<String, PathId>::new();
+        let mut reader = csv::ReaderBuilder::new().has_headers(true).double_quote(false).escape(Some(b'\\')).from_path(Self::get_commit_ids_file(root)).unwrap();
+        for x in reader.records() {
+            let record = x.unwrap();
+            let path = String::from(& record[0]);
+            let id = record[1].parse::<u64>().unwrap() as PathId;
+            result.insert(path, id);
+        }
+        return result;
+
+    }
+
+    pub fn get_snapshot_ids(root : & str) -> HashMap<git2::Oid, SnapshotId> {
+        let mut result = HashMap::<git2::Oid, SnapshotId>::new();
+        let mut reader = csv::ReaderBuilder::new().has_headers(true).double_quote(false).escape(Some(b'\\')).from_path(Self::get_snapshot_ids_file(root)).unwrap();
+        for x in reader.records() {
+            let record = x.unwrap();
+            let hash = git2::Oid::from_str(& record[0]).unwrap();
+            let id = record[1].parse::<u64>().unwrap() as SnapshotId;
+            result.insert(hash, id);
+        }
+        return result;
+    }
+
 
 }
 

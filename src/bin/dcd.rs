@@ -88,11 +88,19 @@ fn update_commits(commits : & HashSet<git2::Oid>, repo : & mut git2::Repository,
             let commit = repo.find_commit(hash)?;
             let committer = commit.committer();
             let committer_time = commit.time().seconds();
-            let committer_id = db.get_or_create_user(committer.email().unwrap(), committer.name().unwrap(), Source::GitHub);
+            let committer_id = db.get_or_create_user(
+                & String::from_utf8_lossy(committer.email_bytes()), 
+                & String::from_utf8_lossy(committer.name_bytes()),
+                Source::GitHub
+            );
 
             let author = commit.author();
             let author_time = author.when().seconds();
-            let author_id = db.get_or_create_user(author.email().unwrap(), author.name().unwrap(), Source::GitHub);
+            let author_id = db.get_or_create_user(
+                & String::from_utf8_lossy(author.email_bytes()),
+                & String::from_utf8_lossy(author.name_bytes()),
+                Source::GitHub
+            );
 
             let parents : HashSet<CommitId> = commit.parents().map(|x| db.get_commit_id(x.id()).unwrap().0).collect();
 
@@ -101,7 +109,8 @@ fn update_commits(commits : & HashSet<git2::Oid>, repo : & mut git2::Repository,
             db.append_commit_message(commit_id, msg);
 
             // get the changes
-
+            let (changes, additions, deletions) = calculate_commit_diff(repo, & commit, db)?;
+            
 
 
             db.append_commit_record(commit_id, committer_id, committer_time, author_id, author_time, Source::GitHub);
@@ -112,14 +121,30 @@ fn update_commits(commits : & HashSet<git2::Oid>, repo : & mut git2::Repository,
     return Ok(());
 }
 
-/*
-fn calculate_commit_diff(repo : git2::Repository, commit : & git2::Commit, db : & DatabaseManager) -> Result(HashMap<PathId,SnapshotId>, git2::Error) {
 
-
-
+fn calculate_commit_diff(repo : & git2::Repository, commit : & git2::Commit, db : & DatabaseManager) -> Result<(HashMap<PathId,SnapshotId>, usize, usize), git2::Error> {
+    let mut diff = HashMap::<String, git2::Oid>::new();
+    let mut additions = 0;
+    let mut deletions = 0;
+    if commit.parent_count() == 0 {
+        let (a,d) = calculate_tree_diff(repo, None, Some(& commit.tree()?), & mut diff)?;
+        additions = a;
+        deletions = d;
+    } else {
+        for p in commit.parents() {
+            let (a, d) = calculate_tree_diff(repo, Some(& p.tree()?), Some(& commit.tree()?), & mut diff)?;
+            additions += a;
+            deletions += d;
+        }
+    }
+    // now we need to get snapshot ids and pathIds 
     
+    println!("    changes: {}, additions: {}, deletions: {}", diff.len(), additions, deletions);
 
-} */
+
+    return Ok((HashMap::new(), additions, deletions));
+}
+
 
 
 
@@ -167,35 +192,34 @@ fn calculate_commit_diff(repo : git2::Repository, commit : & git2::Commit, db : 
 //         Ok(())
 //     }
 
-//     /** Calculates the diff between the two tree nodes. 
-        
-//         Deal with renames and other things too
-//      */
-//     fn calculate_diff(repo : & git2::Repository, parent : Option<& git2::Tree>, commit : Option<& git2::Tree>, diff : & mut HashMap<String, git2::Oid>) -> Result<(), git2::Error> {
-//         let d = repo.diff_tree_to_tree(parent, commit, None)?;
-//         for di in d.deltas() {
-//             match di.status() {
-//                 git2::Delta::Added | git2::Delta::Modified | git2::Delta::Deleted | git2::Delta::Copied => {
-//                     if let Some(p) = di.new_file().path().unwrap().to_str() {
-//                         diff.insert(String::from(p), di.new_file().id());
-//                     }
-//                 },
-//                 git2::Delta::Renamed => {
-//                     if let Some(po) = di.old_file().path().unwrap().to_str() {
-//                         diff.insert(String::from(po), git2::Oid::zero());
-//                         if let Some(p) = di.new_file().path().unwrap().to_str() {
-//                             diff.insert(String::from(p), di.new_file().id());
-//                         }
-//                     }
-//                 },
-//                 // this should not really happen in diffs of commits
-//                 _ => {
-//                     panic!("What to do?");
-//                 }
-//             }
-//         }
-//         Ok(())
-//     }
+fn calculate_tree_diff(repo: & git2::Repository,  parent : Option<& git2::Tree>, commit : Option<& git2::Tree>, changes : & mut HashMap<String, git2::Oid>) -> Result<(usize, usize), git2::Error> {
+    let diff = repo.diff_tree_to_tree(parent, commit, None)?;
+    for delta in diff.deltas() {
+        match delta.status() {
+            git2::Delta::Added | git2::Delta::Modified | git2::Delta::Deleted | git2::Delta::Copied => {
+                if let Some(p) = delta.new_file().path().unwrap().to_str() {
+                    changes.insert(String::from(p), delta.new_file().id());
+                }
+            },
+            git2::Delta::Renamed => {
+                if let Some(po) = delta.old_file().path().unwrap().to_str() {
+                    changes.insert(String::from(po), git2::Oid::zero());
+                    if let Some(p) = delta.new_file().path().unwrap().to_str() {
+                        changes.insert(String::from(p), delta.new_file().id());
+                    }
+                }
+            },
+            // this should not really happen in diffs of commits
+            _ => {
+                panic!("What to do?");
+            }
+        }
+    }
+    let stats = diff.stats()?;
+    return Ok((stats.insertions(), stats.deletions()));
+}
+
+
 
 
 // Structs impls & helper functions
