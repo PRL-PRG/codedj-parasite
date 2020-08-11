@@ -32,6 +32,11 @@ pub struct DatabaseManager {
     commit_ids_file_ : Mutex<File>,
     commit_records_file_ : Mutex<File>,
     commit_parents_file_ : Mutex<File>,
+
+    /* Unless commits come from git (or other csv file) their information is not reliable and can be updated in time. These structures allow the db to keep track of such commits. 
+     */
+    incomplete_commits_ : Mutex<HashMap<CommitId, IncompleteCommit>>,
+
 }
 
 impl DatabaseManager {
@@ -102,6 +107,7 @@ impl DatabaseManager {
             commit_records_file_ : Mutex::new(OpenOptions::new().append(true).open(Self::get_commit_records_file(root)).unwrap()),
             commit_parents_file_ : Mutex::new(OpenOptions::new().append(true).open(Self::get_commit_parents_file(root)).unwrap()),
 
+            incomplete_commits_ : Mutex::new(HashMap::new()),
         }
     }
 
@@ -181,6 +187,52 @@ impl DatabaseManager {
                 record::User::new(id, String::from(name), source).to_csv(& mut user_records_file).unwrap();
             }
             return id;
+        }
+    }
+
+    // Commits ------------------------------------------------------------------------------------
+
+    pub fn load_incomplete_commits(& self) {
+        println!("Loading incomplete commits...");
+        let mut incomplete_commits = self.incomplete_commits_.lock().unwrap();
+        {
+            let mut reader = csv::ReaderBuilder::new()
+                .has_headers(true)
+                .double_quote(false)
+                .escape(Some(b'\\'))
+                .from_path(Self::get_commit_records_file(& self.root_)).unwrap();
+            for x in reader.records() {
+                let record = x.unwrap();
+                let id = record[1].parse::<usize>().unwrap() as CommitId;
+                let source = Source::from_str(& record[6]);
+                // TODO in the future multiple sources can be thought of as incomplete
+                if source == Source::GHTorrent {
+                    incomplete_commits.insert(id, IncompleteCommit::new(source));
+                }
+            }
+        }
+        println!("    {} incomplete commits found", incomplete_commits.len());
+        if !incomplete_commits.is_empty() {
+            println!("Loading incomplete commits parents...");
+            let mut parent_update_times = HashMap::<CommitId, u64>::new();
+            let mut reader = csv::ReaderBuilder::new()
+                .has_headers(true)
+                .double_quote(false)
+                .escape(Some(b'\\'))
+                .from_path(Self::get_commit_parents_file(& self.root_)).unwrap();
+            for x in reader.records() {
+                let record = x.unwrap();
+                let id = record[1].parse::<usize>().unwrap() as CommitId;
+                if let Some(IncompleteCommit{source : _, parents}) = incomplete_commits.get_mut(& id) {
+                    let t = record[0].parse::<u64>().unwrap();
+                    let x = parent_update_times.entry(id).or_insert(0);
+                    if *x != t {
+                        *x = t;
+                        parents.clear();
+                    }
+                    parents.push(record[2].parse::<u64>().unwrap() as CommitId);
+                }
+            }
         }
     }
 
@@ -297,3 +349,17 @@ impl DatabaseManager {
     }
 
 }
+
+/** Simple struct holding for each incomplete commit its source and current set of parents. 
+ */
+pub struct IncompleteCommit {
+    source: Source, 
+    parents : Vec<CommitId>,
+}
+
+impl IncompleteCommit {
+    pub fn new(source : Source) -> IncompleteCommit {
+        return IncompleteCommit{ source, parents : Vec::new()};
+    }
+}
+

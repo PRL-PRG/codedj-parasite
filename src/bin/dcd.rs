@@ -8,10 +8,18 @@ use dcd::db_manager::DatabaseManager;
  */
 
 fn main() {
-    let mut db = DatabaseManager::from("/dejavuii/dejacode/dataset-small");
+    let mut db = DatabaseManager::from("/dejavuii/dejacode/dataset-tiny");
+    db.load_incomplete_commits();
+    // clear the temporary folder if any 
+    std::fs::remove_dir_all(format!("{}/tmp", db.root()));
 
+
+
+    println!("Analyzing projects (total {})...", db.num_projects());
     for x in 0 .. db.num_projects() {
-        update_project(x as ProjectId, & db);
+        if let Err(err) = update_project(x as ProjectId, & db) {
+            println!("ERROR: project {} : {:?}", x, err);
+        }
     }
 }
 
