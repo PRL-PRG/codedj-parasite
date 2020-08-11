@@ -5,9 +5,9 @@
 #include "csv.h"
 
 
-std::string InputDir = "/dejavuii/dejacode/ghtorrent/dump";
+std::string InputDir;
 
-std::string OutputDir = "/dejavuii/dejacode/ghtorrent/dump-tiny";
+std::string OutputDir;
 
 
 struct Done {};
@@ -151,10 +151,29 @@ void FilterDataset(std::unordered_set<uint64_t> & valid_projects) {
     }
 }
 
-int main() {
-    std::filesystem::create_directories(OutputDir);
-    std::unordered_set<uint64_t> validProjects{FilterFirstProjects(100)};
-    //std::unordered_set<uint64_t> validProjects{FilterLanguageProjects("Java")};
-    FilterDataset(validProjects);
-    return EXIT_SUCCESS;
+int main(int argc, char * argv[]) {
+    try {
+        if (argc != 5)
+            throw std::runtime_error{"Invalid number of arguments"};
+        std::string filter{argv[1]};
+        InputDir = argv[3];
+        OutputDir = argv[4];
+        std::filesystem::create_directories(OutputDir);
+        if (filter == "lang") {
+            std::string lang{argv[2]};
+            std::unordered_set<uint64_t> validProjects{FilterLanguageProjects(lang)};
+            FilterDataset(validProjects);
+        } else if (filter == "n") {
+            int n = std::stoi(argv[2]);
+            std::unordered_set<uint64_t> validProjects{FilterFirstProjects(n)};
+            FilterDataset(validProjects);
+        } else {
+            throw std::runtime_error{"Invalid task. Either `lang` or `n` supported"};
+        }
+        return EXIT_SUCCESS;
+    } catch (std::exception const & e) {
+        std::cout << "Invalid usage: " << e.what() << std::endl << std::endl;
+        std::cout << "./filter lang/n lang_name/num_projects input_dir output_dir" << std::endl;
+        return EXIT_FAILURE;
+    }
 }
