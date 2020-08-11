@@ -16,3 +16,5 @@ These will likely happen *after* the paper deadline, but should be available for
 - user friendliness (i.e. decent commandline, encapsulation of stuff, better reporting, etc.)
 - file snapshots & github linguist & cloc and other tools information (not sure this is needed for the paper)
 - incremental downloading
+
+- how to do cummulative metadata? I guess special kind...

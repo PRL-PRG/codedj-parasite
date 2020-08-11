@@ -353,24 +353,6 @@ impl DatabaseManager {
         }
         return false;
     }
-    /*
-    pub fn create_commit(& self, hash: git2::Oid, committer_id : UserId, committer_time : u64, author_id : UserId, author_time : u64, source : Source) -> CommitId {
-        let mut commit_ids = self.commit_ids_.lock().unwrap();
-        let id = commit_ids.len() as CommitId;
-        commit_ids.insert(hash, id);
-        // write the hash to id mapping
-        {
-            let mut commit_ids_file = self.commit_ids_file_.lock().unwrap();
-            writeln!(commit_ids_file, "{},{}", hash, id).unwrap();
-        }
-        // write the commit record
-        {
-            let mut commit_records_file = self.commit_records_file_.lock().unwrap();
-            record::Commit::new(id, committer_id, committer_time, author_id, author_time, source).to_csv(& mut commit_records_file).unwrap();
-        }
-        return id;
-    }
-    */
 
     pub fn append_commit_record(& self, id : CommitId, committer_id : UserId, committer_time : i64, author_id : UserId, author_time : i64, source : Source) {
         let mut commit_records_file = self.commit_records_file_.lock().unwrap();
