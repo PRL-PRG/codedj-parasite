@@ -46,7 +46,7 @@ pub struct Project {
     // url of the project (latest used)
     pub url : String,
     // time at which the project was updated last (i.e. time for which its data are valid)
-    pub last_update: u64,
+    pub last_update: i64,
     // metadata information for the project
     pub metadata : HashMap<String,String>,
     // head refs of the project at the last update time

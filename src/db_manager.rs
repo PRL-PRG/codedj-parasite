@@ -1,7 +1,19 @@
 use std::sync::*;
 use std::fs::*;
+use std::io::*;
 
 use crate::*;
+
+/** State of a record in the database. 
+ 
+    A record can be existing inn which case its origin does not have to be analyzed, new, in which case it must be analyzed and then its records stored, or it can be incomplete, in which case it must be reanalyzed and any changes updated. 
+ */
+#[derive(Eq, PartialEq, Copy, Clone, Debug, Hash)]
+pub enum RecordState {
+    Existing,
+    New,
+    Incomplete
+}
 
 /** R/W manager for the downloader database to be used by the downloade & friends.
  
@@ -36,6 +48,12 @@ pub struct DatabaseManager {
     /* Unless commits come from git (or other csv file) their information is not reliable and can be updated in time. These structures allow the db to keep track of such commits. 
      */
     incomplete_commits_ : Mutex<HashMap<CommitId, IncompleteCommit>>,
+
+    /** The index file csv and the commit messages file proper. 
+     
+        First file is index, second file is the actual messages
+     */
+    commit_messages_files_ : Mutex<(File, File)>, 
 
 }
 
@@ -77,6 +95,11 @@ impl DatabaseManager {
             let mut f = File::create(Self::get_commit_parents_file(root)).unwrap();
             writeln!(& mut f, "time,commitId,parentId").unwrap();
         }
+        {
+            let mut f = File::create(Self::get_commit_messages_index_file(root)).unwrap();
+            writeln!(& mut f, "commitId,offset,size").unwrap();
+        }
+        
         return Self::from(root);
     }
 
@@ -108,6 +131,11 @@ impl DatabaseManager {
             commit_parents_file_ : Mutex::new(OpenOptions::new().append(true).open(Self::get_commit_parents_file(root)).unwrap()),
 
             incomplete_commits_ : Mutex::new(HashMap::new()),
+
+            commit_messages_files_ : Mutex::new((
+                OpenOptions::new().append(true).open(Self::get_commit_messages_index_file(root)).unwrap(),
+                OpenOptions::new().create(true).append(true).open(Self::get_commit_messages_file(root)).unwrap()
+            )),
         }
     }
 
@@ -164,6 +192,8 @@ impl DatabaseManager {
     pub fn get_project_log_filename(& self, id : ProjectId) -> String{
         return Self::get_project_log_file(& self.root_, id);
     }
+
+    // Users ---------------------------------------------------------------------------------------
 
     /** Returns existing user id, or creates new user from given data.
      
@@ -230,27 +260,100 @@ impl DatabaseManager {
                         *x = t;
                         parents.clear();
                     }
-                    parents.push(record[2].parse::<u64>().unwrap() as CommitId);
+                    parents.insert(record[2].parse::<u64>().unwrap() as CommitId);
                 }
             }
         }
     }
 
+    /** Returns true if given existing commit is complete. 
+     
+        Commit is complete if it has no record in the completed commits, or if the record has source set to Source::NA, which indicates that there is already a worker making sure the commit will be completed.  
+     */    
+    pub fn is_commit_complete(& self, id : CommitId) -> bool {
+        let incomplete_commits = self.incomplete_commits_.lock().unwrap();
+        match incomplete_commits.get(& id) {
+            Some(IncompleteCommit{source : Source::NA, parents : _}) => {
+                return true;
+            },
+            Some(_) => {
+                return false;
+            },
+            _ => {
+                return true;
+            }
+        }
+    }
+
     /** Returns id for given commit if the commit exists in the database. 
-        
+     
+        The second value indicates whether the commit is complete, or not. 
      */
-    pub fn get_commit_id(& self, hash : git2::Oid) -> Option<CommitId> {
+    pub fn get_commit_id(& self, hash : git2::Oid) -> Option<(CommitId, bool)> {
         let commit_ids = self.commit_ids_.lock().unwrap();
         match commit_ids.get(& hash) {
             Some(id) => {
-                return Some(*id);
+                return Some((*id, self.is_commit_complete(*id)));
             },
-            _ => {
+            None => {
                 return None;
             }
         }
     }
 
+    /** Returns an id for given commit hash and whether the commit must be analyzed & stored.
+     
+        The commit should be analyzed / stored if the id had to be created for it, or if the commit is currently incomplete. 
+        
+        IMPORTANT: If the function returns the commit to be incomplete, the caller *must* complete the commit and further calls will return the commit's state as completed. 
+     */  
+    pub fn get_or_create_commit_id(& self, hash: git2::Oid) -> (CommitId, RecordState) {
+        let mut commit_ids = self.commit_ids_.lock().unwrap();
+        let mut incomplete_commits = self.incomplete_commits_.lock().unwrap();
+        if let Some(commit_id) = commit_ids.get(& hash) {
+            match incomplete_commits.get_mut(commit_id) {
+                // if the source is NA, it means someone else is already working on the commit so we can treat it as existing for now
+                Some(IncompleteCommit{source : Source::NA, parents : _}) => {
+                    return (*commit_id, RecordState::Existing);
+                },
+                Some(IncompleteCommit{source, parents : _}) => {
+                    *source = Source::NA;
+                    return (*commit_id, RecordState::Incomplete);
+                },
+                None => {
+                    return (*commit_id, RecordState::Existing);
+                }
+            }
+        } else {
+            let commit_id = commit_ids.len() as CommitId;
+            commit_ids.insert(hash, commit_id);
+            // write the hash to id mapping
+            {
+                let mut commit_ids_file = self.commit_ids_file_.lock().unwrap();
+                writeln!(commit_ids_file, "{},{}", hash, commit_id).unwrap();
+            }
+            return (commit_id, RecordState::New);
+        }
+    }
+
+    /** Looks at given commit hashes and determines if any of the commits requires update. 
+     
+        This is either if the commit hash is not known, or if the commit is incomplete. 
+     */
+    pub fn commits_require_update(&self, iter : & mut dyn std::iter::Iterator<Item = & git2::Oid>) -> bool {
+        let commit_ids = self.commit_ids_.lock().unwrap();
+        for hash in iter {
+            if let Some(commit_id) = commit_ids.get(hash) {
+                if ! self.is_commit_complete(*commit_id) {
+                    return true;
+                }
+            } else {
+                return true;
+            }
+        }
+        return false;
+    }
+    /*
     pub fn create_commit(& self, hash: git2::Oid, committer_id : UserId, committer_time : u64, author_id : UserId, author_time : u64, source : Source) -> CommitId {
         let mut commit_ids = self.commit_ids_.lock().unwrap();
         let id = commit_ids.len() as CommitId;
@@ -267,13 +370,52 @@ impl DatabaseManager {
         }
         return id;
     }
+    */
 
-    pub fn append_commit_parents_record(& self, iter : & mut dyn std::iter::Iterator<Item = &(CommitId, CommitId)>) {
+    pub fn append_commit_record(& self, id : CommitId, committer_id : UserId, committer_time : i64, author_id : UserId, author_time : i64, source : Source) {
+        let mut commit_records_file = self.commit_records_file_.lock().unwrap();
+        record::Commit::new(id, committer_id, committer_time, author_id, author_time, source).to_csv(& mut commit_records_file).unwrap();
+    }
+
+    /** Appends parents records for multiple commits. 
+     
+        Does not check the validity of the records. 
+     */
+    pub fn append_commit_parents_records(& self, iter : & mut dyn std::iter::Iterator<Item = &(CommitId, CommitId)>) {
         let mut commit_parents_file = self.commit_parents_file_.lock().unwrap();
         let t = helpers::now();
         for (commit_id, parent_id) in iter {
             writeln!(commit_parents_file, "{},{},{}", t, commit_id, parent_id).unwrap();
         }
+    }
+
+    /** Appends commit parents information. 
+     
+        If the commit is incomplete, first verifies whether the parent information differs and only updates the parents if there is change. 
+     */
+    pub fn append_commit_parents_record(& self, id : CommitId, parents : & HashSet<CommitId>) {
+        if ! self.is_commit_complete(id) {
+            let incomplete_commits = self.incomplete_commits_.lock().unwrap();
+            let IncompleteCommit{source : _, parents: old_parents} = incomplete_commits.get(& id).unwrap();     
+            if parents.symmetric_difference(old_parents).next().is_none() {
+                return;
+            }
+        }
+        let mut commit_parents_file = self.commit_parents_file_.lock().unwrap();
+        let t = helpers::now();
+        for parent_id in parents {
+            writeln!(commit_parents_file, "{},{},{}", t, id, parent_id).unwrap();
+        }
+    }
+
+    pub fn append_commit_message(& self, id : CommitId, msg : & [u8]) {
+        let (index, messages) = & mut * self.commit_messages_files_.lock().unwrap();
+        let len : u32 = msg.len() as u32;
+        messages.write(& bincode::serialize(&id).unwrap()).unwrap();
+        messages.write(& bincode::serialize(&len).unwrap()).unwrap();
+        let offset: u64 = messages.seek(SeekFrom::Current(0)).unwrap();
+        messages.write(msg).unwrap();
+        writeln!(index, "{},{},{}", id, offset, len).unwrap();
     }
 
     // bookkeeping & stuff
@@ -299,6 +441,14 @@ impl DatabaseManager {
 
     pub fn get_commit_parents_file(root : & str) -> String {
         return format!("{}/commit_parents.csv", root);
+    }
+
+    pub fn get_commit_messages_index_file(root : & str) -> String {
+        return format!("{}/commit_messages_index.csv", root);
+    }
+
+    pub fn get_commit_messages_file(root : & str) -> String {
+        return format!("{}/commit_messages.dat", root);
     }
 
     /** Returns the log file for given project id. 
@@ -354,12 +504,12 @@ impl DatabaseManager {
  */
 pub struct IncompleteCommit {
     source: Source, 
-    parents : Vec<CommitId>,
+    parents : HashSet<CommitId>,
 }
 
 impl IncompleteCommit {
     pub fn new(source : Source) -> IncompleteCommit {
-        return IncompleteCommit{ source, parents : Vec::new()};
+        return IncompleteCommit{ source, parents : HashSet::new()};
     }
 }
 
