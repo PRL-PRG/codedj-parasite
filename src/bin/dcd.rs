@@ -1,12 +1,11 @@
 use std::collections::*;
 
 use dcd::*;
-use dcd::db_manager::DatabaseManager;
+use dcd::db_manager::*;
 
 
 /** Fire up the database and start downloading...
  */
-
 fn main() {
     let mut db = DatabaseManager::from("/dejavuii/dejacode/dataset-tiny");
     db.load_incomplete_commits();
@@ -31,7 +30,7 @@ fn main() {
 struct Project {
     id : ProjectId, 
     url : String, 
-    last_update : u64, 
+    last_update : i64, 
     metadata : HashMap<String, (String,Source)>,
     heads : Vec<(String, git2::Oid, Source)>,
     log : record::ProjectLog,
@@ -53,10 +52,63 @@ fn update_project(id : ProjectId, db : & DatabaseManager) -> Result<bool, git2::
     // create the bare git repository 
     // TODO in the future, we can check whether the repo exists and if it does do just update 
     let mut repo = git2::Repository::init_bare(format!("{}/tmp/{}", db.root(), id))?;
-    let new_heads = project.fetch_new_heads(& mut repo)?;
+    let new_heads = project.fetch_new_heads(& mut repo, db)?;
+    // now we have new heads, so we should analyze the commits
+    update_commits(& new_heads, & mut repo, db)?;
+
+
+
+
     println!("{} : {}, new heads: {}", project.id, project.url, new_heads.len());
 
     return Ok(true);
+}
+
+/** Updates the commits identified by hashes, if they need to be. 
+ 
+ */ 
+fn update_commits(commits : & HashSet<git2::Oid>, repo : & mut git2::Repository, db : & DatabaseManager) -> Result<(), git2::Error> {
+    // queue of commits and whether they are open or not
+    let mut q : VecDeque<(git2::Oid, bool)> = commits.iter().map(|x| (*x, false)).collect();
+    while ! q.is_empty() {
+        let (hash, open) = q.pop_back().unwrap();
+        let (commit_id, state) = db.get_or_create_commit_id(hash);
+        // if the commit exists, there is nothing to do
+        if state == RecordState::Existing {
+            continue;
+        }
+        // if the commit is not open, we have to first deal with its parents
+        if ! open {
+            q.push_back((hash, true)); // open the commit
+            let commit = repo.find_commit(hash)?;
+            // push its parents
+            for parent in commit.parents() {
+                q.push_back((parent.id(), false));
+            }
+        // otherwise if the commit is already open the we know all its parents are ok and we can proceed to analyze the commit, starting with the compulsory information of commit record and its parents
+        } else {
+            let commit = repo.find_commit(hash)?;
+            let committer = commit.committer();
+            let committer_time = commit.time().seconds();
+            let committer_id = db.get_or_create_user(committer.email().unwrap(), committer.name().unwrap(), Source::GitHub);
+
+            let author = commit.author();
+            let author_time = author.when().seconds();
+            let author_id = db.get_or_create_user(author.email().unwrap(), author.name().unwrap(), Source::GitHub);
+
+            let parents : HashSet<CommitId> = commit.parents().map(|x| db.get_commit_id(x.id()).unwrap().0).collect();
+
+            // get changes and get message 
+            let msg = commit.message_bytes();
+            db.append_commit_message(commit_id, msg);
+
+
+            db.append_commit_record(commit_id, committer_id, committer_time, author_id, author_time, Source::GitHub);
+            db.append_commit_parents_record(commit_id, & parents);
+
+        }
+    }
+    return Ok(());
 }
 
 // Structs impls & helper functions
@@ -106,7 +158,7 @@ impl Project {
         return result;
     }
 
-    pub fn fetch_new_heads(& mut self, repo : & mut git2::Repository) -> Result<HashSet<git2::Oid>, git2::Error> {
+    pub fn fetch_new_heads(& mut self, repo : & mut git2::Repository, db : & DatabaseManager) -> Result<HashSet<git2::Oid>, git2::Error> {
         // create a remote to own url and connect
         let mut remote = repo.remote("ghm", & self.url)?;
         remote.connect(git2::Direction::Fetch)?;
@@ -119,8 +171,19 @@ impl Project {
         }
         // once we obtained the remote heads, we must check if there are (a) any changes to the heads we have stored already and (b) if there are any new head commits that we might have to traverse. Note that if there are no changes to hashes, then trivially there are no new commits, but the reverse is not true 
         let new_heads = self.update_heads(& remote_heads);
-        // now determine if we need to download the contents - this is when new heads are non-empty and the commits are unknown, or their source is not github...
-        // TODO TODO TODO 
+        // check if the head commits have to be updated (i.e. they are unknown or incomplete) and if they do, clone the repository
+        if db.commits_require_update(& mut new_heads.iter()) {
+             let mut callbacks = git2::RemoteCallbacks::new();
+             // TODO the callbacks should actually report stuff
+             callbacks.transfer_progress(|progress : git2::Progress| -> bool {
+                 return true;
+             });
+             let mut opts = git2::FetchOptions::new();
+             opts.remote_callbacks(callbacks); 
+             let heads_to_fetch : Vec<String> = remote_heads.iter().map(|(name, _, _)| name.to_owned()).collect();
+             remote.fetch(&heads_to_fetch, Some(&mut opts), None)?;
+        }
+        // return the new heads that need to be analyze
         return Ok(new_heads);
     }
 

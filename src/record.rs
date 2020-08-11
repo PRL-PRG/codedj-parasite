@@ -4,12 +4,12 @@ use crate::*;
 // Projects - Log ---------------------------------------------------------------------------------
 
 pub enum ProjectLogEntry {
-    Init{time : u64, source: Source, url : String },
-    UpdateStart{time : u64, source : Source},
-    Update{time : u64, source : Source },
-    NoChange{time : u64, source : Source },
-    Metadata{time : u64, source: Source, key : String, value : String },
-    Head{time : u64, source: Source, name: String, hash: git2::Oid }
+    Init{time : i64, source: Source, url : String },
+    UpdateStart{time : i64, source : Source},
+    Update{time : i64, source : Source },
+    NoChange{time : i64, source : Source },
+    Metadata{time : i64, source: Source, key : String, value : String },
+    Head{time : i64, source: Source, name: String, hash: git2::Oid }
 }
 
 impl ProjectLogEntry {
@@ -41,35 +41,35 @@ impl ProjectLogEntry {
     pub fn from_csv(record : csv::StringRecord) -> ProjectLogEntry {
         if record[2] == *"init" {
             return ProjectLogEntry::Init{ 
-                time : record[0].parse::<u64>().unwrap(),
+                time : record[0].parse::<i64>().unwrap(),
                 source : Source::from_str(& record[1]),
                 url : String::from(& record[4])
             };
         } else if record[2] == *"update" {
             return ProjectLogEntry::Update{
-                time : record[0].parse::<u64>().unwrap(),
+                time : record[0].parse::<i64>().unwrap(),
                 source : Source::from_str(& record[1])
             };
         } else if record[2] == *"start" {
             return ProjectLogEntry::UpdateStart{
-                time : record[0].parse::<u64>().unwrap(),
+                time : record[0].parse::<i64>().unwrap(),
                 source : Source::from_str(& record[1])
             };
         } else if record[2] == *"nochange" {
             return ProjectLogEntry::NoChange{ 
-                time : record[0].parse::<u64>().unwrap(),
+                time : record[0].parse::<i64>().unwrap(),
                 source : Source::from_str(& record[1])
             };
         } else if record[2] == *"meta" {
             return ProjectLogEntry::Metadata{ 
-                time : record[0].parse::<u64>().unwrap(),
+                time : record[0].parse::<i64>().unwrap(),
                 source : Source::from_str(& record[1]),
                 key : String::from(& record[3]),
                 value : String::from(& record[4])
             };
         } else if record[2] == *"head" {
             return ProjectLogEntry::Head{ 
-                time : record[0].parse::<u64>().unwrap(),
+                time : record[0].parse::<i64>().unwrap(),
                 source : Source::from_str(& record[1]),
                 name : String::from(& record[3]),
                 hash : git2::Oid::from_str(& record[4]).unwrap()
@@ -158,17 +158,17 @@ impl ProjectLog {
 // Commits ----------------------------------------------------------------------------------------
 
 pub struct Commit {
-    time : u64,
+    time : i64,
     id : CommitId,
     committer_id : UserId, 
-    committer_time : UserId,
-    author_id : u64,
-    author_time : u64,
+    committer_time : i64,
+    author_id : UserId,
+    author_time : i64,
     source : Source,
 }
 
 impl Commit {
-    pub fn new(id : CommitId, committer_id : UserId, committer_time : u64, author_id : UserId, author_time : u64, source : Source) -> Commit {
+    pub fn new(id : CommitId, committer_id : UserId, committer_time : i64, author_id : UserId, author_time : i64, source : Source) -> Commit {
         return Commit{
             time : helpers::now(),
             id, 
@@ -188,7 +188,7 @@ impl Commit {
 // Users ------------------------------------------------------------------------------------------
 
 pub struct User {
-    time : u64, 
+    time : i64, 
     id : u64,
     name : String,
     source : Source,

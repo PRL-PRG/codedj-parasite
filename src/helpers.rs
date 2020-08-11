@@ -4,12 +4,12 @@ use std::io::Write;
 
 /** Returns current time in milliseconds.
  */
-pub fn now() -> u64 {
-    return SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).expect("Invalid time detected").as_secs();
+pub fn now() -> i64 {
+    return SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).expect("Invalid time detected").as_secs() as i64;
 }
 
-pub fn to_unix_epoch(timestamp : & str) -> u64 {
-    return NaiveDateTime::parse_from_str(timestamp, "%Y-%m-%d %H:%M:%S").unwrap().timestamp() as u64;
+pub fn to_unix_epoch(timestamp : & str) -> i64 {
+    return NaiveDateTime::parse_from_str(timestamp, "%Y-%m-%d %H:%M:%S").unwrap().timestamp() as i64;
 }
 
 pub fn pretty_time(mut seconds : u64) -> String {

@@ -1,7 +1,7 @@
 use std::collections::*;
 
 use dcd::*;
-use dcd::db_manager::DatabaseManager;
+use dcd::db_manager::*;
 
 
 /** Actually initializes stuff from ghtorrent.
@@ -158,12 +158,9 @@ fn load_commit_details(root : & str, commits : HashSet<u64>, users : & HashMap<u
         // if the commit is valid, we must determine whether to store it or not
         if commits.contains(& ght_id) {
             let hash = git2::Oid::from_str(& record[1]).unwrap();
-            let own_id = db.get_commit_id(hash);
-            match own_id {
-                Some(id) => {
-                    ght_to_sha_and_own.insert(ght_id, (hash, id));
-                },
-                None => {
+            match db.get_or_create_commit_id(hash) {
+                // if the commit id is new, fill in the commit information
+                (id, RecordState::New) => {
                     // not found, so we have to parse the details
                     let author_id = get_or_create_user(
                         record[2].parse::<u64>().unwrap(),
@@ -177,8 +174,8 @@ fn load_commit_details(root : & str, commits : HashSet<u64>, users : & HashMap<u
                         db);
                     let committer_time = helpers::to_unix_epoch(& record[5]);
                     // and create new commit
-                    let id = db.create_commit(
-                        hash,
+                    db.append_commit_record(
+                        id,
                         committer_id,
                         committer_time,
                         author_id,
@@ -188,9 +185,13 @@ fn load_commit_details(root : & str, commits : HashSet<u64>, users : & HashMap<u
                      // store the mappings and mark the commit as new one
                      ght_to_sha_and_own.insert(ght_id, (hash, id));
                      new_commits.insert(ght_id);
-                }
-            }
 
+                },
+                // if the commit exists, do nothing, but keep the mapping, same for incomplete (although they are not expected to occur)
+                (id, _) => {
+                    ght_to_sha_and_own.insert(ght_id, (hash, id));
+                },
+            }
         }
     }
     println!("    records: {}, new commits: {}", records, new_commits.len());
@@ -205,7 +206,7 @@ fn load_commit_details(root : & str, commits : HashSet<u64>, users : & HashMap<u
  */
 fn load_stargazers(root: & str, project_ids : & HashMap<u64, ProjectId>, users : & HashMap<u64, String>, db : & mut DatabaseManager) {
     let mut reader = csv::ReaderBuilder::new().has_headers(false).double_quote(false).escape(Some(b'\\')).from_path(format!("{}/watchers.csv", root)).unwrap();
-    let mut stars = HashMap::<ProjectId, Vec<(UserId,u64)>>::new();
+    let mut stars = HashMap::<ProjectId, Vec<(UserId,i64)>>::new();
     let mut translated_users = HashMap::<u64, UserId>::new();
     println!("Loading stargazers...");
     for x in reader.records() {
@@ -229,13 +230,13 @@ fn load_stargazers(root: & str, project_ids : & HashMap<u64, ProjectId>, users :
         stars.sort_by(|(_, timea), (_, timeb) | timea.cmp(timeb));
         let mut log = record::ProjectLog::new(db.get_project_log_filename(*project_id));
         let mut num_stars = 0;
-        for (user_id, time) in stars {
+        for (_, time) in stars { // used to be userid
             num_stars += 1;
             log.add(record::ProjectLogEntry::Metadata{
                 time : *time,
                 source : Source::GHTorrent,
                 key : "stars".to_owned(),
-                value : format!("{}({})", num_stars, user_id),
+                value : format!("{}", num_stars),
             });
         }
         log.append();
@@ -270,7 +271,7 @@ fn load_commit_parents(root : & str, new_commits : HashSet<u64>, ght_to_sha_and_
     }
     println!("    records: {}, new records: {}", records, commit_parents_own.len());
     println!("Writing new parent records...");
-    db.append_commit_parents_record(& mut commit_parents_own.iter());
+    db.append_commit_parents_records(& mut commit_parents_own.iter());
     return commit_parents_ght;
 }
 
