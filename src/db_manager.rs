@@ -2,6 +2,7 @@ use std::sync::*;
 use std::fs::*;
 use std::io::*;
 use std::collections::hash_map::*;
+use byteorder::*;
 
 use crate::*;
 
@@ -501,10 +502,10 @@ impl DatabaseManager {
         let (index, messages) = & mut * self.commit_messages_files_.lock().unwrap();
         let len : u32 = msg.len() as u32;
         let offset: u64 = messages.seek(SeekFrom::Current(0)).unwrap();
-        messages.write(& bincode::serialize(&id).unwrap()).unwrap(); // serialize commit id and length of message for bookkeeping
-        messages.write(& bincode::serialize(&len).unwrap()).unwrap();
+        messages.write_u64::<LittleEndian>(id).unwrap(); // serialize commit id and length of message for bookkeeping
+        messages.write_u32::<LittleEndian>(len).unwrap();
         messages.write(msg).unwrap();
-        writeln!(index, "{},{},{},{}", helpers::now(), id, offset, len).unwrap();
+        writeln!(index, "{},{},{}", helpers::now(), id, offset).unwrap();
     }
 
     // bookkeeping & stuff

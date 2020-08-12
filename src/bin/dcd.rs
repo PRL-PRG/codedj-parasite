@@ -56,7 +56,7 @@ impl ProjectsQueue {
 /** Fire up the database and start downloading...
  */
 fn main() {
-    let db = DatabaseManager::from("/dejavuii/dejacode/dataset-peta");
+    let db = DatabaseManager::from("/dejavuii/dejacode/dataset-peta-x");
     db.load_incomplete_commits();
     // clear the temporary folder if any 
     let tmp_folder = format!("{}/tmp", db.root());
@@ -66,9 +66,16 @@ fn main() {
 
     let q = ProjectsQueue::new();
     println!("Analyzing projects (total {})...", db.num_projects());
+    /*
     for x in 0 .. db.num_projects() {
         q.enqueue(x as ProjectId, 0);
-    }
+    }*/
+    q.enqueue(50, 0);
+    q.enqueue(30, 0);
+    q.enqueue(6, 0);
+    q.enqueue(0, 0);
+    q.enqueue(48, 0);
+    q.enqueue(49, 0);
 
     crossbeam::thread::scope(|s| {
         // start the worker threads
