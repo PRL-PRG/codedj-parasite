@@ -33,6 +33,7 @@ impl ProjectsQueue {
         self.qcv_.notify_one();
     }
 
+    /*
     fn dequeue(& self) -> ProjectId {
         let mut q = self.q_.lock().unwrap();
         while q.is_empty() {
@@ -40,6 +41,7 @@ impl ProjectsQueue {
         }
         return q.pop().unwrap().0.id;
     }
+    */
 
     fn dequeue_non_blocking(& self) -> Option<ProjectId> {
         let mut q = self.q_.lock().unwrap();
@@ -90,6 +92,10 @@ fn main() {
                                 }
                             }
                             project.log.append();
+                            let tmp_folder = format!("{}/tmp/{}", db.root(), project.id);
+                            if std::path::Path::new(& tmp_folder).exists() {
+                                std::fs::remove_dir_all(tmp_folder).unwrap();
+                            }
                         },
                         None => {
                             return;
@@ -308,7 +314,7 @@ impl Project {
                 record::ProjectLogEntry::Update{ time, source : _ } => {
                     result.last_update = time;
                 },
-                record::ProjectLogEntry::Error{ time, source : _, message : _ } => {
+                record::ProjectLogEntry::Error{ time : _, source : _, message : _ } => {
                     // TODO do nothing for now...
                 },
                 record::ProjectLogEntry::NoChange{ time, source : _} => {
