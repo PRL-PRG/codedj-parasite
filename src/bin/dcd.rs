@@ -1,7 +1,56 @@
 use std::collections::*;
-
+use std::sync::*;
 use dcd::*;
 use dcd::db_manager::*;
+
+#[derive(Eq)]
+struct QueuedProject {
+    id : ProjectId,
+    last_updated : i64,
+}
+
+struct ProjectsQueue {
+    q_ : Mutex<BinaryHeap<std::cmp::Reverse<QueuedProject>>>,
+    qcv_ : Condvar,
+}
+
+impl ProjectsQueue {
+    fn new() -> ProjectsQueue {
+        return ProjectsQueue {
+            q_ : Mutex::new(BinaryHeap::new()),
+            qcv_ : Condvar::new(),
+        }
+    }
+
+    fn enqueue(& self, id : ProjectId, update_time : i64) {
+        let mut q = self.q_.lock().unwrap();
+        q.push(std::cmp::Reverse(
+            QueuedProject{
+                id, 
+                last_updated : update_time
+            }
+        ));
+        self.qcv_.notify_one();
+    }
+
+    fn dequeue(& self) -> ProjectId {
+        let mut q = self.q_.lock().unwrap();
+        while q.is_empty() {
+            q = self.qcv_.wait(q).unwrap();
+        }
+        return q.pop().unwrap().0.id;
+    }
+
+    fn dequeue_non_blocking(& self) -> Option<ProjectId> {
+        let mut q = self.q_.lock().unwrap();
+        if q.is_empty() {
+            return None;
+        }
+        return Some(q.pop().unwrap().0.id);
+    }
+}
+
+
 
 
 /** Fire up the database and start downloading...
@@ -15,15 +64,53 @@ fn main() {
         std::fs::remove_dir_all(tmp_folder).unwrap();
     }
 
-
-
+    let q = ProjectsQueue::new();
     println!("Analyzing projects (total {})...", db.num_projects());
     for x in 0 .. db.num_projects() {
-        if let Err(err) = update_project(x as ProjectId, & db) {
-            println!("ERROR: project {} : {:?}", x, err);
+        q.enqueue(x as ProjectId, 0);
+    }
+
+    crossbeam::thread::scope(|s| {
+        // start the worker threads
+        for _x in 0..8 {
+            s.spawn(|_| {
+                loop {
+                    match q.dequeue_non_blocking() {
+                        Some(project_id) => {
+                            if let Err(err) = update_project(project_id, & db) {
+                                println!("ERROR: project {} : {:?}", project_id, err);
+                            }
+                        },
+                        None => {
+                            return;
+                        }
+                    }
+                }
+            });
         }
+     }).unwrap();
+     println!("All done.");
+}
+
+impl Ord for QueuedProject {
+    fn cmp(& self, other : & Self) -> std::cmp::Ordering {
+        return self.last_updated.cmp(& other.last_updated);
     }
 }
+
+impl PartialOrd for QueuedProject {
+    fn partial_cmp(& self, other : & Self) -> Option<std::cmp::Ordering> {
+        return Some(self.last_updated.cmp(& other.last_updated));
+    }
+}
+
+impl PartialEq for QueuedProject {
+    fn eq(& self, other : & Self) -> bool {
+        return self.last_updated == other.last_updated;
+    }
+}
+
+
 
 
 

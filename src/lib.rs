@@ -1,9 +1,10 @@
 use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
-use std::fs::File;
+use std::fs::*;
 use std::io::prelude::*;
 use std::marker::Sized;
 use std::iter::FromIterator;
+use db_manager::*;
 
 // TODO how can I make these package only?
 // this should be package-only
@@ -190,6 +191,8 @@ pub struct DCD {
     users_ : Vec<User>,
     commit_ids_ : HashMap<git2::Oid, CommitId>,
     commits_ : Vec<CommitBase>,
+    commit_message_offsets_ : HashMap<CommitId, u64>,
+    commit_messages_ : File,
 }
 
 impl DCD {
@@ -204,6 +207,9 @@ impl DCD {
         println!("    {} commits", commit_ids.len());
         let commits = Self::get_commits(& root, commit_ids.len());
         println!("    {} commit records", commit_ids.len());
+        let commit_message_offsets = Self::get_commit_message_offsets(& root);
+        println!("    {} commit messages", commit_message_offsets.len());
+        let commit_messages = OpenOptions::new().read(true).open(DatabaseManager::get_commit_messages_file(& root)).unwrap();
 
         let result = DCD{
             root_ : root, 
@@ -211,6 +217,8 @@ impl DCD {
             users_ : users,
             commit_ids_ : commit_ids,
             commits_ : commits,
+            commit_message_offsets_ : commit_message_offsets,
+            commit_messages_ : commit_messages
         };
         return result;
     }
@@ -287,6 +295,23 @@ impl DCD {
                 }
                 result[id].parents.push(record[2].parse::<u64>().unwrap() as CommitId);
             }
+        }
+        return result;
+    }
+
+    fn get_commit_message_offsets(root : & str) -> HashMap<CommitId, u64> {
+        let mut reader = csv::ReaderBuilder::new()
+            .has_headers(true)
+            .double_quote(false)
+            .escape(Some(b'\\'))
+            .from_path(DatabaseManager::get_commit_messages_index_file(root)).unwrap();
+        let mut result = HashMap::<CommitId, u64>::new();
+        for x in reader.records() {
+            let record = x.unwrap();
+            let _t = record[0].parse::<i64>().unwrap();
+            let commit_id = record[1].parse::<u64>().unwrap() as CommitId;
+            let offset = record[2].parse::<u64>().unwrap();
+            result.insert(commit_id, offset);
         }
         return result;
     }

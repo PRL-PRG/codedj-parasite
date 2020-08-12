@@ -20,5 +20,13 @@
             "args": [],
             "cwd": "${workspaceFolder}",
         }
+        {
+            "name": "(gdb) dcd-reader",
+            "type": "lldb",
+            "request": "launch",
+            "program": "${workspaceFolder}/target/debug/dcd-reader",
+            "args": [],
+            "cwd": "${workspaceFolder}",
+        }
     ]
 }

@@ -123,11 +123,11 @@ impl DatabaseManager {
         }
         {
             let mut f = File::create(Self::get_commit_messages_index_file(root)).unwrap();
-            writeln!(& mut f, "commitId,offset").unwrap();
+            writeln!(& mut f, "time,commitId,offset").unwrap();
         }
         {
             let mut f = File::create(Self::get_commit_changes_index_file(root)).unwrap();
-            writeln!(& mut f, "commitId,additions,deletions,offset").unwrap();
+            writeln!(& mut f, "time,commitId,additions,deletions,offset").unwrap();
         }
         {
             let mut f = File::create(Self::get_commit_changes_file(root)).unwrap();
@@ -474,7 +474,7 @@ impl DatabaseManager {
         for (path_id, snapshot_id) in changes {
             writeln!(messages, "{},{}", path_id, snapshot_id).unwrap();
         }
-        writeln!(index, "{},{},{},{}", id, additions, deletions, offset).unwrap();
+        writeln!(index, "{},{},{},{},{}", helpers::now(), id, additions, deletions, offset).unwrap();
     }
 
 
@@ -504,7 +504,7 @@ impl DatabaseManager {
         messages.write(& bincode::serialize(&id).unwrap()).unwrap(); // serialize commit id and length of message for bookkeeping
         messages.write(& bincode::serialize(&len).unwrap()).unwrap();
         messages.write(msg).unwrap();
-        writeln!(index, "{},{},{}", id, offset, len).unwrap();
+        writeln!(index, "{},{},{},{}", helpers::now(), id, offset, len).unwrap();
     }
 
     // bookkeeping & stuff
