@@ -9,7 +9,7 @@
             "type": "lldb",
             "request": "launch",
             "program": "${workspaceFolder}/target/debug/dcd-ghtorrent",
-            "args": [],
+            "args": ["/dejavuii/dejacode/dataset-peta-x", "/dejavuii/dejacode/ghtorrent/dump-tiny", "--new"],
             "cwd": "${workspaceFolder}",
         },
         {
@@ -17,6 +17,14 @@
             "type": "lldb",
             "request": "launch",
             "program": "${workspaceFolder}/target/debug/dcd",
+            "args": [],
+            "cwd": "${workspaceFolder}",
+        }
+        {
+            "name": "(gdb) dcd-reader",
+            "type": "lldb",
+            "request": "launch",
+            "program": "${workspaceFolder}/target/debug/dcd-reader",
             "args": [],
             "cwd": "${workspaceFolder}",
         }

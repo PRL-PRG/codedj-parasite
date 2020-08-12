@@ -1,6 +1,8 @@
 use std::sync::*;
 use std::fs::*;
 use std::io::*;
+use std::collections::hash_map::*;
+use byteorder::*;
 
 use crate::*;
 
@@ -13,6 +15,25 @@ pub enum RecordState {
     Existing,
     New,
     Incomplete
+}
+
+/** Code sugar for having the map and associated file we append to under a single mutex. 
+ */
+struct IDMapper<T> {
+    map : T,
+    file : File,
+}
+impl<T> IDMapper<T> {
+    fn new(map : T, filename : String) -> IDMapper<T> {
+        return IDMapper{
+            map, 
+            file : OpenOptions::new().append(true).open(filename).unwrap(),
+        };
+    }
+
+    fn behind_mutex(map : T, filename : String) -> Mutex<IDMapper<T>> {
+        return Mutex::new(IDMapper::<T>::new(map, filename));
+    }
 }
 
 /** R/W manager for the downloader database to be used by the downloade & friends.
@@ -32,16 +53,14 @@ pub struct DatabaseManager {
 
     /* User email to user id mapping and file to which new mappings or updates should be written
      */
-    user_ids_ : Mutex<HashMap<String, UserId>>,
-    user_ids_file_ : Mutex<File>,
+    user_ids_ : Mutex<IDMapper<HashMap<String, UserId>>>,
     user_records_file_ : Mutex<File>,
 
     /* SHA1 to commit id mapping and a file to which any new mappings should be written and a file to which new commit records are written. 
 
        TODO For now the API obtains locks every time a single commit is written, which is not super effective, this could be revisited in the future.
      */
-    commit_ids_ : Mutex<HashMap<git2::Oid, CommitId>>,
-    commit_ids_file_ : Mutex<File>,
+    commit_ids_ : Mutex<IDMapper<HashMap<git2::Oid, CommitId>>>,
     commit_records_file_ : Mutex<File>,
     commit_parents_file_ : Mutex<File>,
 
@@ -54,6 +73,14 @@ pub struct DatabaseManager {
         First file is index, second file is the actual messages
      */
     commit_messages_files_ : Mutex<(File, File)>, 
+
+    /** Commit changes index (with additions and deletions) and commit changes. 
+     */
+    commit_changes_files_ : Mutex<(File, File)>,
+
+    path_ids_ : Mutex<IDMapper<HashMap<String, PathId>>>,
+
+    snapshot_ids_ : Mutex<IDMapper<HashMap<git2::Oid, SnapshotId>>>,
 
 }
 
@@ -97,9 +124,27 @@ impl DatabaseManager {
         }
         {
             let mut f = File::create(Self::get_commit_messages_index_file(root)).unwrap();
-            writeln!(& mut f, "commitId,offset,size").unwrap();
+            writeln!(& mut f, "time,commitId,offset").unwrap();
         }
-        
+        {
+            let mut f = File::create(Self::get_commit_changes_index_file(root)).unwrap();
+            writeln!(& mut f, "time,commitId,additions,deletions,offset").unwrap();
+        }
+        {
+            let mut f = File::create(Self::get_commit_changes_file(root)).unwrap();
+            writeln!(& mut f, "pathId,snapshotId").unwrap();
+        }
+        {
+            let mut f = File::create(Self::get_path_ids_file(root)).unwrap();
+            writeln!(& mut f, "path,id").unwrap();
+            writeln!(& mut f, "\"\",0").unwrap();
+        }
+        {
+            let mut f = File::create(Self::get_snapshot_ids_file(root)).unwrap();
+            writeln!(& mut f, "hash,id").unwrap();
+            writeln!(& mut f, "\"0000000000000000000000000000000000000000\",0").unwrap();
+        }
+
         return Self::from(root);
     }
 
@@ -115,18 +160,22 @@ impl DatabaseManager {
         println!("    {} users", user_ids.len());
         let commit_ids = Self::get_commit_ids(root);
         println!("    {} commits", commit_ids.len());
+        let path_ids = Self::get_path_ids(root);
+        println!("    {} paths", path_ids.len());
+        let snapshot_ids = Self::get_snapshot_ids(root);
+        println!("    {} snapshots", snapshot_ids.len());
         return DatabaseManager{
             root_ : String::from(root),
             // live urls will be lazy loaded as they are only necessary for adding new projects which should not happen often
             live_urls_ : Mutex::new(HashSet::new()),
             num_projects_ : Mutex::new(num_projects),
 
-            user_ids_ : Mutex::new(user_ids),
-            user_ids_file_ : Mutex::new(OpenOptions::new().append(true).open(Self::get_user_ids_file(root)).unwrap()), 
+            user_ids_ : IDMapper::behind_mutex(user_ids, Self::get_user_ids_file(root)), 
+            //user_ids_ : Mutex::new(user_ids),
+            //user_ids_file_ : Mutex::new(OpenOptions::new().append(true).open(Self::get_user_ids_file(root)).unwrap()), 
             user_records_file_ : Mutex::new(OpenOptions::new().append(true).open(Self::get_user_records_file(root)).unwrap()),
 
-            commit_ids_ : Mutex::new(commit_ids),
-            commit_ids_file_ : Mutex::new(OpenOptions::new().append(true).open(Self::get_commit_ids_file(root)).unwrap()), 
+            commit_ids_ : IDMapper::behind_mutex(commit_ids,Self::get_commit_ids_file(root)), 
             commit_records_file_ : Mutex::new(OpenOptions::new().append(true).open(Self::get_commit_records_file(root)).unwrap()),
             commit_parents_file_ : Mutex::new(OpenOptions::new().append(true).open(Self::get_commit_parents_file(root)).unwrap()),
 
@@ -136,6 +185,16 @@ impl DatabaseManager {
                 OpenOptions::new().append(true).open(Self::get_commit_messages_index_file(root)).unwrap(),
                 OpenOptions::new().create(true).append(true).open(Self::get_commit_messages_file(root)).unwrap()
             )),
+
+            commit_changes_files_ : Mutex::new((
+                OpenOptions::new().append(true).open(Self::get_commit_changes_index_file(root)).unwrap(),
+                OpenOptions::new().create(true).append(true).open(Self::get_commit_changes_file(root)).unwrap()
+            )),
+
+            path_ids_ : IDMapper::behind_mutex(path_ids,Self::get_path_ids_file(root)), 
+
+            snapshot_ids_ : IDMapper::behind_mutex(snapshot_ids, Self::get_snapshot_ids_file(root)), 
+
         }
     }
 
@@ -201,15 +260,14 @@ impl DatabaseManager {
      */
     pub fn get_or_create_user(& self, email : & str, name : & str, source: Source) -> UserId {
         let mut user_ids = self.user_ids_.lock().unwrap();
-        if let Some(id) = user_ids.get(email) {
+        if let Some(id) = user_ids.map.get(email) {
             return *id;
         } else {
-            let id = user_ids.len() as UserId;
-            user_ids.insert(String::from(email), id);
+            let id = user_ids.map.len() as UserId;
+            user_ids.map.insert(String::from(email), id);
             // first store the email to id mapping
             {
-                let mut user_ids_file = self.user_ids_file_.lock().unwrap();
-                writeln!(user_ids_file, "\"{}\",{}", String::from(email), id).unwrap();
+                writeln!(user_ids.file, "\"{}\",{}", String::from(email), id).unwrap();
             }
             // then store the actual user record
             {
@@ -291,7 +349,7 @@ impl DatabaseManager {
      */
     pub fn get_commit_id(& self, hash : git2::Oid) -> Option<(CommitId, bool)> {
         let commit_ids = self.commit_ids_.lock().unwrap();
-        match commit_ids.get(& hash) {
+        match commit_ids.map.get(& hash) {
             Some(id) => {
                 return Some((*id, self.is_commit_complete(*id)));
             },
@@ -310,7 +368,7 @@ impl DatabaseManager {
     pub fn get_or_create_commit_id(& self, hash: git2::Oid) -> (CommitId, RecordState) {
         let mut commit_ids = self.commit_ids_.lock().unwrap();
         let mut incomplete_commits = self.incomplete_commits_.lock().unwrap();
-        if let Some(commit_id) = commit_ids.get(& hash) {
+        if let Some(commit_id) = commit_ids.map.get(& hash) {
             match incomplete_commits.get_mut(commit_id) {
                 // if the source is NA, it means someone else is already working on the commit so we can treat it as existing for now
                 Some(IncompleteCommit{source : Source::NA, parents : _}) => {
@@ -325,13 +383,10 @@ impl DatabaseManager {
                 }
             }
         } else {
-            let commit_id = commit_ids.len() as CommitId;
-            commit_ids.insert(hash, commit_id);
+            let commit_id = commit_ids.map.len() as CommitId;
+            commit_ids.map.insert(hash, commit_id);
             // write the hash to id mapping
-            {
-                let mut commit_ids_file = self.commit_ids_file_.lock().unwrap();
-                writeln!(commit_ids_file, "{},{}", hash, commit_id).unwrap();
-            }
+            writeln!(commit_ids.file, "{},{}", hash, commit_id).unwrap();
             return (commit_id, RecordState::New);
         }
     }
@@ -343,7 +398,7 @@ impl DatabaseManager {
     pub fn commits_require_update(&self, iter : & mut dyn std::iter::Iterator<Item = & git2::Oid>) -> bool {
         let commit_ids = self.commit_ids_.lock().unwrap();
         for hash in iter {
-            if let Some(commit_id) = commit_ids.get(hash) {
+            if let Some(commit_id) = commit_ids.map.get(hash) {
                 if ! self.is_commit_complete(*commit_id) {
                     return true;
                 }
@@ -371,6 +426,59 @@ impl DatabaseManager {
         }
     }
 
+    /** Translates commits changes represented as path and hash to their respective ids.
+     
+        For each snapshot, returns whether the snapshot is new, or existing. 
+     */
+    pub fn translate_commit_changes(& self, changes : & HashMap<String, git2::Oid>) -> HashMap<PathId, (SnapshotId, bool)> {
+        let mut path_ids = self.path_ids_.lock().unwrap();
+        let mut snapshot_ids = self.snapshot_ids_.lock().unwrap();
+        return changes.iter().map(|(path, hash)| {
+            (Self::get_or_create_path_id(& mut * path_ids, path),
+             Self::get_or_create_snapshot_id(& mut * snapshot_ids, *hash)
+            ) 
+        }).collect();
+    }
+
+    fn get_or_create_path_id(path_ids : & mut IDMapper<HashMap<String, PathId>>, path : & str) -> PathId {
+        let new_id = path_ids.map.len() as PathId;
+        match path_ids.map.entry(path.to_owned()) {
+            Entry::Vacant(entry) => {
+                entry.insert(new_id);
+                writeln!(path_ids.file,"\"{}\",{}", path, new_id).unwrap(); 
+                return new_id;
+            },
+            Entry::Occupied(entry) => {
+                return * entry.get();
+            }
+        }
+    }
+
+    fn get_or_create_snapshot_id(snapshot_ids : & mut IDMapper<HashMap<git2::Oid, SnapshotId>>, hash: git2::Oid) -> (SnapshotId, bool) {
+        let new_id = snapshot_ids.map.len() as SnapshotId;
+        match snapshot_ids.map.entry(hash) {
+            Entry::Vacant(entry) => {
+                entry.insert(new_id);
+                writeln!(snapshot_ids.file,"{},{}", hash, new_id).unwrap(); 
+                return (new_id, true);
+            },
+            Entry::Occupied(entry) => {
+                return (* entry.get(), false);
+            }
+        }
+    }
+
+    pub fn append_commit_changes(& self, id : CommitId, changes : & Vec<(PathId, SnapshotId)>, additions : usize, deletions : usize) {
+        let (index, messages) = & mut * self.commit_changes_files_.lock().unwrap();
+        let offset: u64 = messages.seek(SeekFrom::Current(0)).unwrap();
+        writeln!(messages, "0,{}", id).unwrap(); // checkum to tell us that next changeset is for commit X - no-one can change path 0
+        for (path_id, snapshot_id) in changes {
+            writeln!(messages, "{},{}", path_id, snapshot_id).unwrap();
+        }
+        writeln!(index, "{},{},{},{},{}", helpers::now(), id, additions, deletions, offset).unwrap();
+    }
+
+
     /** Appends commit parents information. 
      
         If the commit is incomplete, first verifies whether the parent information differs and only updates the parents if there is change. 
@@ -393,11 +501,11 @@ impl DatabaseManager {
     pub fn append_commit_message(& self, id : CommitId, msg : & [u8]) {
         let (index, messages) = & mut * self.commit_messages_files_.lock().unwrap();
         let len : u32 = msg.len() as u32;
-        messages.write(& bincode::serialize(&id).unwrap()).unwrap();
-        messages.write(& bincode::serialize(&len).unwrap()).unwrap();
         let offset: u64 = messages.seek(SeekFrom::Current(0)).unwrap();
+        messages.write_u64::<LittleEndian>(id).unwrap(); // serialize commit id and length of message for bookkeeping
+        messages.write_u32::<LittleEndian>(len).unwrap();
         messages.write(msg).unwrap();
-        writeln!(index, "{},{},{}", id, offset, len).unwrap();
+        writeln!(index, "{},{},{}", helpers::now(), id, offset).unwrap();
     }
 
     // bookkeeping & stuff
@@ -431,6 +539,22 @@ impl DatabaseManager {
 
     pub fn get_commit_messages_file(root : & str) -> String {
         return format!("{}/commit_messages.dat", root);
+    }
+
+    pub fn get_commit_changes_index_file(root : & str) -> String {
+        return format!("{}/commit_changes_index.csv", root);
+    }
+
+    pub fn get_commit_changes_file(root : & str) -> String {
+        return format!("{}/commit_changes.csv", root);
+    }
+
+    pub fn get_path_ids_file(root : & str) -> String {
+        return format!("{}/path_ids.csv", root);
+    }
+
+    pub fn get_snapshot_ids_file(root : & str) -> String {
+        return format!("{}/snapshot_ids.csv", root);
     }
 
     /** Returns the log file for given project id. 
@@ -479,6 +603,32 @@ impl DatabaseManager {
         }
         return result;
     }
+
+    pub fn get_path_ids(root : & str) -> HashMap<String, PathId> {
+        let mut result = HashMap::<String, PathId>::new();
+        let mut reader = csv::ReaderBuilder::new().has_headers(true).double_quote(false).escape(Some(b'\\')).from_path(Self::get_path_ids_file(root)).unwrap();
+        for x in reader.records() {
+            let record = x.unwrap();
+            let path = String::from(& record[0]);
+            let id = record[1].parse::<u64>().unwrap() as PathId;
+            result.insert(path, id);
+        }
+        return result;
+
+    }
+
+    pub fn get_snapshot_ids(root : & str) -> HashMap<git2::Oid, SnapshotId> {
+        let mut result = HashMap::<git2::Oid, SnapshotId>::new();
+        let mut reader = csv::ReaderBuilder::new().has_headers(true).double_quote(false).escape(Some(b'\\')).from_path(Self::get_snapshot_ids_file(root)).unwrap();
+        for x in reader.records() {
+            let record = x.unwrap();
+            let hash = git2::Oid::from_str(& record[0]).unwrap();
+            let id = record[1].parse::<u64>().unwrap() as SnapshotId;
+            result.insert(hash, id);
+        }
+        return result;
+    }
+
 
 }
 

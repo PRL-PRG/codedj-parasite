@@ -1,26 +1,123 @@
 use std::collections::*;
-
+use std::sync::*;
 use dcd::*;
 use dcd::db_manager::*;
+
+#[derive(Eq)]
+struct QueuedProject {
+    id : ProjectId,
+    last_updated : i64,
+}
+
+struct ProjectsQueue {
+    q_ : Mutex<BinaryHeap<std::cmp::Reverse<QueuedProject>>>,
+    qcv_ : Condvar,
+}
+
+impl ProjectsQueue {
+    fn new() -> ProjectsQueue {
+        return ProjectsQueue {
+            q_ : Mutex::new(BinaryHeap::new()),
+            qcv_ : Condvar::new(),
+        }
+    }
+
+    fn enqueue(& self, id : ProjectId, update_time : i64) {
+        let mut q = self.q_.lock().unwrap();
+        q.push(std::cmp::Reverse(
+            QueuedProject{
+                id, 
+                last_updated : update_time
+            }
+        ));
+        self.qcv_.notify_one();
+    }
+
+    fn dequeue(& self) -> ProjectId {
+        let mut q = self.q_.lock().unwrap();
+        while q.is_empty() {
+            q = self.qcv_.wait(q).unwrap();
+        }
+        return q.pop().unwrap().0.id;
+    }
+
+    fn dequeue_non_blocking(& self) -> Option<ProjectId> {
+        let mut q = self.q_.lock().unwrap();
+        if q.is_empty() {
+            return None;
+        }
+        return Some(q.pop().unwrap().0.id);
+    }
+}
+
+
 
 
 /** Fire up the database and start downloading...
  */
 fn main() {
-    let mut db = DatabaseManager::from("/dejavuii/dejacode/dataset-tiny");
+    let db = DatabaseManager::from("/dejavuii/dejacode/dataset-peta-x");
     db.load_incomplete_commits();
     // clear the temporary folder if any 
-    std::fs::remove_dir_all(format!("{}/tmp", db.root()));
+    let tmp_folder = format!("{}/tmp", db.root());
+    if std::path::Path::new(& tmp_folder).exists() {
+        std::fs::remove_dir_all(tmp_folder).unwrap();
+    }
 
-
-
+    let q = ProjectsQueue::new();
     println!("Analyzing projects (total {})...", db.num_projects());
+    /*
     for x in 0 .. db.num_projects() {
-        if let Err(err) = update_project(x as ProjectId, & db) {
-            println!("ERROR: project {} : {:?}", x, err);
+        q.enqueue(x as ProjectId, 0);
+    }*/
+    q.enqueue(50, 0);
+    q.enqueue(30, 0);
+    q.enqueue(6, 0);
+    q.enqueue(0, 0);
+    q.enqueue(48, 0);
+    q.enqueue(49, 0);
+
+    crossbeam::thread::scope(|s| {
+        // start the worker threads
+        for _x in 0..8 {
+            s.spawn(|_| {
+                loop {
+                    match q.dequeue_non_blocking() {
+                        Some(project_id) => {
+                            if let Err(err) = update_project(project_id, & db) {
+                                println!("ERROR: project {} : {:?}", project_id, err);
+                            }
+                        },
+                        None => {
+                            return;
+                        }
+                    }
+                }
+            });
         }
+     }).unwrap();
+     println!("All done.");
+}
+
+impl Ord for QueuedProject {
+    fn cmp(& self, other : & Self) -> std::cmp::Ordering {
+        return self.last_updated.cmp(& other.last_updated);
     }
 }
+
+impl PartialOrd for QueuedProject {
+    fn partial_cmp(& self, other : & Self) -> Option<std::cmp::Ordering> {
+        return Some(self.last_updated.cmp(& other.last_updated));
+    }
+}
+
+impl PartialEq for QueuedProject {
+    fn eq(& self, other : & Self) -> bool {
+        return self.last_updated == other.last_updated;
+    }
+}
+
+
 
 
 
@@ -88,11 +185,19 @@ fn update_commits(commits : & HashSet<git2::Oid>, repo : & mut git2::Repository,
             let commit = repo.find_commit(hash)?;
             let committer = commit.committer();
             let committer_time = commit.time().seconds();
-            let committer_id = db.get_or_create_user(committer.email().unwrap(), committer.name().unwrap(), Source::GitHub);
+            let committer_id = db.get_or_create_user(
+                & String::from_utf8_lossy(committer.email_bytes()), 
+                & String::from_utf8_lossy(committer.name_bytes()),
+                Source::GitHub
+            );
 
             let author = commit.author();
             let author_time = author.when().seconds();
-            let author_id = db.get_or_create_user(author.email().unwrap(), author.name().unwrap(), Source::GitHub);
+            let author_id = db.get_or_create_user(
+                & String::from_utf8_lossy(author.email_bytes()),
+                & String::from_utf8_lossy(author.name_bytes()),
+                Source::GitHub
+            );
 
             let parents : HashSet<CommitId> = commit.parents().map(|x| db.get_commit_id(x.id()).unwrap().0).collect();
 
@@ -100,26 +205,45 @@ fn update_commits(commits : & HashSet<git2::Oid>, repo : & mut git2::Repository,
             let msg = commit.message_bytes();
             db.append_commit_message(commit_id, msg);
 
-            // get the changes
+            // get the changes and append them to the database
+            let (changes, additions, deletions) = calculate_commit_diff(repo, & commit, db)?;
+            let changes_only : Vec<(PathId, SnapshotId)> = changes.iter().map(|(path_id, (snapshot_id, _))| (*path_id, *snapshot_id)).collect();
+            db.append_commit_changes(commit_id, & changes_only, additions, deletions);
 
 
-
-            db.append_commit_record(commit_id, committer_id, committer_time, author_id, author_time, Source::GitHub);
+            // update the parents
             db.append_commit_parents_record(commit_id, & parents);
+            // append the record, which also completes the commit
+            db.append_commit_record(commit_id, committer_id, committer_time, author_id, author_time, Source::GitHub);
 
         }
     }
     return Ok(());
 }
 
-/*
-fn calculate_commit_diff(repo : git2::Repository, commit : & git2::Commit, db : & DatabaseManager) -> Result(HashMap<PathId,SnapshotId>, git2::Error) {
 
+/** Calculates the diff for given commit. 
+ 
+    Returns the actual diff (PathId-> (SnapshotId, is the snapshot new?)) and returns the cummlative additions & deletions across all parent changes. 
+ */
+fn calculate_commit_diff(repo : & git2::Repository, commit : & git2::Commit, db : & DatabaseManager) -> Result<(HashMap<PathId,(SnapshotId,bool)>, usize, usize), git2::Error> {
+    let mut diff = HashMap::<String, git2::Oid>::new();
+    let mut additions = 0;
+    let mut deletions = 0;
+    if commit.parent_count() == 0 {
+        let (a,d) = calculate_tree_diff(repo, None, Some(& commit.tree()?), & mut diff)?;
+        additions = a;
+        deletions = d;
+    } else {
+        for p in commit.parents() {
+            let (a, d) = calculate_tree_diff(repo, Some(& p.tree()?), Some(& commit.tree()?), & mut diff)?;
+            additions += a;
+            deletions += d;
+        }
+    }
+    return Ok((db.translate_commit_changes(&diff), additions, deletions));
+}
 
-
-    
-
-} */
 
 
 
@@ -167,35 +291,34 @@ fn calculate_commit_diff(repo : git2::Repository, commit : & git2::Commit, db : 
 //         Ok(())
 //     }
 
-//     /** Calculates the diff between the two tree nodes. 
-        
-//         Deal with renames and other things too
-//      */
-//     fn calculate_diff(repo : & git2::Repository, parent : Option<& git2::Tree>, commit : Option<& git2::Tree>, diff : & mut HashMap<String, git2::Oid>) -> Result<(), git2::Error> {
-//         let d = repo.diff_tree_to_tree(parent, commit, None)?;
-//         for di in d.deltas() {
-//             match di.status() {
-//                 git2::Delta::Added | git2::Delta::Modified | git2::Delta::Deleted | git2::Delta::Copied => {
-//                     if let Some(p) = di.new_file().path().unwrap().to_str() {
-//                         diff.insert(String::from(p), di.new_file().id());
-//                     }
-//                 },
-//                 git2::Delta::Renamed => {
-//                     if let Some(po) = di.old_file().path().unwrap().to_str() {
-//                         diff.insert(String::from(po), git2::Oid::zero());
-//                         if let Some(p) = di.new_file().path().unwrap().to_str() {
-//                             diff.insert(String::from(p), di.new_file().id());
-//                         }
-//                     }
-//                 },
-//                 // this should not really happen in diffs of commits
-//                 _ => {
-//                     panic!("What to do?");
-//                 }
-//             }
-//         }
-//         Ok(())
-//     }
+fn calculate_tree_diff(repo: & git2::Repository,  parent : Option<& git2::Tree>, commit : Option<& git2::Tree>, changes : & mut HashMap<String, git2::Oid>) -> Result<(usize, usize), git2::Error> {
+    let diff = repo.diff_tree_to_tree(parent, commit, None)?;
+    for delta in diff.deltas() {
+        match delta.status() {
+            git2::Delta::Added | git2::Delta::Modified | git2::Delta::Deleted | git2::Delta::Copied => {
+                if let Some(p) = delta.new_file().path().unwrap().to_str() {
+                    changes.insert(String::from(p), delta.new_file().id());
+                }
+            },
+            git2::Delta::Renamed => {
+                if let Some(po) = delta.old_file().path().unwrap().to_str() {
+                    changes.insert(String::from(po), git2::Oid::zero());
+                    if let Some(p) = delta.new_file().path().unwrap().to_str() {
+                        changes.insert(String::from(p), delta.new_file().id());
+                    }
+                }
+            },
+            // this should not really happen in diffs of commits
+            _ => {
+                panic!("What to do?");
+            }
+        }
+    }
+    let stats = diff.stats()?;
+    return Ok((stats.insertions(), stats.deletions()));
+}
+
+
 
 
 // Structs impls & helper functions
@@ -262,7 +385,7 @@ impl Project {
         if db.commits_require_update(& mut new_heads.iter()) {
              let mut callbacks = git2::RemoteCallbacks::new();
              // TODO the callbacks should actually report stuff
-             callbacks.transfer_progress(|progress : git2::Progress| -> bool {
+             callbacks.transfer_progress(|_progress : git2::Progress| -> bool {
                  return true;
              });
              let mut opts = git2::FetchOptions::new();

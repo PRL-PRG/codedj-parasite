@@ -195,6 +195,7 @@ name = "dcd"
 version = "0.1.0"
 dependencies = [
  "bincode",
+ "byteorder",
  "chrono",
  "crossbeam",
  "csv",

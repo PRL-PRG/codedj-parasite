@@ -1,9 +1,13 @@
 use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
-use std::fs::File;
+use std::fs::*;
+use std::sync::*;
 use std::io::prelude::*;
+use std::io::SeekFrom;
 use std::marker::Sized;
 use std::iter::FromIterator;
+use db_manager::*;
+use byteorder::*;
 
 // TODO how can I make these package only?
 // this should be package-only
@@ -75,6 +79,8 @@ pub struct Commit {
     pub message: Option<Message>,
     // changes made by the commit 
     pub changes: Option<HashMap<PathId, SnapshotId>>,
+    pub additions: Option<u64>,
+    pub deletions: Option<u64>,
 }
 
 /** User information. 
@@ -134,12 +140,13 @@ pub trait Database {
     fn num_projects(& self) -> u64;
     fn num_commits(& self) -> u64;
     fn num_users(& self) -> u64;
+    fn num_file_paths(& self) -> u64;
 
     fn get_project(& self, id : ProjectId) -> Option<Project>;
     fn get_commit(& self, id : CommitId) -> Option<Commit>;
     fn get_user(& self, id : UserId) -> Option<& User>;
     //fn get_snapshot(& self, id : BlobId) -> Option<Snapshot>;
-    //fn get_file_path(& self, id : PathId) -> Option<FilePath>;
+    fn get_file_path(& self, id : PathId) -> Option<FilePath>;
 
     fn projects(&self) -> ProjectIter where Self: Sized { ProjectIter::from(self) }
     fn commits(&self)  -> CommitIter  where Self: Sized { CommitIter::from(self)  }
@@ -190,6 +197,12 @@ pub struct DCD {
     users_ : Vec<User>,
     commit_ids_ : HashMap<git2::Oid, CommitId>,
     commits_ : Vec<CommitBase>,
+    commit_message_offsets_ : HashMap<CommitId, u64>,
+    commit_messages_ : Mutex<File>,
+    commit_change_offsets_ : HashMap<CommitId, (u64, u64, u64)>, // additions, deletions, offset
+    //commit_changes_ : Mutex<csv::Reader>,
+
+    paths_ : Vec<String>,
 }
 
 impl DCD {
@@ -204,6 +217,16 @@ impl DCD {
         println!("    {} commits", commit_ids.len());
         let commits = Self::get_commits(& root, commit_ids.len());
         println!("    {} commit records", commit_ids.len());
+        let commit_message_offsets = Self::get_commit_message_offsets(& root);
+        println!("    {} commit messages", commit_message_offsets.len());
+        let commit_messages = OpenOptions::new().read(true).open(DatabaseManager::get_commit_messages_file(& root)).unwrap();
+        let commit_change_offsets = Self::get_commit_change_offsets(& root);
+        println!("    {} commit changes", commit_change_offsets.len());
+
+        let paths = Self::get_paths(& root);
+        println!("    {} paths", paths.len());
+        //let snapshots = Self::get_snapshots(& root);
+        //println!("    {} snapshots", snapshots.len());
 
         let result = DCD{
             root_ : root, 
@@ -211,6 +234,10 @@ impl DCD {
             users_ : users,
             commit_ids_ : commit_ids,
             commits_ : commits,
+            commit_message_offsets_ : commit_message_offsets,
+            commit_messages_ : Mutex::new(commit_messages),
+            commit_change_offsets_ : commit_change_offsets,
+            paths_ : paths,
         };
         return result;
     }
@@ -291,6 +318,56 @@ impl DCD {
         return result;
     }
 
+    fn get_commit_message_offsets(root : & str) -> HashMap<CommitId, u64> {
+        let mut reader = csv::ReaderBuilder::new()
+            .has_headers(true)
+            .double_quote(false)
+            .escape(Some(b'\\'))
+            .from_path(DatabaseManager::get_commit_messages_index_file(root)).unwrap();
+        let mut result = HashMap::<CommitId, u64>::new();
+        for x in reader.records() {
+            let record = x.unwrap();
+            let _t = record[0].parse::<i64>().unwrap();
+            let commit_id = record[1].parse::<u64>().unwrap() as CommitId;
+            let offset = record[2].parse::<u64>().unwrap();
+            result.insert(commit_id, offset);
+        }
+        return result;
+    }
+
+    fn get_commit_change_offsets(root : & str) -> HashMap<CommitId, (u64,u64,u64)> {
+        let mut reader = csv::ReaderBuilder::new()
+            .has_headers(true)
+            .double_quote(false)
+            .escape(Some(b'\\'))
+            .from_path(DatabaseManager::get_commit_messages_index_file(root)).unwrap();
+        let mut result = HashMap::<CommitId, (u64, u64, u64)>::new();
+        for x in reader.records() {
+            let record = x.unwrap();
+            let _t = record[0].parse::<i64>().unwrap();
+            let commit_id = record[1].parse::<u64>().unwrap() as CommitId;
+            let additions = record[2].parse::<u64>().unwrap();
+            let deletions = record[3].parse::<u64>().unwrap();
+            let offset = record[4].parse::<u64>().unwrap();
+            result.insert(commit_id, (additions, deletions, offset));
+        }
+        return result;
+    }
+
+    fn get_paths(root : & str) -> Vec<String> {
+        let mut reader = csv::ReaderBuilder::new()
+            .has_headers(true)
+            .double_quote(false)
+            .escape(Some(b'\\'))
+            .from_path(DatabaseManager::get_path_ids_file(root)).unwrap();
+        let mut result = Vec::<String>::new();
+        for x in reader.records() {
+            let record = x.unwrap();
+            result.push(record[0].to_string());
+        }
+        return result;
+    }
+
 }
 
 impl Database for DCD {
@@ -308,6 +385,10 @@ impl Database for DCD {
     fn num_users(& self) -> u64 {
         return self.users_.len() as u64;
     }
+
+    fn num_file_paths(& self) -> u64 {
+        return self.paths_.len() as u64;
+    }
     
     fn get_project(& self, id : ProjectId) -> Option<Project> {
         if let Ok(project) = std::panic::catch_unwind(||{
@@ -321,8 +402,23 @@ impl Database for DCD {
 
     fn get_commit(& self, id : CommitId) -> Option<Commit> {
         if let Some(base) = self.commits_.get(id as usize) {
-            let result = Commit::new(id, base);
-            // TODO check lazily for message and changes
+            let mut result = Commit::new(id, base);
+            // check lazily for message
+            if let Some(offset) = self.commit_message_offsets_.get(& id) {
+                let mut messages = self.commit_messages_.lock().unwrap();
+                messages.seek(SeekFrom::Start(*offset)).unwrap();
+                let commit_id = messages.read_u64::<LittleEndian>().unwrap();
+                assert_eq!(id as u64, commit_id);
+                let size = messages.read_u32::<LittleEndian>().unwrap();
+                let mut buffer = vec![0; size as usize];
+                messages.read(&mut buffer).unwrap();
+                result.message = Some(buffer);
+            }
+            // TODO and for changes
+            if let Some((additions, deletions, offset)) = self.commit_change_offsets_.get(&id) {
+                result.additions = Some(*additions);
+                result.deletions = Some(*deletions);
+            }
             return Some(result);
         } else {
             return None;
@@ -331,6 +427,13 @@ impl Database for DCD {
 
     fn get_user(& self, id : UserId) -> Option<&User> {
         return self.users_.get(id as usize);
+    }
+
+    fn get_file_path(& self, id : PathId) -> Option<FilePath> {
+        match self.paths_.get(id as usize) {
+            Some(path) => return Some(FilePath{ id, path : path.to_owned() }),
+            None => return None
+        }
     }
 }
 
@@ -424,6 +527,8 @@ impl Commit {
             author_time : base.author_time,
             message : None, 
             changes : None,
+            additions : None,
+            deletions : None
         };
     } 
 }
