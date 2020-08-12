@@ -1,6 +1,7 @@
 use std::sync::*;
 use std::fs::*;
 use std::io::*;
+use std::collections::hash_map::*;
 
 use crate::*;
 
@@ -126,7 +127,7 @@ impl DatabaseManager {
         }
         {
             let mut f = File::create(Self::get_commit_changes_index_file(root)).unwrap();
-            writeln!(& mut f, "commitId,offset,additions,deletions").unwrap();
+            writeln!(& mut f, "commitId,additions,deletions,offset").unwrap();
         }
         {
             let mut f = File::create(Self::get_commit_changes_file(root)).unwrap();
@@ -424,27 +425,58 @@ impl DatabaseManager {
         }
     }
 
-    /*
+    /** Translates commits changes represented as path and hash to their respective ids.
+     
+        For each snapshot, returns whether the snapshot is new, or existing. 
+     */
     pub fn translate_commit_changes(& self, changes : & HashMap<String, git2::Oid>) -> HashMap<PathId, (SnapshotId, bool)> {
         let mut path_ids = self.path_ids_.lock().unwrap();
         let mut snapshot_ids = self.snapshot_ids_.lock().unwrap();
-        return changes.map(|(path, hash| {
-            (Self::get_or_create_path_id(path_ids, path),
-             Self::get_or_create_snapshot_id(snapshot_ids, )    
-
-
+        return changes.iter().map(|(path, hash)| {
+            (Self::get_or_create_path_id(& mut * path_ids, path),
+             Self::get_or_create_snapshot_id(& mut * snapshot_ids, *hash)
+            ) 
         }).collect();
     }
 
-    fn get_or_create_path_id(path_ids : & mut HashMap<String, PathId>, path : & str) -> PathId {
-
+    fn get_or_create_path_id(path_ids : & mut IDMapper<HashMap<String, PathId>>, path : & str) -> PathId {
+        let new_id = path_ids.map.len() as PathId;
+        match path_ids.map.entry(path.to_owned()) {
+            Entry::Vacant(entry) => {
+                entry.insert(new_id);
+                writeln!(path_ids.file,"\"{}\",{}", path, new_id).unwrap(); 
+                return new_id;
+            },
+            Entry::Occupied(entry) => {
+                return * entry.get();
+            }
+        }
     }
 
-    fn get_or_create_snapshot_id(snapshot_ids : & mut HashMap<git2::Oid, SnapshotId>, hash: git2::Oid) -> (SnapshotId, bool) {
-
+    fn get_or_create_snapshot_id(snapshot_ids : & mut IDMapper<HashMap<git2::Oid, SnapshotId>>, hash: git2::Oid) -> (SnapshotId, bool) {
+        let new_id = snapshot_ids.map.len() as SnapshotId;
+        match snapshot_ids.map.entry(hash) {
+            Entry::Vacant(entry) => {
+                entry.insert(new_id);
+                writeln!(snapshot_ids.file,"{},{}", hash, new_id).unwrap(); 
+                return (new_id, true);
+            },
+            Entry::Occupied(entry) => {
+                return (* entry.get(), false);
+            }
+        }
     }
 
-    */
+    pub fn append_commit_changes(& self, id : CommitId, changes : & Vec<(PathId, SnapshotId)>, additions : usize, deletions : usize) {
+        let (index, messages) = & mut * self.commit_changes_files_.lock().unwrap();
+        let offset: u64 = messages.seek(SeekFrom::Current(0)).unwrap();
+        writeln!(messages, "0,{}", id).unwrap(); // checkum to tell us that next changeset is for commit X - no-one can change path 0
+        for (path_id, snapshot_id) in changes {
+            writeln!(messages, "{},{}", path_id, snapshot_id).unwrap();
+        }
+        writeln!(index, "{},{},{},{}", id, additions, deletions, offset).unwrap();
+    }
+
 
     /** Appends commit parents information. 
      
@@ -468,9 +500,9 @@ impl DatabaseManager {
     pub fn append_commit_message(& self, id : CommitId, msg : & [u8]) {
         let (index, messages) = & mut * self.commit_messages_files_.lock().unwrap();
         let len : u32 = msg.len() as u32;
-        messages.write(& bincode::serialize(&id).unwrap()).unwrap();
-        messages.write(& bincode::serialize(&len).unwrap()).unwrap();
         let offset: u64 = messages.seek(SeekFrom::Current(0)).unwrap();
+        messages.write(& bincode::serialize(&id).unwrap()).unwrap(); // serialize commit id and length of message for bookkeeping
+        messages.write(& bincode::serialize(&len).unwrap()).unwrap();
         messages.write(msg).unwrap();
         writeln!(index, "{},{},{}", id, offset, len).unwrap();
     }

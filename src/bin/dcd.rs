@@ -7,10 +7,13 @@ use dcd::db_manager::*;
 /** Fire up the database and start downloading...
  */
 fn main() {
-    let mut db = DatabaseManager::from("/dejavuii/dejacode/dataset-tiny");
+    let db = DatabaseManager::from("/dejavuii/dejacode/dataset-tiny");
     db.load_incomplete_commits();
     // clear the temporary folder if any 
-    std::fs::remove_dir_all(format!("{}/tmp", db.root()));
+    let tmp_folder = format!("{}/tmp", db.root());
+    if std::path::Path::new(& tmp_folder).exists() {
+        std::fs::remove_dir_all(tmp_folder).unwrap();
+    }
 
 
 
@@ -108,13 +111,16 @@ fn update_commits(commits : & HashSet<git2::Oid>, repo : & mut git2::Repository,
             let msg = commit.message_bytes();
             db.append_commit_message(commit_id, msg);
 
-            // get the changes
+            // get the changes and append them to the database
             let (changes, additions, deletions) = calculate_commit_diff(repo, & commit, db)?;
-            
+            let changes_only : Vec<(PathId, SnapshotId)> = changes.iter().map(|(path_id, (snapshot_id, _))| (*path_id, *snapshot_id)).collect();
+            db.append_commit_changes(commit_id, & changes_only, additions, deletions);
 
 
-            db.append_commit_record(commit_id, committer_id, committer_time, author_id, author_time, Source::GitHub);
+            // update the parents
             db.append_commit_parents_record(commit_id, & parents);
+            // append the record, which also completes the commit
+            db.append_commit_record(commit_id, committer_id, committer_time, author_id, author_time, Source::GitHub);
 
         }
     }
@@ -122,7 +128,11 @@ fn update_commits(commits : & HashSet<git2::Oid>, repo : & mut git2::Repository,
 }
 
 
-fn calculate_commit_diff(repo : & git2::Repository, commit : & git2::Commit, db : & DatabaseManager) -> Result<(HashMap<PathId,SnapshotId>, usize, usize), git2::Error> {
+/** Calculates the diff for given commit. 
+ 
+    Returns the actual diff (PathId-> (SnapshotId, is the snapshot new?)) and returns the cummlative additions & deletions across all parent changes. 
+ */
+fn calculate_commit_diff(repo : & git2::Repository, commit : & git2::Commit, db : & DatabaseManager) -> Result<(HashMap<PathId,(SnapshotId,bool)>, usize, usize), git2::Error> {
     let mut diff = HashMap::<String, git2::Oid>::new();
     let mut additions = 0;
     let mut deletions = 0;
@@ -137,12 +147,7 @@ fn calculate_commit_diff(repo : & git2::Repository, commit : & git2::Commit, db 
             deletions += d;
         }
     }
-    // now we need to get snapshot ids and pathIds 
-    
-    println!("    changes: {}, additions: {}, deletions: {}", diff.len(), additions, deletions);
-
-
-    return Ok((HashMap::new(), additions, deletions));
+    return Ok((db.translate_commit_changes(&diff), additions, deletions));
 }
 
 
@@ -286,7 +291,7 @@ impl Project {
         if db.commits_require_update(& mut new_heads.iter()) {
              let mut callbacks = git2::RemoteCallbacks::new();
              // TODO the callbacks should actually report stuff
-             callbacks.transfer_progress(|progress : git2::Progress| -> bool {
+             callbacks.transfer_progress(|_progress : git2::Progress| -> bool {
                  return true;
              });
              let mut opts = git2::FetchOptions::new();
