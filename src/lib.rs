@@ -496,7 +496,7 @@ pub struct CommitIter<'a> {
 
 impl<'a> CommitIter<'a> {
     pub fn from(database: &impl Database) -> CommitIter {
-        let total = database.num_projects();
+        let total = database.num_commits();
         CommitIter { current: 0, total, database }
     }
 }
@@ -563,7 +563,7 @@ pub struct ProjectCommitIter<'a> {
 
 impl<'a> ProjectCommitIter<'a> {
     pub fn from(database: &'a impl Database, project: &Project) -> ProjectCommitIter<'a> {
-        let visited: HashSet<CommitId> = HashSet::new();
+        let visited: HashSet<CommitId>  = HashSet::new();
         let head_commits: Vec<CommitId> = project.heads.iter().map(|(_, id)| *id).collect();
         let to_visit: HashSet<CommitId> = HashSet::from_iter(head_commits);
         ProjectCommitIter { visited, to_visit, database }
@@ -578,14 +578,20 @@ impl<'a> Iterator for ProjectCommitIter<'a> {
             let commit_id = self.to_visit.iter().next().map(|u| *u); // Blergh...
 
             if let Some(commit_id) = commit_id {
-                self.visited.remove(&commit_id); // There are only unseen user_ids in cache.
+                self.to_visit.remove(&commit_id); // There are only unseen user_ids in cache.
 
                 if !self.visited.insert(commit_id) {
                     continue; // Commit already visited - ignoring, going to the next one.
                 }
 
-                return self.database.get_commit(commit_id)
+                let commit_opt = self.database.get_commit(commit_id);
+                if let Some(commit) = &commit_opt {
+                    self.to_visit.extend(&commit.parents);
+                }
+                return commit_opt;
             }
+
+            return None;
         }
     }
 }
