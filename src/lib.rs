@@ -135,12 +135,13 @@ pub trait Database {
     fn num_projects(& self) -> u64;
     fn num_commits(& self) -> u64;
     fn num_users(& self) -> u64;
+    fn num_file_paths(& self) -> u64;
 
     fn get_project(& self, id : ProjectId) -> Option<Project>;
     fn get_commit(& self, id : CommitId) -> Option<Commit>;
     fn get_user(& self, id : UserId) -> Option<& User>;
     //fn get_snapshot(& self, id : BlobId) -> Option<Snapshot>;
-    //fn get_file_path(& self, id : PathId) -> Option<FilePath>;
+    fn get_file_path(& self, id : PathId) -> Option<FilePath>;
 
     fn projects(&self) -> ProjectIter where Self: Sized { ProjectIter::from(self) }
     fn commits(&self)  -> CommitIter  where Self: Sized { CommitIter::from(self)  }
@@ -193,6 +194,8 @@ pub struct DCD {
     commits_ : Vec<CommitBase>,
     commit_message_offsets_ : HashMap<CommitId, u64>,
     commit_messages_ : File,
+
+    paths_ : Vec<String>,
 }
 
 impl DCD {
@@ -211,6 +214,11 @@ impl DCD {
         println!("    {} commit messages", commit_message_offsets.len());
         let commit_messages = OpenOptions::new().read(true).open(DatabaseManager::get_commit_messages_file(& root)).unwrap();
 
+        let paths = Self::get_paths(& root);
+        println!("    {} paths", paths.len());
+        //let snapshots = Self::get_snapshots(& root);
+        //println!("    {} snapshots", snapshots.len());
+
         let result = DCD{
             root_ : root, 
             num_projects_ : num_projects,
@@ -218,7 +226,9 @@ impl DCD {
             commit_ids_ : commit_ids,
             commits_ : commits,
             commit_message_offsets_ : commit_message_offsets,
-            commit_messages_ : commit_messages
+            commit_messages_ : commit_messages,
+
+            paths_ : paths,
         };
         return result;
     }
@@ -316,6 +326,20 @@ impl DCD {
         return result;
     }
 
+    fn get_paths(root : & str) -> Vec<String> {
+        let mut reader = csv::ReaderBuilder::new()
+            .has_headers(true)
+            .double_quote(false)
+            .escape(Some(b'\\'))
+            .from_path(DatabaseManager::get_path_ids_file(root)).unwrap();
+        let mut result = Vec::<String>::new();
+        for x in reader.records() {
+            let record = x.unwrap();
+            result.push(record[0].to_string());
+        }
+        return result;
+    }
+
 }
 
 impl Database for DCD {
@@ -332,6 +356,10 @@ impl Database for DCD {
 
     fn num_users(& self) -> u64 {
         return self.users_.len() as u64;
+    }
+
+    fn num_file_paths(& self) -> u64 {
+        return self.paths_.len() as u64;
     }
     
     fn get_project(& self, id : ProjectId) -> Option<Project> {
@@ -356,6 +384,13 @@ impl Database for DCD {
 
     fn get_user(& self, id : UserId) -> Option<&User> {
         return self.users_.get(id as usize);
+    }
+
+    fn get_file_path(& self, id : PathId) -> Option<FilePath> {
+        match self.paths_.get(id as usize) {
+            Some(path) => return Some(FilePath{ id, path : path.to_owned() }),
+            None => return None
+        }
     }
 }
 
