@@ -541,19 +541,19 @@ impl DatabaseManager {
     }
 
     pub fn get_commit_changes_index_file(root : & str) -> String {
-        return format!("{}/commit_changes_index.dat", root);
+        return format!("{}/commit_changes_index.csv", root);
     }
 
     pub fn get_commit_changes_file(root : & str) -> String {
-        return format!("{}/commit_changes.dat", root);
+        return format!("{}/commit_changes.csv", root);
     }
 
     pub fn get_path_ids_file(root : & str) -> String {
-        return format!("{}/path_ids.dat", root);
+        return format!("{}/path_ids.csv", root);
     }
 
     pub fn get_snapshot_ids_file(root : & str) -> String {
-        return format!("{}/snapshot_ids.dat", root);
+        return format!("{}/snapshot_ids.csv", root);
     }
 
     /** Returns the log file for given project id. 

@@ -7,7 +7,7 @@ use dcd::db_manager::*;
 /** Fire up the database and start downloading...
  */
 fn main() {
-    let db = DatabaseManager::from("/dejavuii/dejacode/dataset-tiny");
+    let db = DatabaseManager::from("/dejavuii/dejacode/dataset-peta");
     db.load_incomplete_commits();
     // clear the temporary folder if any 
     let tmp_folder = format!("{}/tmp", db.root());

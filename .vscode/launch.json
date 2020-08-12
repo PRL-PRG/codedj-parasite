@@ -9,7 +9,7 @@
             "type": "lldb",
             "request": "launch",
             "program": "${workspaceFolder}/target/debug/dcd-ghtorrent",
-            "args": [],
+            "args": ["/dejavuii/dejacode/dataset-peta", "/dejavuii/dejacode/ghtorrent/dump-tiny", "--new"],
             "cwd": "${workspaceFolder}",
         },
         {
