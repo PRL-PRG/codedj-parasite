@@ -199,8 +199,8 @@ pub struct DCD {
     commits_ : Vec<CommitBase>,
     commit_message_offsets_ : HashMap<CommitId, u64>,
     commit_messages_ : Mutex<File>,
-    commit_change_offsets_ : HashMap<CommitId, (u64, u64, u64)>, // additions, deletions, offset
-    //commit_changes_ : Mutex<csv::Reader>,
+    commit_change_offsets_ : HashMap<CommitId, u64>, 
+    commit_changes_ : Mutex<File>,
 
     paths_ : Vec<String>,
 }
@@ -222,7 +222,7 @@ impl DCD {
         let commit_messages = OpenOptions::new().read(true).open(DatabaseManager::get_commit_messages_file(& root)).unwrap();
         let commit_change_offsets = Self::get_commit_change_offsets(& root);
         println!("    {} commit changes", commit_change_offsets.len());
-
+        let commit_changes = OpenOptions::new().read(true).open(DatabaseManager::get_commit_changes_file(& root)).unwrap();
         let paths = Self::get_paths(& root);
         println!("    {} paths", paths.len());
         //let snapshots = Self::get_snapshots(& root);
@@ -237,6 +237,7 @@ impl DCD {
             commit_message_offsets_ : commit_message_offsets,
             commit_messages_ : Mutex::new(commit_messages),
             commit_change_offsets_ : commit_change_offsets,
+            commit_changes_ : Mutex::new(commit_changes),
             paths_ : paths,
         };
         return result;
@@ -335,21 +336,19 @@ impl DCD {
         return result;
     }
 
-    fn get_commit_change_offsets(root : & str) -> HashMap<CommitId, (u64,u64,u64)> {
+    fn get_commit_change_offsets(root : & str) -> HashMap<CommitId, u64> {
         let mut reader = csv::ReaderBuilder::new()
             .has_headers(true)
             .double_quote(false)
             .escape(Some(b'\\'))
-            .from_path(DatabaseManager::get_commit_messages_index_file(root)).unwrap();
-        let mut result = HashMap::<CommitId, (u64, u64, u64)>::new();
+            .from_path(DatabaseManager::get_commit_changes_index_file(root)).unwrap();
+        let mut result = HashMap::<CommitId, u64>::new();
         for x in reader.records() {
             let record = x.unwrap();
             let _t = record[0].parse::<i64>().unwrap();
             let commit_id = record[1].parse::<u64>().unwrap() as CommitId;
-            let additions = record[2].parse::<u64>().unwrap();
-            let deletions = record[3].parse::<u64>().unwrap();
-            let offset = record[4].parse::<u64>().unwrap();
-            result.insert(commit_id, (additions, deletions, offset));
+            let offset = record[2].parse::<u64>().unwrap();
+            result.insert(commit_id, offset);
         }
         return result;
     }
@@ -415,9 +414,22 @@ impl Database for DCD {
                 result.message = Some(buffer);
             }
             // TODO and for changes
-            if let Some((additions, deletions, offset)) = self.commit_change_offsets_.get(&id) {
-                result.additions = Some(*additions);
-                result.deletions = Some(*deletions);
+            if let Some(offset) = self.commit_change_offsets_.get(&id) {
+                let mut commit_changes = self.commit_changes_.lock().unwrap();
+                commit_changes.seek(SeekFrom::Start(*offset)).unwrap();
+                let commit_id = commit_changes.read_u64::<LittleEndian>().unwrap();
+                assert_eq!(id as u64, commit_id);
+                let num_changes = commit_changes.read_u32::<LittleEndian>().unwrap() as usize;
+                result.additions = Some(commit_changes.read_u64::<LittleEndian>().unwrap());
+                result.deletions = Some(commit_changes.read_u64::<LittleEndian>().unwrap());
+                let mut changes = HashMap::<PathId, SnapshotId>::new();
+                while changes.len() < num_changes  {
+                    changes.insert(
+                        commit_changes.read_u64::<LittleEndian>().unwrap() as PathId,
+                        commit_changes.read_u64::<LittleEndian>().unwrap() as SnapshotId,
+                    );
+                } 
+                result.changes = Some(changes);
             }
             return Some(result);
         } else {
@@ -764,128 +776,3 @@ impl<'a> Iterator for ProjectUserIdIter<'a> {
     }
 }
 
-/*
-
-
-/** Basic access to the DejaCode Downloader database.
- 
-    The API is tailored to reasonably fast random access to items identified by their IDs so that it can, in theory proceed in parallel (disk permits).
- */
-pub struct DCDx {
-     root_ : String, 
-     num_projects_ : u64,
-     users_ : Vec<User>,
-
-}
-
-impl DCDx {
-
-    pub fn from(root_folder : & str) -> Result<DCD, std::io::Error> {
-        let mut dcd = DCD{
-            root_ : String::from(root_folder),
-            num_projects_ : DCD::get_num_projects(root_folder),
-            users_ : Vec::new(),
-        };
-
-        return Ok(dcd);
-    }
-
-    /** Loads the global table of users. This must run before any user details are obtained from the downloader. 
-     */
-    pub fn load_users(& mut self) {
-        let mut reader = csv::Reader::from_path(format!("{}/projects.csv", self.root_)).unwrap();
-        for x in reader.records() {
-            if let Ok(record) = x {
-            }
-        }
-    }
-
-    /** Creates empty uninitialized downloader with given root folder. 
-     */
-    fn new(root_folder : & str) -> DCD {
-        return DCD{
-            root_ : String::from(root_folder),
-            num_projects_ : 0,
-            users_ : Vec::new(),
-        };
-    }
-
-    /** Returns the root folder from which the downloader operates. 
-     */
-    pub fn rootFolder(& self) -> & str {
-        return & self.root_;
-    }
-
-    // private
-
-    fn get_num_projects(root_folder : & str) -> u64 {
-        let filename = format!{"{}/projects.csv", root_folder};
-        if Path::new(& filename).exists() {
-            if let Ok(mut reader) = csv::Reader::from_path(& filename) {
-                if let Some(Ok(record)) = reader.records().next() {
-                    if record.len() == 1 {
-                        if let Ok(next_id) = record[0].parse::<u64>() {
-                            return next_id - 1;
-                        }
-                    }
-                }
-            }
-        } 
-        return 0;
-    }
-
-    fn get_project_root(& self, id : ProjectId) -> String {
-        return format!("{}/projects/{}/{}", self.root_, id % 1000, id);
-    }
-
-    fn get_users_file(& self) -> String {
-        return format!("{}/users.csv", self.root_);
-    }
-
-}
-
-impl Database for DCD {
-
-    /** Returns the number of projects the downloader contains.
-     */
-    fn num_projects(& self) -> u64 {
-        return self.num_projects_;
-    }
-    
-    /** Users reside in one large file that needs to be loaded first. 
-     */
-    fn get_user(& self, id : UserId) -> Option<& User> {
-        return self.users_.get(id as usize);
-    }
-
-    fn get_snapshot(& self, id : BlobId) -> Option<Snapshot> {
-        return None;
-    }
-
-    fn get_file_path(& self, id : PathId) -> Option<FilePath> {
-        return None;
-    }
-
-    /** Commits reside in their own files, so random access is simple.
-     */
-    fn get_commit(& self, id : CommitId) -> Option<Commit> {
-        return None;
-    }
-
-    /** Projects reside in their own files, so random access is simple.
-     */
-    fn get_project(& self, id : ProjectId) -> Option<Project> {
-        /*
-        if let Ok(project) = std::panic::catch_unwind(||{
-            return Project::new(id, & self.get_project_root(id));
-        }) {
-            return Some(project);
-        } else {
-            return None;
-        }
-        */
-        return None;
-    }
-
-}
-*/

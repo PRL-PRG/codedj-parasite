@@ -128,11 +128,7 @@ impl DatabaseManager {
         }
         {
             let mut f = File::create(Self::get_commit_changes_index_file(root)).unwrap();
-            writeln!(& mut f, "time,commitId,additions,deletions,offset").unwrap();
-        }
-        {
-            let mut f = File::create(Self::get_commit_changes_file(root)).unwrap();
-            writeln!(& mut f, "pathId,snapshotId").unwrap();
+            writeln!(& mut f, "time,commitId,offset").unwrap();
         }
         {
             let mut f = File::create(Self::get_path_ids_file(root)).unwrap();
@@ -469,13 +465,17 @@ impl DatabaseManager {
     }
 
     pub fn append_commit_changes(& self, id : CommitId, changes : & Vec<(PathId, SnapshotId)>, additions : usize, deletions : usize) {
-        let (index, messages) = & mut * self.commit_changes_files_.lock().unwrap();
-        let offset: u64 = messages.seek(SeekFrom::Current(0)).unwrap();
-        writeln!(messages, "0,{}", id).unwrap(); // checkum to tell us that next changeset is for commit X - no-one can change path 0
+        let (index, changes_file) = & mut * self.commit_changes_files_.lock().unwrap();
+        let offset: u64 = changes_file.seek(SeekFrom::Current(0)).unwrap();
+        changes_file.write_u64::<LittleEndian>(id).unwrap();// checksum to tell us that next changeset is for commit X - no-one can change path 0
+        changes_file.write_u32::<LittleEndian>(changes.len() as u32).unwrap();
+        changes_file.write_u64::<LittleEndian>(additions as u64).unwrap(); // additions and deletions 
+        changes_file.write_u64::<LittleEndian>(deletions as u64).unwrap();
         for (path_id, snapshot_id) in changes {
-            writeln!(messages, "{},{}", path_id, snapshot_id).unwrap();
+            changes_file.write_u64::<LittleEndian>(*path_id as u64).unwrap();
+            changes_file.write_u64::<LittleEndian>(*snapshot_id as u64).unwrap();
         }
-        writeln!(index, "{},{},{},{},{}", helpers::now(), id, additions, deletions, offset).unwrap();
+        writeln!(index, "{},{},{}", helpers::now(), id, offset).unwrap();
     }
 
 
@@ -546,7 +546,7 @@ impl DatabaseManager {
     }
 
     pub fn get_commit_changes_file(root : & str) -> String {
-        return format!("{}/commit_changes.csv", root);
+        return format!("{}/commit_changes.dat", root);
     }
 
     pub fn get_path_ids_file(root : & str) -> String {
