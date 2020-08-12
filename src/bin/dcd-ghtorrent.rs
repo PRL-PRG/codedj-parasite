@@ -7,8 +7,18 @@ use dcd::db_manager::*;
 /** Actually initializes stuff from ghtorrent.
  */
 fn main() {
-    let mut db = DatabaseManager::initialize_new("/dejavuii/dejacode/dataset-full");
-    let root = String::from("/dejavuii/dejacode/ghtorrent/dump-js");
+    let args : Vec<String> = std::env::args().collect();
+    if args.len() < 3 || args.len() > 4 || args.len() == 4 && (args[3] != "--new") {
+        panic!{"Invalid usage"}
+    }
+    let mut db = if args.len() == 4 {
+        println!("Creating new database in {}", args[1]);
+        DatabaseManager::initialize_new(& args[1])
+    } else {
+        DatabaseManager::from(& args[1])
+    };
+    println!("IMporting from ghtorrent dump at {}", args[2]);
+    let root = String::from(& args[2]);
     // first filter the projects 
     let project_ids = initialize_projects(& root, & mut db);
     db.commit_created_projects();
