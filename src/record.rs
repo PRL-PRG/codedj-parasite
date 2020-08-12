@@ -7,6 +7,7 @@ pub enum ProjectLogEntry {
     Init{time : i64, source: Source, url : String },
     UpdateStart{time : i64, source : Source},
     Update{time : i64, source : Source },
+    Error{time : i64, source : Source, message : String },
     NoChange{time : i64, source : Source },
     Metadata{time : i64, source: Source, key : String, value : String },
     Head{time : i64, source: Source, name: String, hash: git2::Oid }
@@ -18,12 +19,16 @@ impl ProjectLogEntry {
         return ProjectLogEntry::Init{time : helpers::now(), source, url};
     }
 
+    pub fn update_start(source : Source) -> ProjectLogEntry {
+        return ProjectLogEntry::UpdateStart{time : helpers::now(), source };
+    }
+
     pub fn update(source : Source) -> ProjectLogEntry {
         return ProjectLogEntry::Update{time : helpers::now(), source };
     }
 
-    pub fn update_start(source : Source) -> ProjectLogEntry {
-        return ProjectLogEntry::UpdateStart{time : helpers::now(), source };
+    pub fn error(source : Source, message : String) -> ProjectLogEntry {
+        return ProjectLogEntry::Error{time : helpers::now(), source, message};
     }
 
     pub fn no_change(source : Source) -> ProjectLogEntry {
@@ -54,6 +59,12 @@ impl ProjectLogEntry {
             return ProjectLogEntry::UpdateStart{
                 time : record[0].parse::<i64>().unwrap(),
                 source : Source::from_str(& record[1])
+            };
+        } else if record[2] == *"error" {
+            return ProjectLogEntry::Error{
+                time : record[0].parse::<i64>().unwrap(),
+                source : Source::from_str(& record[1]),
+                message : String::from(& record[3]),
             };
         } else if record[2] == *"nochange" {
             return ProjectLogEntry::NoChange{ 
@@ -86,6 +97,9 @@ impl ProjectLogEntry {
             },
             ProjectLogEntry::Update{time, source} => {
                 return writeln!(f, "{},{},update,\"\",\"\"", time, source);
+            },
+            ProjectLogEntry::Error{time, source, message} => {
+                return writeln!(f, "{},{},update,\"{}\",\"\"", time, source, message);
             },
             ProjectLogEntry::UpdateStart{time, source} => {
                 return writeln!(f, "{},{},start,\"\",\"\"", time, source);

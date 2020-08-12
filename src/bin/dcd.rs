@@ -46,17 +46,15 @@ impl ProjectsQueue {
         if q.is_empty() {
             return None;
         }
+        println!("Remainig {} projects...", q.len());
         return Some(q.pop().unwrap().0.id);
     }
 }
 
-
-
-
 /** Fire up the database and start downloading...
  */
 fn main() {
-    let db = DatabaseManager::from("/dejavuii/dejacode/dataset-peta-x");
+    let db = DatabaseManager::from("/dejavuii/dejacode/dataset-sample");
     db.load_incomplete_commits();
     // clear the temporary folder if any 
     let tmp_folder = format!("{}/tmp", db.root());
@@ -66,27 +64,32 @@ fn main() {
 
     let q = ProjectsQueue::new();
     println!("Analyzing projects (total {})...", db.num_projects());
-    /*
     for x in 0 .. db.num_projects() {
         q.enqueue(x as ProjectId, 0);
-    }*/
-    q.enqueue(50, 0);
-    q.enqueue(30, 0);
-    q.enqueue(6, 0);
-    q.enqueue(0, 0);
-    q.enqueue(48, 0);
-    q.enqueue(49, 0);
+    }
 
     crossbeam::thread::scope(|s| {
         // start the worker threads
-        for _x in 0..8 {
+        for _x in 0..16 {
             s.spawn(|_| {
                 loop {
                     match q.dequeue_non_blocking() {
                         Some(project_id) => {
-                            if let Err(err) = update_project(project_id, & db) {
-                                println!("ERROR: project {} : {:?}", project_id, err);
+                            let mut project = Project::from_database(project_id, & db);
+                            project.log.add(record::ProjectLogEntry::update_start(Source::GitHub));
+                            match update_project(& mut project, & db) {
+                                Ok(true) => {
+                                    project.log.add(record::ProjectLogEntry::update(Source::GitHub));
+                                },
+                                Ok(false) => {
+                                    project.log.add(record::ProjectLogEntry::no_change(Source::GitHub));
+                                },
+                                Err(err) => {
+                                    println!("ERROR: project {} : {:?}", project_id, err);
+                                    project.log.add(record::ProjectLogEntry::error(Source::GitHub, format!("{:?}", err)));
+                                }
                             }
+                            project.log.append();
                         },
                         None => {
                             return;
@@ -144,19 +147,20 @@ struct Project {
 
     First we have to analyze the project information, the we can start the git download & things...
  */
-fn update_project(id : ProjectId, db : & DatabaseManager) -> Result<bool, git2::Error> {
-    let mut project = Project::from_database(id, db);
+fn update_project(project : & mut Project, db : & DatabaseManager) -> Result<bool, git2::Error> {
     // create the bare git repository 
     // TODO in the future, we can check whether the repo exists and if it does do just update 
-    let mut repo = git2::Repository::init_bare(format!("{}/tmp/{}", db.root(), id))?;
+    let mut repo = git2::Repository::init_bare(format!("{}/tmp/{}", db.root(), project.id))?;
     let new_heads = project.fetch_new_heads(& mut repo, db)?;
     // now we have new heads, so we should analyze the commits
     update_commits(& new_heads, & mut repo, db)?;
 
-    println!("{} : {}, new heads: {}", project.id, project.url, new_heads.len());
+    //println!("{} : {}, new heads: {}", project.id, project.url, new_heads.len());
 
     return Ok(true);
 }
+
+
 
 /** Updates the commits identified by hashes, if they need to be. 
  
@@ -245,52 +249,6 @@ fn calculate_commit_diff(repo : & git2::Repository, commit : & git2::Commit, db 
 }
 
 
-
-
-
-//     /** Get the diff of the commit. 
-
-//         TODO We actually need to calculate the files ourselves as libgit provides no such feature - the diff provided inside is a full diff that is an overkill for our purposes, but for now I am just using the default diff. 
-        
-//      */
-//     fn store_commit_diff(& self, repo : & git2::Repository, root: &str, commit : & git2::Commit) -> Result<(), git2::Error> {
-//         // first calculate the diff
-//         let mut diff = HashMap::new();
-//         if commit.parent_count() == 0 {
-//             Project::calculate_diff(& repo, None, Some(& commit.tree()?), & mut diff)?;
-//         } else {
-//             for p in commit.parents() {
-//                 Project::calculate_diff( & repo, Some(& p.tree()?), Some(& commit.tree()?), & mut diff)?;
-//             }
-//         }
-//         // then get all the hash ids for paths and for hashes
-//         let (contents, new_contents) = self.ghm.create_new_hash_ids(& diff.values().cloned().collect());        
-//         let (paths, new_paths) = self.ghm.create_new_path_ids(& diff.keys().cloned().collect());        
-//         // store the diff in the commit
-//         let mut f = File::create(format!("{}/changes.csv", root)).unwrap();
-//         writeln!(& mut f, "pathId,changeId");
-//         for x in diff {
-//             writeln!(& mut f, "{},{}", paths.get(& x.0).unwrap(), contents.get(& x.1).unwrap());
-//         }
-//         // store the snapshots
-//         // TODO determine which snapshots we want to be stored and which not
-//         for hash in & new_contents {
-//             let id = contents.get(& hash).unwrap();
-//             if let Ok(blob) = repo.find_blob(*hash) {
-//                 let snapshotRoot = String::from(format!("{}/snapshots/{}", self.ghm.root, id % 100));
-//                 std::fs::create_dir_all(& snapshotRoot);
-//                 let mut f = File::create(format!("{}/{}", & snapshotRoot, id)).unwrap();
-//                 f.write_all(blob.content());
-//             } else {
-//                 // TODO we are dealing with sth like submodule most likely
-//             }
-//         }
-//         // when stored, update the hash & path ids
-//         self.ghm.append_hashes(& contents, & new_contents);
-//         self.ghm.append_paths(& paths, & new_paths);
-//         Ok(())
-//     }
-
 fn calculate_tree_diff(repo: & git2::Repository,  parent : Option<& git2::Tree>, commit : Option<& git2::Tree>, changes : & mut HashMap<String, git2::Oid>) -> Result<(usize, usize), git2::Error> {
     let diff = repo.diff_tree_to_tree(parent, commit, None)?;
     for delta in diff.deltas() {
@@ -349,6 +307,9 @@ impl Project {
                 },
                 record::ProjectLogEntry::Update{ time, source : _ } => {
                     result.last_update = time;
+                },
+                record::ProjectLogEntry::Error{ time, source : _, message : _ } => {
+                    // TODO do nothing for now...
                 },
                 record::ProjectLogEntry::NoChange{ time, source : _} => {
                     result.last_update = time;

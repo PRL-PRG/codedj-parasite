@@ -393,7 +393,7 @@ impl Database for DCD {
         if let Ok(project) = std::panic::catch_unwind(||{
             return Project::from_log(id, & db_manager::DatabaseManager::get_project_log_file(& self.root_, id), & self);
         }) {
-            return Some(project);
+            return project;
         } else {
             return None;
         }
@@ -488,7 +488,7 @@ impl std::fmt::Display for Source {
 impl Project {
     /** Constructs the project information from given log file. 
      */
-    fn from_log(id : ProjectId, log_file : & str, dcd : & DCD) -> Project {
+    fn from_log(id : ProjectId, log_file : & str, dcd : & DCD) -> Option<Project> {
         let mut result = Project{
             id, 
             url : String::new(),
@@ -522,9 +522,12 @@ impl Project {
                     } 
                     result.heads.push((name, dcd.commit_ids_[& hash]));
                 }
+                record::ProjectLogEntry::Error{ time : _, source : _, message : _ } => {
+                    return None;
+                }
             }
         }
-        return result;
+        return Some(result);
     }
 }
 
