@@ -5,7 +5,11 @@ use dcd::db_manager::*;
  */
 
 fn main() {
-    let db = DatabaseManager::from("/dejavuii/dejacode/peta-tiny");
+    let args : Vec<String> = std::env::args().collect();
+    if args.len() != 2 {
+        panic!{"Invalid usage - dcd PATH_TO_DATABASE"}
+    }
+    let db = DatabaseManager::from(& args[1]);
     for i in 0..db.num_projects() {
         let mut log = record::ProjectLog::new(db.get_project_log_filename(i as ProjectId));
         let mut reader = csv::Reader::from_path(& log.filename_).unwrap();

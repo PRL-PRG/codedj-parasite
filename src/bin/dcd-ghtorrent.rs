@@ -9,7 +9,7 @@ use dcd::db_manager::*;
 fn main() {
     let args : Vec<String> = std::env::args().collect();
     if args.len() < 3 || args.len() > 4 || args.len() == 4 && (args[3] != "--new") {
-        panic!{"Invalid usage"}
+        panic!{"Invalid usage - dcd-ghtorrent DATABASE GHTORRENT_DUMP [--new]"}
     }
     let mut db = if args.len() == 4 {
         println!("Creating new database in {}", args[1]);

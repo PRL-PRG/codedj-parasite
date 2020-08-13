@@ -17,7 +17,7 @@
             "type": "lldb",
             "request": "launch",
             "program": "${workspaceFolder}/target/debug/dcd",
-            "args": [],
+            "args": [ "/dejavuii/dejacode/peta-tiny"],
             "cwd": "${workspaceFolder}",
         },
         {
@@ -25,23 +25,23 @@
             "type": "lldb",
             "request": "launch",
             "program": "${workspaceFolder}/target/debug/dcd-reader",
-            "args": [],
+            "args": ["/dejavuii/dejacode/peta-tiny"],
             "cwd": "${workspaceFolder}",
-        }
+        },
         {
             "name": "(gdb) dcd-importer",
             "type": "lldb",
             "request": "launch",
             "program": "${workspaceFolder}/target/debug/dcd-importer",
-            "args": [],
+            "args": ["/dejavuii/dejacode/peta-tiny", "/dejavuii/dejacode/new_sha.csv"],
             "cwd": "${workspaceFolder}",
-        }
+        },
         {
             "name": "(gdb) dcd-repair",
             "type": "lldb",
             "request": "launch",
             "program": "${workspaceFolder}/target/debug/dcd-repair",
-            "args": [],
+            "args": ["/dejavuii/dejacode/peta-tiny"],
             "cwd": "${workspaceFolder}",
         }
     ]

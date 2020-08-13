@@ -56,7 +56,11 @@ impl ProjectsQueue {
 /** Fire up the database and start downloading...
  */
 fn main() {
-    let db = DatabaseManager::from("/dejavuii/dejacode/peta-tiny");
+    let args : Vec<String> = std::env::args().collect();
+    if args.len() != 2 {
+        panic!{"Invalid usage - dcd PATH_TO_DATABASE"}
+    }
+    let db = DatabaseManager::from(& args[1]);
     db.load_incomplete_commits();
     // clear the temporary folder if any 
     let tmp_folder = format!("{}/tmp", db.root());
@@ -158,14 +162,20 @@ struct Project {
 fn update_project(project : & mut Project, db : & DatabaseManager) -> Result<bool, git2::Error> {
     // create the bare git repository 
     // TODO in the future, we can check whether the repo exists and if it does do just update 
+    let mut changed = false;
     let mut repo = git2::Repository::init_bare(format!("{}/tmp/{}", db.root(), project.id))?;
     let new_heads = project.fetch_new_heads(& mut repo, db)?;
-    // now we have new heads, so we should analyze the commits
-    update_commits(project, & new_heads, & mut repo, db)?;
+    if new_heads.is_empty() {
+        return Ok(changed);
+    } else {
+        changed = true;
+        // now we have new heads, so we should analyze the commits
+        update_commits(project, & new_heads, & mut repo, db)?;
+    }
 
     //println!("{} : {}, new heads: {}", project.id, project.url, new_heads.len());
 
-    return Ok(true);
+    return Ok(changed);
 }
 
 

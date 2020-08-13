@@ -33,9 +33,12 @@ use dcd::*;
  */
 
 fn main() {
-
-    let dcd = DCD::new("/dejavuii/dejacode/peta-tiny".to_owned());
-    let mut f = File::create("/dejavuii/dejacode/new_sha.csv").unwrap();
+    let args : Vec<String> = std::env::args().collect();
+    if args.len() != 3 {
+        panic!{"Invalid usage - dcd PATH_TO_DATABASE OUTPUT_FILE"}
+    }
+    let dcd = DCD::new(args[1].to_owned());
+    let mut f = File::create(& args[2]).unwrap();
     writeln!(& mut f, "language,typeclass,langclass,memoryclass,compileclass,project,sha,files,committer,commit_date,commit_age,insertion,deletion,isbug,bug_type,phase,domain,btype1,btype2").unwrap();
 
     for project in dcd.projects() {
