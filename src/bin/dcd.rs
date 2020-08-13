@@ -56,7 +56,7 @@ impl ProjectsQueue {
 /** Fire up the database and start downloading...
  */
 fn main() {
-    let db = DatabaseManager::from("/dejavuii/dejacode/dataset-sample");
+    let db = DatabaseManager::from("/dejavuii/dejacode/dataset-peta-x");
     db.load_incomplete_commits();
     // clear the temporary folder if any 
     let tmp_folder = format!("{}/tmp", db.root());
@@ -88,7 +88,7 @@ fn main() {
                                 },
                                 Err(err) => {
                                     println!("ERROR: project {} : {:?}", project_id, err);
-                                    project.log.add(record::ProjectLogEntry::error(Source::GitHub, format!("{:?}", err)));
+                                    project.log.add(record::ProjectLogEntry::error(Source::GitHub, err.message().to_owned()));
                                 }
                             }
                             project.log.append();
@@ -160,7 +160,7 @@ fn update_project(project : & mut Project, db : & DatabaseManager) -> Result<boo
     let mut repo = git2::Repository::init_bare(format!("{}/tmp/{}", db.root(), project.id))?;
     let new_heads = project.fetch_new_heads(& mut repo, db)?;
     // now we have new heads, so we should analyze the commits
-    update_commits(& new_heads, & mut repo, db)?;
+    update_commits(project, & new_heads, & mut repo, db)?;
 
     //println!("{} : {}, new heads: {}", project.id, project.url, new_heads.len());
 
@@ -172,10 +172,13 @@ fn update_project(project : & mut Project, db : & DatabaseManager) -> Result<boo
 /** Updates the commits identified by hashes, if they need to be. 
  
  */ 
-fn update_commits(commits : & HashSet<git2::Oid>, repo : & mut git2::Repository, db : & DatabaseManager) -> Result<(), git2::Error> {
+fn update_commits(project : & mut Project, commits : & HashSet<git2::Oid>, repo : & mut git2::Repository, db : & DatabaseManager) -> Result<(), git2::Error> {
     // queue of commits and whether they are open or not
     let mut q : VecDeque<(git2::Oid, bool)> = commits.iter().map(|x| (*x, false)).collect();
     while ! q.is_empty() {
+        if helpers::now() - project.update_start >= 3600 {
+            return Err(git2::Error::from_str("DCD Timeout"));
+        }
         let (hash, open) = q.pop_back().unwrap();
         let (commit_id, state) = db.get_or_create_commit_id(hash);
         // if the commit is not open, we have to first deal with its parents
@@ -294,6 +297,7 @@ impl Project {
             id,
             url : String::new(),
             last_update : 0,
+            update_start : helpers::now(),
             metadata : HashMap::new(),
             heads : Vec::new(),
             log : record::ProjectLog::new(db.get_project_log_filename(id)),

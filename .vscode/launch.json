@@ -19,7 +19,7 @@
             "program": "${workspaceFolder}/target/debug/dcd",
             "args": [],
             "cwd": "${workspaceFolder}",
-        }
+        },
         {
             "name": "(gdb) dcd-reader",
             "type": "lldb",
