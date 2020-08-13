@@ -57,9 +57,11 @@ impl ProjectsQueue {
  */
 fn main() {
     let args : Vec<String> = std::env::args().collect();
-    if args.len() != 2 {
-        panic!{"Invalid usage - dcd PATH_TO_DATABASE"}
+    if args.len() != 4 {
+        panic!{"Invalid usage - dcd PATH_TO_DATABASE NUM_THREADS TIMEOUT"}
     }
+    let num_threads = args[2].parse::<usize>().unwrap();
+    let timeout = args[3].parse::<i64>().unwrap();
     let db = DatabaseManager::from(& args[1]);
     db.load_incomplete_commits();
     // clear the temporary folder if any 
@@ -67,6 +69,7 @@ fn main() {
     if std::path::Path::new(& tmp_folder).exists() {
         std::fs::remove_dir_all(tmp_folder).unwrap();
     }
+
 
     let q = ProjectsQueue::new();
     println!("Analyzing projects (total {})...", db.num_projects());
@@ -76,14 +79,14 @@ fn main() {
 
     crossbeam::thread::scope(|s| {
         // start the worker threads
-        for _x in 0..32 {
+        for _x in 0..num_threads {
             s.spawn(|_| {
                 loop {
                     match q.dequeue_non_blocking() {
                         Some(project_id) => {
                             let mut project = Project::from_database(project_id, & db);
                             project.log.add(record::ProjectLogEntry::update_start(Source::GitHub));
-                            match update_project(& mut project, & db) {
+                            match update_project(& mut project, & db, timeout) {
                                 Ok(true) => {
                                     project.log.add(record::ProjectLogEntry::update(Source::GitHub));
                                 },
@@ -159,7 +162,7 @@ struct Project {
 
     First we have to analyze the project information, the we can start the git download & things...
  */
-fn update_project(project : & mut Project, db : & DatabaseManager) -> Result<bool, git2::Error> {
+fn update_project(project : & mut Project, db : & DatabaseManager, timeout : i64) -> Result<bool, git2::Error> {
     // create the bare git repository 
     // TODO in the future, we can check whether the repo exists and if it does do just update 
     let mut changed = false;
@@ -170,7 +173,7 @@ fn update_project(project : & mut Project, db : & DatabaseManager) -> Result<boo
     } else {
         changed = true;
         // now we have new heads, so we should analyze the commits
-        update_commits(project, & new_heads, & mut repo, db)?;
+        update_commits(project, & new_heads, & mut repo, db, timeout)?;
     }
 
     //println!("{} : {}, new heads: {}", project.id, project.url, new_heads.len());
@@ -183,11 +186,11 @@ fn update_project(project : & mut Project, db : & DatabaseManager) -> Result<boo
 /** Updates the commits identified by hashes, if they need to be. 
  
  */ 
-fn update_commits(project : & mut Project, commits : & HashSet<git2::Oid>, repo : & mut git2::Repository, db : & DatabaseManager) -> Result<(), git2::Error> {
+fn update_commits(project : & mut Project, commits : & HashSet<git2::Oid>, repo : & mut git2::Repository, db : & DatabaseManager, timeout: i64) -> Result<(), git2::Error> {
     // queue of commits and whether they are open or not
     let mut q : VecDeque<(git2::Oid, bool)> = commits.iter().map(|x| (*x, false)).collect();
     while ! q.is_empty() {
-        if helpers::now() - project.update_start >= 3600 {
+        if timeout > 0 && helpers::now() - project.update_start >= timeout {
             return Err(git2::Error::from_str("DCD Timeout"));
         }
         let (hash, open) = q.pop_back().unwrap();

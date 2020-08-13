@@ -33,6 +33,7 @@ pub type Message = Vec<u8>;
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub enum Source {
     NA,
+    Manual,
     GHTorrent,
     GitHub,
 }
@@ -460,6 +461,8 @@ impl Source {
             return Source::GHTorrent;
         } else if *s == *"GH" {
             return Source::GitHub;
+        } else if *s == *"M" {
+            return Source::Manual;
         } else {
             panic!("Invalid source detected: {}", s);
         }
@@ -479,6 +482,9 @@ impl std::fmt::Display for Source {
             },
             Source::GitHub => {
                 return write!(f, "GH");
+            }
+            Source::Manual => {
+                return write!(f, "M");
             }
         }
     }

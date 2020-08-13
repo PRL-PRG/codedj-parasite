@@ -17,7 +17,7 @@
             "type": "lldb",
             "request": "launch",
             "program": "${workspaceFolder}/target/debug/dcd",
-            "args": [ "/dejavuii/dejacode/peta-tiny"],
+            "args": [ "/dejavuii/dejacode/peta-tiny", "4", "3600"],
             "cwd": "${workspaceFolder}",
         },
         {
