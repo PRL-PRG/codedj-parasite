@@ -104,13 +104,15 @@ fn analyze_commit(commit : & Commit, project : & Project, output : & mut File, d
                 }
             }
             for (lang, num_files) in language_counts {
-                writeln!(output,"{},,,,,{},{},{},{},{},,,{},,,,,", 
+                writeln!(output,"{},,,,,{},{},{},{},{},{},{},{},,,,,", 
                     lang,
                     project.id,
                     commit.id,
                     num_files,
                     commit.committer_id,
                     commit.committer_time,
+                    commit.additions.unwrap(),
+                    commit.deletions.unwrap(),
                     if is_bug { 1 } else { 0 }
                 ).unwrap();
             }
