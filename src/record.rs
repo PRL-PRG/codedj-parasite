@@ -99,7 +99,7 @@ impl ProjectLogEntry {
                 return writeln!(f, "{},{},update,\"\",\"\"", time, source);
             },
             ProjectLogEntry::Error{time, source, message} => {
-                return writeln!(f, "{},{},update,\"{}\",\"\"", time, source, message);
+                return writeln!(f, "{},{},error,\"{}\",\"\"", time, source, message);
             },
             ProjectLogEntry::UpdateStart{time, source} => {
                 return writeln!(f, "{},{},start,\"\",\"\"", time, source);
@@ -134,6 +134,10 @@ impl ProjectLog {
 
     pub fn add(& mut self, entry : ProjectLogEntry) {
         self.entries_.push(entry);
+    }
+
+    pub fn clear(& mut self) {
+        self.entries_.clear();
     }
 
     /*

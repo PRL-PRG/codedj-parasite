@@ -56,7 +56,7 @@ impl ProjectsQueue {
 /** Fire up the database and start downloading...
  */
 fn main() {
-    let db = DatabaseManager::from("/dejavuii/dejacode/dataset-peta-x");
+    let db = DatabaseManager::from("/dejavuii/dejacode/peta-tiny");
     db.load_incomplete_commits();
     // clear the temporary folder if any 
     let tmp_folder = format!("{}/tmp", db.root());
@@ -72,7 +72,7 @@ fn main() {
 
     crossbeam::thread::scope(|s| {
         // start the worker threads
-        for _x in 0..16 {
+        for _x in 0..32 {
             s.spawn(|_| {
                 loop {
                     match q.dequeue_non_blocking() {
@@ -88,6 +88,7 @@ fn main() {
                                 },
                                 Err(err) => {
                                     println!("ERROR: project {} : {:?}", project_id, err);
+                                    project.log.clear();
                                     project.log.add(record::ProjectLogEntry::error(Source::GitHub, err.message().to_owned()));
                                 }
                             }

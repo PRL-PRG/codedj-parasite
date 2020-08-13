@@ -2,6 +2,12 @@
 
     sudo apt-get install libssl-dev libgit2-dev
 
+# TODO fixes
+
+- error is reported as update with key value, should become error
+- when such error is found, all log since updatestart should be deleted...
+
+
 # Future Features
 
 These are the features that we are currently bound to implement in the order of their implementation:

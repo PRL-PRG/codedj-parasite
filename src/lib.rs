@@ -130,9 +130,9 @@ pub struct Blob {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FilePath {
     // path id
-    id : PathId,
+    pub id : PathId,
     // the actual path
-    path : String,
+    pub path : String,
 }
 
 /** A trait for tests. */
@@ -593,16 +593,19 @@ impl<'a> Iterator for ProjectIter<'a> {
     type Item = Project;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if !(self.current < self.total) {
-            return None;
+        loop {
+            if self.current >= self.total {
+                return None;
+            }
+            if let Some(project) = self.database.get_project(self.current) {
+                self.current += 1;
+                return Some(project);
+            } else {
+                self.current += 1;
+            }
         }
-
-        if let Some(project) = self.database.get_project(self.current) {
-            self.current += 1;
-            return Some(project);
-        }
-
-        panic!("Database returned None for ProjectId={}", self.current); // FIXME maybe better handling
+        // can happen when there are errors in projects
+        //panic!("Database returned None for ProjectId={}", self.current); // FIXME maybe better handling
     }
 }
 
@@ -625,16 +628,19 @@ impl<'a> Iterator for CommitIter<'a> {
     type Item = Commit;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if !(self.current < self.total) {
-            return None;
+        loop {
+            if self.current >= self.total {
+                return None;
+            }
+            if let Some(commit) = self.database.get_commit(self.current) {
+                self.current += 1;
+                return Some(commit);
+            } else {
+                self.current += 1;
+            }
         }
-
-        if let Some(commit) = self.database.get_commit(self.current) {
-            self.current += 1;
-            return Some(commit);
-        }
-
-        panic!("Database returned None for CommitId={}", self.current); // FIXME maybe better handling
+        // database actually can do that if projects have errors
+        //panic!("Database returned None for CommitId={}", self.current); // FIXME maybe better handling
     }
 }
 
