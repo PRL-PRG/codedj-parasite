@@ -2,6 +2,20 @@
 
     sudo apt-get install libssl-dev libgit2-dev
 
+
+# Tools 
+
+`dcd-init` = Initializes new database in given path. 
+`dcd-add` = adds new commits to specified database. The commits are supposed to live in a csv file with single column with the full url. The file is expected to have a header. 
+`dcd-ghtorrent` = adds projects from ghtorrent dump (or its subset) to the database
+`dcd` = the in the future incremental downloader. clones all commits in the database and updates their contents
+
+The following are extra tools:
+
+`tools/filter` = filters ghtorrent based on either language, or first M projects
+`tools/random-filter` = filters random N projects with at least M commits for a given lanaguage
+`tools/random-filter-toplas` = filters random N projects with at least M commits for all languages in the TOPLAS paper
+
 # TODO fixes
 
 Done in dcd-repair, must be run on currently dowloaded dcd-sample: 

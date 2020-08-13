@@ -5,6 +5,8 @@ use dcd::db_manager::*;
 
 
 /** Actually initializes stuff from ghtorrent.
+ 
+    TODO the --new option should disappear as soon as practical (dcd-init should be used instead)
  */
 fn main() {
     let args : Vec<String> = std::env::args().collect();
