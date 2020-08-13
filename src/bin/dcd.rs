@@ -137,6 +137,7 @@ struct Project {
     id : ProjectId, 
     url : String, 
     last_update : i64, 
+    update_start : i64,
     metadata : HashMap<String, (String,Source)>,
     heads : Vec<(String, git2::Oid, Source)>,
     log : record::ProjectLog,

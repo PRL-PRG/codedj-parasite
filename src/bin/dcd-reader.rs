@@ -1,7 +1,7 @@
 use dcd::*;
 
 fn main() {
-    let dc_reader = DCD::new("/dejavuii/dejacode/dataset-peta-x".to_owned());
+    let dc_reader = DCD::new("/dejavuii/dejacode/dataset-sample".to_owned());
 
     println!("{:?}", dc_reader.get_project(0).unwrap());
     println!("{:?}", dc_reader.get_user(0).unwrap());

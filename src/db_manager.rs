@@ -21,13 +21,25 @@ pub enum RecordState {
  */
 struct IDMapper<T> {
     map : T,
-    file : File,
+    writer : csv::Writer<File>,
+    //file : File,
 }
 impl<T> IDMapper<T> {
     fn new(map : T, filename : String) -> IDMapper<T> {
         return IDMapper{
             map, 
-            file : OpenOptions::new().append(true).open(filename).unwrap(),
+            writer : csv::WriterBuilder::new()
+                .delimiter(b',')
+                .quote_style(csv::QuoteStyle::NonNumeric)
+                .double_quote(false)
+                .escape(b'\\')
+                .from_writer(
+                    OpenOptions::new()
+                        .append(true)
+                        .open(filename).unwrap()
+                ),
+
+            //file : OpenOptions::new().append(true).open(filename).unwrap(),
         };
     }
 
@@ -262,9 +274,7 @@ impl DatabaseManager {
             let id = user_ids.map.len() as UserId;
             user_ids.map.insert(String::from(email), id);
             // first store the email to id mapping
-            {
-                writeln!(user_ids.file, "\"{}\",{}", String::from(email), id).unwrap();
-            }
+            user_ids.writer.write_record(&[String::from(email), id.to_string()]).unwrap();
             // then store the actual user record
             {
                 let mut user_records_file = self.user_records_file_.lock().unwrap();
@@ -382,7 +392,7 @@ impl DatabaseManager {
             let commit_id = commit_ids.map.len() as CommitId;
             commit_ids.map.insert(hash, commit_id);
             // write the hash to id mapping
-            writeln!(commit_ids.file, "{},{}", hash, commit_id).unwrap();
+            commit_ids.writer.write_record(&[hash.to_string(), commit_id.to_string()]).unwrap();
             return (commit_id, RecordState::New);
         }
     }
@@ -441,7 +451,7 @@ impl DatabaseManager {
         match path_ids.map.entry(path.to_owned()) {
             Entry::Vacant(entry) => {
                 entry.insert(new_id);
-                writeln!(path_ids.file,"\"{}\",{}", path, new_id).unwrap(); 
+                path_ids.writer.write_record(&[path.to_owned(), new_id.to_string()]).unwrap();
                 return new_id;
             },
             Entry::Occupied(entry) => {
@@ -455,7 +465,7 @@ impl DatabaseManager {
         match snapshot_ids.map.entry(hash) {
             Entry::Vacant(entry) => {
                 entry.insert(new_id);
-                writeln!(snapshot_ids.file,"{},{}", hash, new_id).unwrap(); 
+                snapshot_ids.writer.write_record(&[hash.to_string(), new_id.to_string()]).unwrap();
                 return (new_id, true);
             },
             Entry::Occupied(entry) => {
