@@ -36,5 +36,13 @@
             "args": [],
             "cwd": "${workspaceFolder}",
         }
+        {
+            "name": "(gdb) dcd-repair",
+            "type": "lldb",
+            "request": "launch",
+            "program": "${workspaceFolder}/target/debug/dcd-repair",
+            "args": [],
+            "cwd": "${workspaceFolder}",
+        }
     ]
 }

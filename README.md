@@ -4,6 +4,8 @@
 
 # TODO fixes
 
+Done in dcd-repair, must be run on currently dowloaded dcd-sample: 
+
 - error is reported as update with key value, should become error
 - when such error is found, all log since updatestart should be deleted...
 

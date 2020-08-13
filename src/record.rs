@@ -140,17 +140,14 @@ impl ProjectLog {
         self.entries_.clear();
     }
 
-    /*
-    pub fn read(project_folder: & str) -> ProjectLog {
-        let mut result = ProjectLog::new();
-        let mut reader = csv::Reader::from_path(format!("{}/log.csv", project_folder)).unwrap();
+    pub fn read_all(& mut self) {
+        let mut reader = csv::Reader::from_path(& self.filename_).unwrap();
         for x in reader.records() {
             if let Ok(record) = x {
-                result.entries_.push(ProjectLogEntry::from_csv(record));
+                self.entries_.push(ProjectLogEntry::from_csv(record));
             }
         }
-        return result;
-    }*/
+    }
 
     fn write_headers(& self, f : & mut File) {
         writeln!(f, "time,source,kind,key,value").unwrap();
