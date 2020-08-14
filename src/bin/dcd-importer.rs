@@ -20,6 +20,7 @@ use dcd::*;
     -   sha (ignored)
     -   files
     -   committer (can be our id)
+    -   commit_date
     -   commit_age
     - x insertion (ignored, do not have)
     - x deletion (ignored, do not have)
@@ -110,13 +111,14 @@ fn analyze_commit(commit : & Commit, project : & Project, output : & mut File, d
                 }
             }
             for (lang, num_files) in language_counts {
-                writeln!(output,"{},,,,,{},{},{},{},{},{},{},{},,,,,", 
+                writeln!(output,"{},,,,,{},{},{},{},{},{},{},{},{},,,,,", 
                     lang,
                     project.id,
                     commit.id,
                     num_files,
                     commit.committer_id,
                     commit.committer_time,
+                    0, // commit age
                     commit.additions.unwrap(),
                     commit.deletions.unwrap(),
                     if is_bug { 1 } else { 0 }
