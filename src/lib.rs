@@ -66,8 +66,9 @@ pub struct Project {
  */
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Commit {
-    // commit id
-    pub id : CommitId, 
+    // commit id and hash
+    pub id : CommitId,  
+    pub hash : git2::Oid,
     // id of parents
     pub parents : Vec<CommitId>,
     // committer id and time
@@ -197,6 +198,7 @@ pub struct DCD {
     num_projects_ : u64,
     users_ : Vec<User>,
     commit_ids_ : HashMap<git2::Oid, CommitId>,
+    commit_hashes_ : HashMap<CommitId, git2::Oid>,
     commits_ : Vec<CommitBase>,
     commit_message_offsets_ : HashMap<CommitId, u64>,
     commit_messages_ : Mutex<File>,
@@ -228,12 +230,14 @@ impl DCD {
         println!("    {} paths", paths.len());
         //let snapshots = Self::get_snapshots(& root);
         //println!("    {} snapshots", snapshots.len());
+        let commit_hashes : HashMap<CommitId, git2::Oid> = commit_ids.iter().map(|(hash, id)| (*id, *hash)).collect();
 
         let result = DCD{
             root_ : root, 
             num_projects_ : num_projects,
             users_ : users,
             commit_ids_ : commit_ids,
+            commit_hashes_ : commit_hashes,
             commits_ : commits,
             commit_message_offsets_ : commit_message_offsets,
             commit_messages_ : Mutex::new(commit_messages),
@@ -402,7 +406,7 @@ impl Database for DCD {
 
     fn get_commit(& self, id : CommitId) -> Option<Commit> {
         if let Some(base) = self.commits_.get(id as usize) {
-            let mut result = Commit::new(id, base);
+            let mut result = Commit::new(id, self.commit_hashes_[& id], base);
             // check lazily for message
             if let Some(offset) = self.commit_message_offsets_.get(& id) {
                 let mut messages = self.commit_messages_.lock().unwrap();
@@ -538,9 +542,10 @@ impl Project {
 }
 
 impl Commit {
-    fn new(id : CommitId, base : & CommitBase) -> Commit {
+    fn new(id : CommitId, hash: git2::Oid, base : & CommitBase) -> Commit {
         return Commit{
             id : id, 
+            hash : hash,
             parents : base.parents.clone(),
             committer_id : base.committer_id,
             committer_time : base.committer_time,

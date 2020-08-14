@@ -69,7 +69,7 @@ fn get_file_language(path : & str) -> Option<String> {
             "js" | "mjs" => return Some("Javascript".to_owned()),
             "ts" | "tsx" => return Some("Typescript".to_owned()),
             "rb" => return Some("Ruby".to_owned()),
-            "php" | "phtml" | "php3" | "php4" | "php5" | "php7" | "phps" | "php-s" | "pht" | "phar" => return Some("PHP".to_owned()),
+            "php" | "phtml" | "php3" | "php4" | "php5" | "php7" | "phps" | "php-s" | "pht" | "phar" => return Some("Php".to_owned()),
             "py" | "pyi" | "pyc" | "pyd" | "pyo" | "pyw" | "pyz" => return Some("Python".to_owned()),
             "plx"| "pl" | "pm" | "xs" | "t" | "pod" => return Some("Perl".to_owned()),
             "clj" | "cljs" | "cljc" | "edn" => return Some("Clojure".to_owned()),
@@ -111,14 +111,13 @@ fn analyze_commit(commit : & Commit, project : & Project, output : & mut File, d
                 }
             }
             for (lang, num_files) in language_counts {
-                writeln!(output,"{},,,,,{},{},{},{},{},{},{},{},{},,,,,", 
+                writeln!(output,"{},,,,,{},{},{},{},{},,{},{},{},,,,,", 
                     lang,
                     project.id,
-                    commit.id,
+                    commit.hash,
                     num_files,
                     commit.committer_id,
                     commit.committer_time,
-                    0, // commit age
                     commit.additions.unwrap(),
                     commit.deletions.unwrap(),
                     if is_bug { 1 } else { 0 }

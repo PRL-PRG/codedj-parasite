@@ -33,7 +33,8 @@
             "type": "lldb",
             "request": "launch",
             "program": "${workspaceFolder}/target/debug/dcd-importer",
-            "args": ["/dejavuii/dejacode/toplas", "/dejavuii/dejacode/new_sha_toplas_2014.csv", "1414800000"],
+            //"args": ["/dejavuii/dejacode/toplas", "/dejavuii/dejacode/new_sha_toplas_2014.csv", "1414800000"],
+            "args": ["/dejavuii/dejacode/toplas", "/dejavuii/dejacode/new_sha_toplas.csv",],
             "cwd": "${workspaceFolder}",
         },
         {
