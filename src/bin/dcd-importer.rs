@@ -34,17 +34,20 @@ use dcd::*;
 
 fn main() {
     let args : Vec<String> = std::env::args().collect();
-    if args.len() != 3 {
-        panic!{"Invalid usage - dcd PATH_TO_DATABASE OUTPUT_FILE"}
+    if args.len() != 3 && args.len() != 4 {
+        panic!{"Invalid usage - dcd PATH_TO_DATABASE OUTPUT_FILE [MAX_T]"}
     }
     let dcd = DCD::new(args[1].to_owned());
+    let max_t = if args.len() == 3 { std::i64::MAX } else { args[3].parse::<i64>().unwrap() };
     let mut f = File::create(& args[2]).unwrap();
     writeln!(& mut f, "language,typeclass,langclass,memoryclass,compileclass,project,sha,files,committer,commit_date,commit_age,insertion,deletion,isbug,bug_type,phase,domain,btype1,btype2").unwrap();
 
     for project in dcd.projects() {
         println!("{} (id {})", project.url, project.id);
         for commit in dcd.commits_from(& project) {
-            analyze_commit(& commit, & project, & mut f, & dcd);
+            if commit.committer_time < max_t {
+                analyze_commit(& commit, & project, & mut f, & dcd);
+            }
         }
     }
 }

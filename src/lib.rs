@@ -72,10 +72,10 @@ pub struct Commit {
     pub parents : Vec<CommitId>,
     // committer id and time
     pub committer_id : UserId,
-    pub committer_time : u64,
+    pub committer_time : i64,
     // author id and time
     pub author_id : UserId,
-    pub author_time : u64,
+    pub author_time : i64,
     // commit message
     pub message: Option<Message>,
     // changes made by the commit 
@@ -293,9 +293,9 @@ impl DCD {
                 let id = record[1].parse::<usize>().unwrap();
                 let ref mut commit = result[id];
                 commit.committer_id = record[2].parse::<u64>().unwrap() as UserId;
-                commit.committer_time = record[3].parse::<u64>().unwrap();
+                commit.committer_time = record[3].parse::<i64>().unwrap();
                 commit.author_id = record[4].parse::<u64>().unwrap() as UserId;
-                commit.author_time = record[5].parse::<u64>().unwrap();
+                commit.author_time = record[5].parse::<i64>().unwrap();
             }
         }
         // and now load the parents
@@ -562,10 +562,10 @@ struct CommitBase {
     pub parents : Vec<CommitId>,
     // committer id and time
     pub committer_id : u64,
-    pub committer_time : u64,
+    pub committer_time : i64,
     // author id and time
     pub author_id : u64,
-    pub author_time : u64,
+    pub author_time : i64,
 }
 
 // /** Provides methods for iterating over the Database object.
