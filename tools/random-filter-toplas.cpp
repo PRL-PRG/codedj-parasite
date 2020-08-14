@@ -64,6 +64,8 @@ void SampleProjects(std::unordered_map<uint64_t, std::pair<std::string, std::uno
         std::cout << "    " << i.first << ": " << i.second.size() << " projects" << std::endl;
         if (i.second.size() > num) {
             std::sample(i.second.begin(), i.second.end(), std::inserter(sampled, sampled.begin()), num, std::mt19937{std::random_device{}()});
+        } else {
+            sampled.insert(i.second.begin(), i.second.end());
         }
     }
     std::cout << "Removing no-sampled projects ..." << std::endl;

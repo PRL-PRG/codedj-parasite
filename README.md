@@ -28,8 +28,7 @@ Done in dcd-repair, must be run on currently dowloaded dcd-sample:
 
 These are the features that we are currently bound to implement in the order of their implementation:
 
-- integration with (non-incremental) GitHub downloader. This will give us for projects we give it all the information required (i.e. changes and messages in commits)
-- making sure the ghtorrent updater can add stuff to existing datasets all right (so that we can bring all languages together)
+
 
 # Distant Future Features
 

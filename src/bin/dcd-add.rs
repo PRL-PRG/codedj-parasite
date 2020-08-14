@@ -9,6 +9,8 @@ fn main() {
         panic!{"Invalid usage - dcd-add PATH_TO_DATABASE PATH_TO_CSV_WITH_URLS"}
     }
     let db = DatabaseManager::from(& args[1]);
+    // and load existing projects urls
+    db.load_project_urls();
     // TODO we need to check that the projects do not exist yet, but for now, I care not
     let mut reader = csv::ReaderBuilder::new().has_headers(true).double_quote(false).escape(Some(b'\\')).from_path(& args[2]).unwrap();
     let mut records = 0;

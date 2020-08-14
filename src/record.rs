@@ -149,6 +149,17 @@ impl ProjectLog {
         }
     }
 
+    pub fn analyze<T>(& self, mut f : T ) where T: FnMut(ProjectLogEntry) -> bool {
+        let mut reader = csv::Reader::from_path(& self.filename_).unwrap();
+        for x in reader.records() {
+            if let Ok(record) = x {
+                if ! f(ProjectLogEntry::from_csv(record)) {
+                    break;
+                }
+            }
+        }
+    }
+
     fn write_headers(& self, f : & mut File) {
         writeln!(f, "time,source,kind,key,value").unwrap();
     }

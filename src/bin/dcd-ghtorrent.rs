@@ -19,7 +19,9 @@ fn main() {
     } else {
         DatabaseManager::from(& args[1])
     };
-    println!("IMporting from ghtorrent dump at {}", args[2]);
+    // load the urls of existing projects...
+    db.load_project_urls();
+    println!("Importing from ghtorrent dump at {}", args[2]);
     let root = String::from(& args[2]);
     // first filter the projects 
     let project_ids = initialize_projects(& root, & mut db);

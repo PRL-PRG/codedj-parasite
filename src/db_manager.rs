@@ -210,6 +210,8 @@ impl DatabaseManager {
         return & self.root_;
     }
 
+    // Projects ---------------------------------------------------------------------------------------------------------------------
+
     /** Returns the number of projects the database contains.
      */
     pub fn num_projects(& self) -> u64 {
@@ -258,6 +260,30 @@ impl DatabaseManager {
 
     pub fn get_project_log_filename(& self, id : ProjectId) -> String{
         return Self::get_project_log_file(& self.root_, id);
+    }
+
+    /** Goes through all projects and loads their urls in the live urls database. 
+     
+        TODO this has to change a lot when we support dead urls and project movements as well. 
+     */ 
+    pub fn load_project_urls(& self) {
+        println!("Loading live urls from project logs...");
+        for pid in 0 .. self.num_projects() {
+            let log = record::ProjectLog::new(self.get_project_log_filename(pid as ProjectId));
+            let mut latest_url = String::new();
+            log.analyze(|entry| {
+                match entry {
+                    record::ProjectLogEntry::Init{time : _, source: _, url } => latest_url = url.to_owned(),
+                    _ => { }
+                };
+                return true;
+            });
+            {
+                let mut live_urls = self.live_urls_.lock().unwrap();
+                live_urls.insert(latest_url);
+            }
+        }
+        println!("    {} live urls loaded", self.live_urls_.lock().unwrap().len());
     }
 
     // Users ---------------------------------------------------------------------------------------
