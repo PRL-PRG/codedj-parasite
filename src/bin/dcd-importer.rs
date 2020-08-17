@@ -42,7 +42,6 @@ fn main() {
     let max_t = if args.len() == 3 { std::i64::MAX } else { args[3].parse::<i64>().unwrap() };
     let mut f = File::create(& args[2]).unwrap();
     writeln!(& mut f, "language,typeclass,langclass,memoryclass,compileclass,project,sha,files,committer,commit_date,commit_age,insertion,deletion,isbug,bug_type,phase,domain,btype1,btype2").unwrap();
-
     for project in dcd.projects() {
         println!("{} (id {})", project.url, project.id);
         for commit in dcd.commits_from(& project) {
@@ -106,6 +105,7 @@ fn analyze_commit(commit : & Commit, project : & Project, output : & mut File, d
         if let Some(changes) = & commit.changes {
             let mut language_counts = HashMap::<String, u64>::new();
             for (path_id, _) in changes {
+                //println!("path_id: {}", path_id);
                 if let Some(lang) = get_file_language(& dcd.get_file_path(*path_id).unwrap().path) {
                     (*language_counts.entry(lang).or_insert(0)) += 1;
                 }

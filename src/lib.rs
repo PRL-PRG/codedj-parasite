@@ -367,6 +367,9 @@ impl DCD {
         let mut result = Vec::<String>::new();
         for x in reader.records() {
             let record = x.unwrap();
+            //println!("{:?}", record);
+            let id = record[1].parse::<u64>().unwrap();
+            assert_eq!(id, result.len() as u64);
             result.push(record[0].to_string());
         }
         return result;
@@ -562,7 +565,7 @@ impl Commit {
 
 /** Smaller struct for containing the non-lazy elements of the commit. 
  */
-struct CommitBase {
+pub struct CommitBase {
     // id of parents
     pub parents : Vec<CommitId>,
     // committer id and time

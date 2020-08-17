@@ -16,7 +16,7 @@ std::unordered_map<uint64_t, std::pair<std::string, std::unordered_set<uint64_t>
     std::cout << "Filtering projects for selected languages..." << std::endl;
     std::unordered_map<uint64_t, std::pair<std::string, std::unordered_set<uint64_t>>> result;
     std::unordered_set<std::string> languages({
-        "c","c++","c#","objective-c","go","java","coffeescript","javascript","typescript","ruby","php","python","perl","clojure","erlang","haskell","scala"
+        "c","c++","c#","objective-c","go","java","coffeescript","javascript","typescript","ruby","php","python","perl",/*"clojure","erlang",*/"haskell","scala"
     });
     CSVReader::Parse(InputDir + "/projects.csv", [&](std::vector<std::string> & row) {
         std::string lang = ToLower(row[5]);

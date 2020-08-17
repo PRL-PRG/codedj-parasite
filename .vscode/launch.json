@@ -34,7 +34,8 @@
             "request": "launch",
             "program": "${workspaceFolder}/target/debug/dcd-importer",
             //"args": ["/dejavuii/dejacode/toplas", "/dejavuii/dejacode/new_sha_toplas_2014.csv", "1414800000"],
-            "args": ["/dejavuii/dejacode/toplas", "/dejavuii/dejacode/new_sha_toplas.csv",],
+            //"args": ["/dejavuii/dejacode/toplas", "/dejavuii/dejacode/new_sha_toplas.csv",],
+            "args": ["/dejavuii/dejacode/merging/peta-tiny-2", "/dejavuii/dejacode/tinytest.csv",],            
             "cwd": "${workspaceFolder}",
         },
         {
@@ -42,7 +43,16 @@
             "type": "lldb",
             "request": "launch",
             "program": "${workspaceFolder}/target/debug/dcd-repair",
-            "args": ["/dejavuii/dejacode/peta-tiny"],
+            "args": ["/dejavuii/dejacode/merging/peta-tiny"],
+            "cwd": "${workspaceFolder}",
+        },
+        {
+            "name": "(gdb) dcd-merge",
+            "type": "lldb",
+            "request": "launch",
+            "program": "${workspaceFolder}/target/debug/dcd-merge",
+            //"args": ["/dejavuii/dejacode/peta-tiny", "/dejavuii/dejacode/peta-small"],
+            "args": ["/dejavuii/dejacode/merging/toplas", "/dejavuii/dejacode/merging/dcd-1000"],
             "cwd": "${workspaceFolder}",
         }
     ]

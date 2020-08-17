@@ -288,6 +288,19 @@ impl DatabaseManager {
 
     // Users ---------------------------------------------------------------------------------------
 
+    pub fn num_users(& self) -> u64 {
+        let user_ids = self.user_ids_.lock().unwrap();
+        return user_ids.map.len() as u64;
+    }
+
+    pub fn get_user(& self, email : & str) -> Option<UserId> {
+        let user_ids = self.user_ids_.lock().unwrap();
+        if let Some(id) = user_ids.map.get(email) {
+            return Some(*id);
+        } else {
+            return None;
+        }
+    }
     /** Returns existing user id, or creates new user from given data.
      
         
@@ -458,6 +471,16 @@ impl DatabaseManager {
         }
     }
 
+    pub fn num_paths(& self) -> u64 {
+        let mut path_ids = self.path_ids_.lock().unwrap();
+        return path_ids.map.len() as u64;
+    }
+
+    pub fn num_snapshots(& self) -> u64 {
+        let mut snapshot_ids = self.snapshot_ids_.lock().unwrap();
+        return snapshot_ids.map.len() as u64;
+    }
+
     /** Translates commits changes represented as path and hash to their respective ids.
      
         For each snapshot, returns whether the snapshot is new, or existing. 
@@ -466,13 +489,18 @@ impl DatabaseManager {
         let mut path_ids = self.path_ids_.lock().unwrap();
         let mut snapshot_ids = self.snapshot_ids_.lock().unwrap();
         return changes.iter().map(|(path, hash)| {
-            (Self::get_or_create_path_id(& mut * path_ids, path),
-             Self::get_or_create_snapshot_id(& mut * snapshot_ids, *hash)
+            (Self::get_or_create_path_id_(& mut * path_ids, path),
+             Self::get_or_create_snapshot_id_(& mut * snapshot_ids, *hash)
             ) 
         }).collect();
     }
 
-    fn get_or_create_path_id(path_ids : & mut IDMapper<HashMap<String, PathId>>, path : & str) -> PathId {
+    pub fn get_or_create_path_id(& self, path : & str) -> PathId {
+        let mut path_ids = self.path_ids_.lock().unwrap();
+        return Self::get_or_create_path_id_(& mut * path_ids, path);
+    }
+
+    fn get_or_create_path_id_(path_ids : & mut IDMapper<HashMap<String, PathId>>, path : & str) -> PathId {
         let new_id = path_ids.map.len() as PathId;
         match path_ids.map.entry(path.to_owned()) {
             Entry::Vacant(entry) => {
@@ -486,7 +514,13 @@ impl DatabaseManager {
         }
     }
 
-    fn get_or_create_snapshot_id(snapshot_ids : & mut IDMapper<HashMap<git2::Oid, SnapshotId>>, hash: git2::Oid) -> (SnapshotId, bool) {
+    pub fn get_or_create_snapshot_id(& self, hash: git2::Oid ) -> (SnapshotId, bool) {
+        let mut snapshot_ids = self.snapshot_ids_.lock().unwrap();
+        return Self::get_or_create_snapshot_id_(& mut * snapshot_ids, hash);
+    }
+
+
+    fn get_or_create_snapshot_id_(snapshot_ids : & mut IDMapper<HashMap<git2::Oid, SnapshotId>>, hash: git2::Oid) -> (SnapshotId, bool) {
         let new_id = snapshot_ids.map.len() as SnapshotId;
         match snapshot_ids.map.entry(hash) {
             Entry::Vacant(entry) => {

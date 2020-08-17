@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ./random-filter C /dejavuii/dejacode/ghtorrent/dump /dejavuii/dejacode/ghtorrent/sample-c 28 10000
-#./random-filter C++ /dejavuii/dejacode/ghtorrent/dump /dejavuii/dejacode/ghtorrent/sample-cpp 28 10000
+./random-filter C++ /dejavuii/dejacode/ghtorrent/dump /dejavuii/dejacode/ghtorrent/sample-cpp 28 10000
 ./random-filter C# /dejavuii/dejacode/ghtorrent/dump /dejavuii/dejacode/ghtorrent/sample-cs 28 10000
 ./random-filter Objective-C /dejavuii/dejacode/ghtorrent/dump /dejavuii/dejacode/ghtorrent/sample-objc 28 10000
 ./random-filter Go /dejavuii/dejacode/ghtorrent/dump /dejavuii/dejacode/ghtorrent/sample-go 28 10000
@@ -17,6 +17,8 @@
 ./random-filter Erlang /dejavuii/dejacode/ghtorrent/dump /dejavuii/dejacode/ghtorrent/sample-erlang 28 10000
 ./random-filter Haskell /dejavuii/dejacode/ghtorrent/dump /dejavuii/dejacode/ghtorrent/sample-haskell 28 10000
 ./random-filter Scala /dejavuii/dejacode/ghtorrent/dump /dejavuii/dejacode/ghtorrent/sample-scala 28 10000
+
+
 
 
 
