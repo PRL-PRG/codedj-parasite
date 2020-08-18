@@ -47,3 +47,10 @@ These will likely happen *after* the paper deadline, but should be available for
 - incremental downloading
 
 - how to do cummulative metadata? I guess special kind...
+
+
+# v2
+
+- use only binary format
+- spread into multiple files? maybe conditionally
+- have 2 sets of API - full read and random access

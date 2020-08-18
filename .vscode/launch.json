@@ -47,6 +47,14 @@
             "cwd": "${workspaceFolder}",
         },
         {
+            "name": "(gdb) dcd-issues",
+            "type": "lldb",
+            "request": "launch",
+            "program": "${workspaceFolder}/target/debug/dcd-issues",
+            "args": ["/dejavuii/dejacode/merging/peta-tiny", "/dejavuii/dejacode/ghtorrent/dump"],
+            "cwd": "${workspaceFolder}",
+        },
+        {
             "name": "(gdb) dcd-merge",
             "type": "lldb",
             "request": "launch",

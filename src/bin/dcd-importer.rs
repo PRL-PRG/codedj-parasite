@@ -35,13 +35,37 @@ use dcd::*;
 
 fn main() {
     let args : Vec<String> = std::env::args().collect();
-    if args.len() != 3 && args.len() != 4 {
-        panic!{"Invalid usage - dcd PATH_TO_DATABASE OUTPUT_FILE [MAX_T]"}
+    if args.len() != 4 && args.len() != 5 {
+        panic!{"Invalid usage - dcd PATH_TO_DATABASE PROJECTS OUTPUT_FILE [MAX_T]"}
     }
     let dcd = DCD::new(args[1].to_owned());
-    let max_t = if args.len() == 3 { std::i64::MAX } else { args[3].parse::<i64>().unwrap() };
-    let mut f = File::create(& args[2]).unwrap();
+    let mut projects = Vec::<ProjectId>::new();
+
+    let projects_file = String::from(& args[2]);
+    let mut reader = csv::ReaderBuilder::new().has_headers(false).double_quote(false).escape(Some(b'\\')).from_path(projects_file).unwrap();
+    for x in reader.records() {
+        let record = x.unwrap();
+        projects.push(record[0].parse::<u64>().unwrap() as ProjectId);
+    }
+    println!("{} projects selected", projects.len());
+
+
+
+
+
+    let max_t = if args.len() == 4 { std::i64::MAX } else { args[4].parse::<i64>().unwrap() };
+    let mut f = File::create(& args[3]).unwrap();
     writeln!(& mut f, "language,typeclass,langclass,memoryclass,compileclass,project,sha,files,committer,commit_date,commit_age,insertion,deletion,isbug,bug_type,phase,domain,btype1,btype2").unwrap();
+    for pid in projects {
+        let project = dcd.get_project(pid).unwrap();
+        println!("{} (id {})", project.url, project.id);
+        for commit in dcd.commits_from(& project) {
+            if commit.committer_time < max_t {
+                analyze_commit(& commit, & project, & mut f, & dcd);
+            }
+        }
+    }
+    /*
     for project in dcd.projects() {
         println!("{} (id {})", project.url, project.id);
         for commit in dcd.commits_from(& project) {
@@ -50,6 +74,7 @@ fn main() {
             }
         }
     }
+    */
 }
 
 /** Detects the language of a partiocular file.

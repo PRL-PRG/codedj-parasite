@@ -30,7 +30,7 @@ impl<T> IDMapper<T> {
             map, 
             writer : csv::WriterBuilder::new()
                 .delimiter(b',')
-                .quote_style(csv::QuoteStyle::NonNumeric)
+                .quote_style(csv::QuoteStyle::Necessary)
                 .double_quote(false)
                 .escape(b'\\')
                 .from_writer(
@@ -66,7 +66,7 @@ pub struct DatabaseManager {
     /* User email to user id mapping and file to which new mappings or updates should be written
      */
     user_ids_ : Mutex<IDMapper<HashMap<String, UserId>>>,
-    user_records_file_ : Mutex<File>,
+    user_records_file_ : Mutex<csv::Writer<File>>,
 
     /* SHA1 to commit id mapping and a file to which any new mappings should be written and a file to which new commit records are written. 
 
@@ -181,8 +181,18 @@ impl DatabaseManager {
             user_ids_ : IDMapper::behind_mutex(user_ids, Self::get_user_ids_file(root)), 
             //user_ids_ : Mutex::new(user_ids),
             //user_ids_file_ : Mutex::new(OpenOptions::new().append(true).open(Self::get_user_ids_file(root)).unwrap()), 
-            user_records_file_ : Mutex::new(OpenOptions::new().append(true).open(Self::get_user_records_file(root)).unwrap()),
-
+            user_records_file_ : Mutex::new(
+                csv::WriterBuilder::new()
+                .delimiter(b',')
+                .quote_style(csv::QuoteStyle::Necessary)
+                .double_quote(false)
+                .escape(b'\\')
+                .from_writer(
+                    OpenOptions::new()
+                        .append(true)
+                        .open(Self::get_user_records_file(root)).unwrap()
+                )
+            ),
             commit_ids_ : IDMapper::behind_mutex(commit_ids,Self::get_commit_ids_file(root)), 
             commit_records_file_ : Mutex::new(OpenOptions::new().append(true).open(Self::get_commit_records_file(root)).unwrap()),
             commit_parents_file_ : Mutex::new(OpenOptions::new().append(true).open(Self::get_commit_parents_file(root)).unwrap()),
@@ -317,7 +327,13 @@ impl DatabaseManager {
             // then store the actual user record
             {
                 let mut user_records_file = self.user_records_file_.lock().unwrap();
-                record::User::new(id, String::from(name), source).to_csv(& mut user_records_file).unwrap();
+                user_records_file.write_record(&[
+                    helpers::now().to_string(),
+                    id.to_string(),
+                    name.to_owned(),
+                    format!("{}", source),
+                ]).unwrap();
+                //record::User::new(id, String::from(name), source).to_csv(& mut user_records_file).unwrap();
             }
             return id;
         }
@@ -472,12 +488,12 @@ impl DatabaseManager {
     }
 
     pub fn num_paths(& self) -> u64 {
-        let mut path_ids = self.path_ids_.lock().unwrap();
+        let path_ids = self.path_ids_.lock().unwrap();
         return path_ids.map.len() as u64;
     }
 
     pub fn num_snapshots(& self) -> u64 {
-        let mut snapshot_ids = self.snapshot_ids_.lock().unwrap();
+        let snapshot_ids = self.snapshot_ids_.lock().unwrap();
         return snapshot_ids.map.len() as u64;
     }
 
@@ -658,7 +674,7 @@ impl DatabaseManager {
             let email = String::from(&record[0]);
             let id = record[1].parse::<u64>().unwrap() as CommitId;
             if result.insert(email, id) != None {
-                panic!("Duplucate record {}", id);
+                panic!("Duplucate user record {}", id);
             }
         }
         return result;
@@ -683,7 +699,9 @@ impl DatabaseManager {
             let record = x.unwrap();
             let path = String::from(& record[0]);
             let id = record[1].parse::<u64>().unwrap() as PathId;
-            result.insert(path, id);
+            if result.insert(path, id) != None {
+                panic!("Duplucate path record {}", id);
+            }
         }
         return result;
 
