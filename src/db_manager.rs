@@ -657,7 +657,9 @@ impl DatabaseManager {
             let record = x.unwrap();
             let email = String::from(&record[0]);
             let id = record[1].parse::<u64>().unwrap() as CommitId;
-            result.insert(email, id);
+            if result.insert(email, id) != None {
+                panic!("Duplucate record {}", id);
+            }
         }
         return result;
     }
