@@ -323,7 +323,7 @@ impl DatabaseManager {
             let id = user_ids.map.len() as UserId;
             user_ids.map.insert(String::from(email), id);
             // first store the email to id mapping
-            user_ids.writer.write_record(&[String::from(email), id.to_string()]).unwrap();
+            user_ids.writer.write_record(&[helpers::encode_quotes(email), id.to_string()]).unwrap();
             // then store the actual user record
             {
                 let mut user_records_file = self.user_records_file_.lock().unwrap();
