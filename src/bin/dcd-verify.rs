@@ -3,7 +3,7 @@ use dcd::db_manager::*;
 
 fn main() {
     let args : Vec<String> = std::env::args().collect();
-    if args.len() != 2 || (args.len() == 3 && args[3] != "--exclude-commits")  {
+    if args.len() < 2 || (args.len() == 3 && args[2] != *"--exclude-commits") || args.len() > 3  {
         panic!{"Invalid usage - dcd-verify PATH_TO_DATABASE [--exclude-commits]"}
     }
     DatabaseManager::from(& args[1]);
