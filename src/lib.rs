@@ -272,7 +272,7 @@ impl DCD {
             for x in reader.records() {
                 let record = x.unwrap();
                 let id = record[1].parse::<u64>().unwrap();
-                let name = String::from(& record[2]);
+                let name = helpers::decode_quotes(& record[2]);
                 result[id as usize].name = name;
             }
         }
@@ -370,7 +370,7 @@ impl DCD {
             //println!("{:?}", record);
             let id = record[1].parse::<u64>().unwrap();
             assert_eq!(id, result.len() as u64);
-            result.push(record[0].to_string());
+            result.push(helpers::decode_quotes(& record[0]));
         }
         return result;
     }

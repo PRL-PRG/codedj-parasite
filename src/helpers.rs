@@ -34,3 +34,11 @@ pub fn progress_line(s : String) {
     print!("{}\x1b[K\r", s);
     std::io::stdout().flush().unwrap();    
 }
+
+pub fn encode_quotes(from : & str) -> String {
+    return from.replace("%", "%37").replace("\"", "%34").replace("\\", "%92");
+}
+
+pub fn decode_quotes(from : & str) -> String {
+    return from.replace("%34", "\"").replace("%92", "\\").replace("%37", "%");
+}

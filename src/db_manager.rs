@@ -330,7 +330,7 @@ impl DatabaseManager {
                 user_records_file.write_record(&[
                     helpers::now().to_string(),
                     id.to_string(),
-                    name.to_owned(),
+                    helpers::encode_quotes(name),
                     format!("{}", source),
                 ]).unwrap();
                 //record::User::new(id, String::from(name), source).to_csv(& mut user_records_file).unwrap();
@@ -521,7 +521,7 @@ impl DatabaseManager {
         match path_ids.map.entry(path.to_owned()) {
             Entry::Vacant(entry) => {
                 entry.insert(new_id);
-                path_ids.writer.write_record(&[path.to_owned(), new_id.to_string()]).unwrap();
+                path_ids.writer.write_record(&[helpers::encode_quotes(path), new_id.to_string()]).unwrap();
                 return new_id;
             },
             Entry::Occupied(entry) => {
@@ -697,7 +697,7 @@ impl DatabaseManager {
         let mut reader = csv::ReaderBuilder::new().has_headers(true).double_quote(false).escape(Some(b'\\')).from_path(Self::get_path_ids_file(root)).unwrap();
         for x in reader.records() {
             let record = x.unwrap();
-            let path = String::from(& record[0]);
+            let path = helpers::decode_quotes(& record[0]);
             let id = record[1].parse::<u64>().unwrap() as PathId;
             if result.insert(path, id) != None {
                 panic!("Duplucate path record {}", id);
