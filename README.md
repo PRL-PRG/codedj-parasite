@@ -9,6 +9,14 @@
 `dcd-ghtorrent` = adds projects from ghtorrent dump (or its subset) to the database
 `dcd` = the in the future incremental downloader. clones all commits in the database and updates their contents
 `dcd-merge` = merges two datasets into one
+`dcd-verify` = verifies the integrity of a specified dataset
+`dcd-describe` = describes given dataset
+`dcd-issues` = augments given dataset with issues information from ghtorrent
+`dcd-export` = exports the CSV for artifact (project, commit, language counts)
+
+# Not used anymore
+
+`dcd-repair` = fixed error in projects logs for the earliest datasets
 
 The following are extra tools:
 
