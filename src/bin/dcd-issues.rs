@@ -109,6 +109,7 @@ fn get_project_issues(ght_root : & str, projects : & HashMap<u64, ProjectId>) ->
 }
 
 fn write_issues(db : & mut DatabaseManager, project_issues: & HashMap<ProjectId, Vec<(i64, bool)>>) {
+    println!("Writing issues for {} projects...", project_issues.len());
     for (pid, issues) in project_issues {
         //println!("Project {}, issues {}", pid, issues.len());
         let mut log = ProjectLog::new(db.get_project_log_filename(*pid));

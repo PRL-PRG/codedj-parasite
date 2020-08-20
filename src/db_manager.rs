@@ -172,7 +172,7 @@ impl DatabaseManager {
         println!("    {} paths", path_ids.len());
         let snapshot_ids = Self::get_snapshot_ids(root);
         println!("    {} snapshots", snapshot_ids.len());
-        return DatabaseManager{
+        let result = DatabaseManager{
             root_ : String::from(root),
             // live urls will be lazy loaded as they are only necessary for adding new projects which should not happen often
             live_urls_ : Mutex::new(HashSet::new()),
@@ -213,7 +213,17 @@ impl DatabaseManager {
 
             snapshot_ids_ : IDMapper::behind_mutex(snapshot_ids, Self::get_snapshot_ids_file(root)), 
 
+        };
+        // seek the appends
+        {
+            let (_, file) = & mut * result.commit_messages_files_.lock().unwrap();
+            file.seek(SeekFrom::End(0)).unwrap();
         }
+        {
+            let (_, file) = & mut * result.commit_changes_files_.lock().unwrap();
+            file.seek(SeekFrom::End(0)).unwrap();
+        }
+        return result;
     }
 
     pub fn root(& self) -> & str {

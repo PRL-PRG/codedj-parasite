@@ -1,6 +1,7 @@
 #!/bin/bash
 
-#./dcd-merge /dejavuii/dejacode/merging2/dcd-sample /dejavuii/dejacode/merging/dcd-sample-coffee-ts
-./dcd-merge /dejavuii/dejacode/merging2/dcd-sample /dejavuii/dejacode/merging2/dcd-sample-ruby-py
-./dcd-merge /dejavuii/dejacode/merging2/dcd-sample /dejavuii/dejacode/merging2/dcd-sample-clojure-scala
-./dcd-verify /dejavuii/dejacode/merging2/dcd-sample
+#./dcd-merge /dejavuii/dejacode/merging3/dcd-sample /dejavuii/dejacode/merging3/dcd-sample-coffee-ts
+#./dcd-merge /dejavuii/dejacode/merging3/dcd-sample /dejavuii/dejacode/merging3/dcd-sample-ruby-py
+./dcd-merge /dejavuii/dejacode/merging3/dcd-sample /dejavuii/dejacode/merging3/dcd-sample-clojure-scala
+./dcd-merge /dejavuii/dejacode/merging3/dcd-sample /dejavuii/dejacode/merging3/dcd-sample-2
+./dcd-issues /dejavuii/dejacode/merging3/dcd-sample /dejavuii/dejacode/ghtorrent/dump
