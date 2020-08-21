@@ -151,12 +151,13 @@ pub trait Database {
     //fn get_snapshot(& self, id : BlobId) -> Option<Snapshot>;
     fn get_file_path(& self, id : PathId) -> Option<FilePath>;
 
-    fn projects(&self) -> ProjectIter where Self: Sized { ProjectIter::from(self) }
-    fn commits(&self)  -> CommitIter  where Self: Sized { CommitIter::from(self)  }
-    fn users(&self)    -> UserIter    where Self: Sized { UserIter::from(self)    }
+    fn projects(&self)      -> ProjectIter    where Self: Sized { ProjectIter::from(self) }
+    fn commits(&self)       -> CommitIter     where Self: Sized { CommitIter::from(self)  }
+    fn bare_commits(&self)  -> BareCommitIter where Self: Sized { BareCommitIter::from(self)  }
+    fn users(&self)         -> UserIter       where Self: Sized { UserIter::from(self)    }
 
     fn commits_from(&self, project: &Project)  -> ProjectCommitIter where Self: Sized { ProjectCommitIter::from(self, project) }
-    fn bare_commits_from(&self, project: &Project)  -> ProjectCommitBareIter where Self: Sized { ProjectCommitBareIter::from(self, project) }
+    fn bare_commits_from(&self, project: &Project)  -> ProjectBareCommitIter where Self: Sized { ProjectBareCommitIter::from(self, project) }
     fn user_ids_from(&self, project: &Project) -> ProjectUserIdIter where Self: Sized { ProjectUserIdIter::from(self, project) }
 }
 
@@ -671,7 +672,40 @@ impl<'a> Iterator for CommitIter<'a> {
     }
 }
 
+/** Iterates over all commits in the dataset, the commits do not have messages or changes.
+ */
+pub struct BareCommitIter<'a> {
+    current:  CommitId,
+    total:    u64,
+    database: &'a dyn Database,
+}
 
+impl<'a> BareCommitIter<'a> {
+    pub fn from(database: &impl Database) -> BareCommitIter {
+        let total = database.num_commits();
+        BareCommitIter { current: 0, total, database }
+    }
+}
+
+impl<'a> Iterator for BareCommitIter<'a> {
+    type Item = Commit;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if self.current >= self.total {
+                return None;
+            }
+            if let Some(commit) = self.database.get_commit_bare(self.current) {
+                self.current += 1;
+                return Some(commit);
+            } else {
+                self.current += 1;
+            }
+        }
+        // database actually can do that if projects have errors
+        //panic!("Database returned None for CommitId={}", self.current); // FIXME maybe better handling
+    }
+}
 
 /** Iterates over all users in the dataset.
  */
@@ -791,22 +825,22 @@ impl<'a> Iterator for ProjectCommitIter<'a> {
  
     This time returns bare commit objects, i.e. the precached commits with no message or changes information. 
  */
-pub struct ProjectCommitBareIter<'a> {
+pub struct ProjectBareCommitIter<'a> {
     visited:  HashSet<CommitId>,
     to_visit: HashSet<CommitId>,
     database: &'a dyn Database,
 }
 
-impl<'a> ProjectCommitBareIter<'a> {
-    pub fn from(database: &'a impl Database, project: &Project) -> ProjectCommitBareIter<'a> {
+impl<'a> ProjectBareCommitIter<'a> {
+    pub fn from(database: &'a impl Database, project: &Project) -> ProjectBareCommitIter<'a> {
         let visited: HashSet<CommitId>  = HashSet::new();
         let head_commits: Vec<CommitId> = project.heads.iter().map(|(_, id)| *id).collect();
         let to_visit: HashSet<CommitId> = HashSet::from_iter(head_commits);
-        ProjectCommitBareIter { visited, to_visit, database }
+        ProjectBareCommitIter { visited, to_visit, database }
     }
 }
 
-impl<'a> Iterator for ProjectCommitBareIter<'a> {
+impl<'a> Iterator for ProjectBareCommitIter<'a> {
     type Item = Commit;
 
     fn next(&mut self) -> Option<Self::Item> {
