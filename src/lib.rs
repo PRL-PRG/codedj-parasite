@@ -146,6 +146,7 @@ pub trait Database {
 
     fn get_project(& self, id : ProjectId) -> Option<Project>;
     fn get_commit(& self, id : CommitId) -> Option<Commit>;
+    fn get_commit_bare(& self, id : CommitId) -> Option<Commit>;
     fn get_user(& self, id : UserId) -> Option<& User>;
     //fn get_snapshot(& self, id : BlobId) -> Option<Snapshot>;
     fn get_file_path(& self, id : PathId) -> Option<FilePath>;
@@ -155,6 +156,7 @@ pub trait Database {
     fn users(&self)    -> UserIter    where Self: Sized { UserIter::from(self)    }
 
     fn commits_from(&self, project: &Project)  -> ProjectCommitIter where Self: Sized { ProjectCommitIter::from(self, project) }
+    fn bare_commits_from(&self, project: &Project)  -> ProjectCommitBareIter where Self: Sized { ProjectCommitBareIter::from(self, project) }
     fn user_ids_from(&self, project: &Project) -> ProjectUserIdIter where Self: Sized { ProjectUserIdIter::from(self, project) }
 }
 
@@ -375,6 +377,8 @@ impl DCD {
         return result;
     }
 
+
+
 }
 
 impl Database for DCD {
@@ -439,6 +443,15 @@ impl Database for DCD {
                 } 
                 result.changes = Some(changes);
             }
+            return Some(result);
+        } else {
+            return None;
+        }
+    }
+
+    fn get_commit_bare(& self, id : CommitId) -> Option<Commit> {
+        if let Some(base) = self.commits_.get(id as usize) {
+            let mut result = Commit::new(id, self.commit_hashes_[& id], base);
             return Some(result);
         } else {
             return None;
@@ -658,6 +671,8 @@ impl<'a> Iterator for CommitIter<'a> {
     }
 }
 
+
+
 /** Iterates over all users in the dataset.
  */
 pub struct UserIter<'a> {
@@ -735,6 +750,52 @@ impl<'a> Iterator for ProjectCommitIter<'a> {
         }
     }
 }
+
+/** Iterates over all commits within a specific project.
+ 
+    This time returns bare commit objects, i.e. the precached commits with no message or changes information. 
+ */
+pub struct ProjectCommitBareIter<'a> {
+    visited:  HashSet<CommitId>,
+    to_visit: HashSet<CommitId>,
+    database: &'a dyn Database,
+}
+
+impl<'a> ProjectCommitBareIter<'a> {
+    pub fn from(database: &'a impl Database, project: &Project) -> ProjectCommitBareIter<'a> {
+        let visited: HashSet<CommitId>  = HashSet::new();
+        let head_commits: Vec<CommitId> = project.heads.iter().map(|(_, id)| *id).collect();
+        let to_visit: HashSet<CommitId> = HashSet::from_iter(head_commits);
+        ProjectCommitBareIter { visited, to_visit, database }
+    }
+}
+
+impl<'a> Iterator for ProjectCommitBareIter<'a> {
+    type Item = Commit;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let commit_id = self.to_visit.iter().next().map(|u| *u); // Blergh...
+
+            if let Some(commit_id) = commit_id {
+                self.to_visit.remove(&commit_id); // There are only unseen user_ids in cache.
+
+                if !self.visited.insert(commit_id) {
+                    continue; // Commit already visited - ignoring, going to the next one.
+                }
+
+                let commit_opt = self.database.get_commit_bare(commit_id);
+                if let Some(commit) = &commit_opt {
+                    self.to_visit.extend(&commit.parents);
+                }
+                return commit_opt;
+            }
+
+            return None;
+        }
+    }
+}
+
 
 pub struct ProjectUserIdIter<'a> {
     commit_iter: ProjectCommitIter<'a>,
