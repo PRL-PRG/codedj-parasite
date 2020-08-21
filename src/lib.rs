@@ -451,7 +451,7 @@ impl Database for DCD {
 
     fn get_commit_bare(& self, id : CommitId) -> Option<Commit> {
         if let Some(base) = self.commits_.get(id as usize) {
-            let mut result = Commit::new(id, self.commit_hashes_[& id], base);
+            let result = Commit::new(id, self.commit_hashes_[& id], base);
             return Some(result);
         } else {
             return None;
