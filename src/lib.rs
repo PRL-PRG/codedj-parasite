@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::*;
 use serde::{Deserialize, Serialize};
 use std::fs::*;
 use std::sync::*;
@@ -705,6 +705,42 @@ impl<'a> Iterator for UserIter<'a> {
         }
 
         panic!("Database returned None for UserId={}", self.current); // FIXME maybe better handling
+    }
+}
+
+pub struct FastProjectCommitIter<'a> {
+    visited : HashSet<CommitId>,
+    q : VecDeque<CommitId>,
+    db : &'a dyn Database,
+}
+
+impl<'a> FastProjectCommitIter<'a> {
+    pub fn from(database: &'a impl Database, project: &Project) -> FastProjectCommitIter<'a> {
+        return FastProjectCommitIter {
+            visited : HashSet::new(),
+            q : project.heads.iter().map(|(_, id)| *id).collect(),
+            db : database,
+        };
+    }
+}
+
+impl<'a> Iterator for FastProjectCommitIter<'a> {
+    type Item = Commit;
+
+    fn next(& mut self) -> Option<Self::Item> {
+        // nothing in the queue, we are done
+        loop {
+            if self.q.is_empty() {
+                return None;
+            }
+            let commit_id = self.q.pop_back().unwrap();
+            if ! self.visited.insert(commit_id) {
+                continue;
+            }
+            let commit = self.db.get_commit_bare(commit_id).unwrap();
+            self.q.extend(commit.parents.iter());
+            return Some(commit);
+        }
     }
 }
 
