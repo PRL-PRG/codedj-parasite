@@ -5,7 +5,6 @@ use std::sync::*;
 use std::io::prelude::*;
 use std::io::SeekFrom;
 use std::marker::Sized;
-use std::iter::FromIterator;
 use db_manager::*;
 use byteorder::*;
 
@@ -954,6 +953,9 @@ impl<'a> Iterator for ProjectUserIdIter<'a> {
 
 /**
  * Guaranteed to provide Projects from lowest to highiest ID.
+ *
+ * Returns a ProjectId and an empty list of commits when hits a Project in range that is not found
+ * in the dataset.
  */
 pub struct ProjectAllCommitIdsIter<'a, D> where D: Database + Sized {
     current:  ProjectId,
@@ -981,6 +983,12 @@ impl<'a, D> Iterator for ProjectAllCommitIdsIter<'a, D> where D: Database + Size
                 let commits = self.database.bare_commits_from(&project);
                 return Some((project.id, commits.map(|c| c.id).collect()));
             } else {
+                if self.current < self.total { // FIXME should this happen or not?
+                     //unreachable!()
+                    let fake = Some((self.current, vec![]));
+                    self.current += 1;
+                    return fake
+                }
                 self.current += 1;
             }
         }
