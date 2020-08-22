@@ -151,14 +151,28 @@ pub trait Database {
     //fn get_snapshot(& self, id : BlobId) -> Option<Snapshot>;
     fn get_file_path(& self, id : PathId) -> Option<FilePath>;
 
-    fn projects(&self)      -> ProjectIter    where Self: Sized { ProjectIter::from(self) }
-    fn commits(&self)       -> CommitIter     where Self: Sized { CommitIter::from(self)  }
-    fn bare_commits(&self)  -> BareCommitIter where Self: Sized { BareCommitIter::from(self)  }
-    fn users(&self)         -> UserIter       where Self: Sized { UserIter::from(self)    }
-
-    fn commits_from(&self, project: &Project)  -> ProjectCommitIter where Self: Sized { ProjectCommitIter::from(self, project) }
-    fn bare_commits_from(&self, project: &Project)  -> ProjectBareCommitIter where Self: Sized { ProjectBareCommitIter::from(self, project) }
-    fn user_ids_from(&self, project: &Project) -> ProjectUserIdIter where Self: Sized { ProjectUserIdIter::from(self, project) }
+    fn projects(&self) -> Box<dyn Iterator<Item=Project> + '_> where Self: Sized {
+        Box::new(ProjectIter::from(self))
+    }
+    fn commits(&self) -> Box<dyn Iterator<Item=Commit> + '_> where Self: Sized {
+        Box::new(CommitIter::from(self))
+    }
+    fn bare_commits(&self) -> Box<dyn Iterator<Item=Commit> + '_> where Self: Sized {
+        Box::new(BareCommitIter::from(self))
+    }
+    fn users(&self) -> Box<dyn Iterator<Item=&User> + '_> where Self: Sized {
+        Box::new(UserIter::from(self))
+    }
+    fn commits_from(&self, project: &Project) -> Box<dyn Iterator<Item=Commit> + '_> where Self: Sized {
+        Box::new(ProjectCommitIter::from(self, project))
+    }
+    fn bare_commits_from(&self, project: &Project) -> Box<dyn Iterator<Item=Commit> + '_> where Self:Sized {
+        Box::new(ProjectBareCommitIter::from(self, project))
+    }
+    fn user_ids_from(&self, project: &Project) -> Box<dyn Iterator<Item=UserId> + '_> where Self: Sized {
+        Box::new(ProjectUserIdIter::from(self, project))
+    }
+    fn project_ids_and_their_commit_ids(&self) -> ProjectAllCommitIdsIter<'_, Self> where Self: Sized { ProjectAllCommitIdsIter::from(self) }
 }
 
 /** The dejacode downloader interface.
@@ -469,6 +483,18 @@ impl Database for DCD {
             None => return None
         }
     }
+
+    // fn commits_from(&self, project: &Project) -> Box<Iterator<Item=Commit>> {
+    //     Box::new(ProjectCommitIter::from(self, project))
+    // }
+    //
+    // fn bare_commits_from(&self, project: &Project) -> ProjectBareCommitIter {
+    //     ProjectBareCommitIter::from(self, project)
+    // }
+    //
+    // fn user_ids_from(&self, project: &Project) -> ProjectUserIdIter {
+    //     ProjectUserIdIter::from(self, project)
+    // }
 }
 
 impl Source {
@@ -900,3 +926,39 @@ impl<'a> Iterator for ProjectUserIdIter<'a> {
     }
 }
 
+/**
+ * Guaranteed to provide Projects from lowest to highiest ID.
+ */
+pub struct ProjectAllCommitIdsIter<'a, D> where D: Database + Sized {
+    current:  ProjectId,
+    total:    u64,
+    database: &'a D,
+}
+
+impl<'a, D> ProjectAllCommitIdsIter<'a, D> where D: Database + Sized {
+    pub fn from(database: &'a D) -> Self {
+        let total = database.num_projects();
+        ProjectAllCommitIdsIter{ current: 0, total, database }
+    }
+}
+
+impl<'a, D> Iterator for ProjectAllCommitIdsIter<'a, D> where D: Database + Sized {
+    type Item = (ProjectId, Vec<CommitId>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if self.current >= self.total {
+                return None;
+            }
+            if let Some(project) = self.database.get_project(self.current) {
+                self.current += 1;
+                let commits = self.database.bare_commits_from(&project);
+                return Some((project.id, commits.map(|c| c.id).collect()));
+            } else {
+                self.current += 1;
+            }
+        }
+        // can happen when there are errors in projects
+        //panic!("Database returned None for ProjectId={}", self.current); // FIXME maybe better handling
+    }
+}
