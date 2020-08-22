@@ -182,7 +182,7 @@ fn merge_commits(db : & mut DatabaseManager,
                 let author = users_table[& commit.author_id];
                 db.append_commit_record(own_id, committer, commit.committer_time, author, commit.author_time, commit_sources[& their_id]);
                 if !commit.parents.is_empty() {
-                    let own_parents : Vec<(CommitId, CommitId)> = commit.parents.iter().map(|x| (own_id, *x)).collect();
+                    let own_parents : Vec<(CommitId, CommitId)> = commit.parents.iter().map(|x| (own_id, result[x])).collect();
                     db.append_commit_parents_records(& mut own_parents.iter());
                 }
             }
