@@ -26,6 +26,36 @@ The following are extra tools:
 
 # Datasets
 
+For time constraints, we have parallelized and distributed a lot of the dataset creation, merging the result in the end. This describes the partial datasets and how they are merged together. Note that once the datasets are merged, this information is invalid. 
+
+> Due to a bug in Rust's CSV parses escaping of quotes and escapes, which we only discovered much later in the pipeline, the precise path and user names cannot be obtained if they contain the special characters. However, this has no effect on the data calculated by the paper because their extensions and identities are untouched. 
+
+> Due to the local nature of this, all paths are absolute wrt where the datasets can be found on our dejavuii server. 
+
+`/dejacode/partial_datasets/dcd-1000` = a sample dataset of 1k projects > 28 commits for the 17 languages
+`/dejacode/partial_datasets/dcd-10000-c-java` = 10k projects per lang > 28 commits, C, C++, C#, ObjC, Go, Java
+`/dejacode/partial_datasets/dcd-10000-coffee-ts` = 10k projects per lang > 28 commits, CoffeeScript, JavaScript, Typescript
+`/dejacode/partial_datasets/dcd-10000-ruby-py` = 10k projects per lang > 28 commits, Ruby, PHP, Python
+`/dejacode/partial_datasets/dcd-10000-clojure-scala` = 10k projects per lang, > 28 commits, Clojure, Erlang, Haskell, Scala
+`/dejacode/partial_datasets/dcd-10000-perl` = 10k projects > 28 commits, Perl
+
+Together these datasets are merged into the dataset: `/dejacode/dataset-large-projects-only`
+
+`/dejacode/partial_datasets/dcd-1000-2` to `/dejacode/partial_datasets/dcd-1000-7` contains 1k projects of all sizes for all languages but Erlang and Clojure
+`/dejacode/partial_datasets/dcd-small-erlang-clojure` contain 6k projects of all sizes for Erlang and Clojure
+
+> This is because there was a mistake when we started filtering the small languages and random sampling was disabled for Erland and Clojure because they did not have enough large projects. 
+
+Together all these datasets are merged into the final frankendataset in `/dejacode/dataset`. 
+
+
+
+
+
+
+
+
+
 `dcd-sample-2` = 1000 per language > 28, fixed paths, no repair needed, to be merged to the large dataset
 `dcd-sample` = 10k per language, > 28, fixed paths
 

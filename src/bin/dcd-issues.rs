@@ -33,7 +33,7 @@ fn get_projects(db : & mut DatabaseManager) -> HashMap<u64, ProjectId> {
                     return false;
                 },
                 ProjectLogEntry::Metadata{time: _, source: _, key, value } => {
-                    if key == *"ght_issues" {
+                    if key == *"ght_issue" {
                         valid = false;
                     } else if key == *"ght_id" {
                         ght_id = value.parse::<u64>().unwrap();
