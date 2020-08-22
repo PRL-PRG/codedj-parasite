@@ -6,7 +6,7 @@ fn main() {
     if args.len() < 2 || (args.len() == 3 && args[2] != *"--exclude-commits") || args.len() > 3  {
         panic!{"Invalid usage - dcd-verify PATH_TO_DATABASE [--exclude-commits]"}
     }
-    //let _db = DatabaseManager::from(& args[1]);
+    let _db = DatabaseManager::from(& args[1]);
     let dcd = DCD::new(String::from(& args[1]));
     let mut num_projects = 0;
     let mut num_commits = 0;

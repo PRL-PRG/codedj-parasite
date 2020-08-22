@@ -343,6 +343,10 @@ impl DCD {
         return result;
     }
 
+    pub fn num_commit_messages(& self) -> usize {
+        return self.commit_message_offsets_.len();
+    }
+
     fn get_commit_message_offsets(root : & str) -> HashMap<CommitId, u64> {
         let mut reader = csv::ReaderBuilder::new()
             .has_headers(true)
