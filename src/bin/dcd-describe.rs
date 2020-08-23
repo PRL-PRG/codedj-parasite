@@ -31,10 +31,10 @@ fn main() {
         }
         let mut issues = 0;
         let mut buggy_issues = 0;
-        if let Some(ght_issue) = project.metadata.get("ght_issues") {
+        if let Some(ght_issue) = project.metadata.get("ght_issue") {
             issues = ght_issue.parse::<u64>().unwrap();
         }
-        if let Some(ght_issue_bug) = project.metadata.get("ght_issues") {
+        if let Some(ght_issue_bug) = project.metadata.get("ght_issue_bug") {
             buggy_issues = ght_issue_bug.parse::<u64>().unwrap();
         }
         writeln!(& mut output_projects, "{},{},{},{},{},{},{},\"{}\"", project.id, project.metadata["ght_language"],commits, authors.len(), committers.len(), issues, buggy_issues, project.url).unwrap();
