@@ -5,7 +5,6 @@ use std::sync::*;
 use std::io::prelude::*;
 use std::io::SeekFrom;
 use std::marker::Sized;
-use std::iter::FromIterator;
 use db_manager::*;
 use byteorder::*;
 
@@ -172,7 +171,9 @@ pub trait Database {
     fn user_ids_from(&self, project: &Project) -> Box<dyn Iterator<Item=UserId> + '_> where Self: Sized {
         Box::new(ProjectUserIdIter::from(self, project))
     }
-    fn project_ids_and_their_commit_ids(&self) -> ProjectAllCommitIdsIter<'_, Self> where Self: Sized { ProjectAllCommitIdsIter::from(self) }
+    fn project_ids_and_their_commit_ids(&self) -> Box<dyn Iterator<Item=(ProjectId,Vec<CommitId>)> + '_> where Self: Sized {
+        Box::new(ProjectAllCommitIdsIter::from(self))
+    }
 }
 
 /** The dejacode downloader interface.
@@ -772,55 +773,55 @@ impl<'a> Iterator for UserIter<'a> {
     }
 }
 
-pub struct FastProjectCommitIter<'a> {
-    visited : HashSet<CommitId>,
-    q : VecDeque<CommitId>,
-    db : &'a dyn Database,
-}
-
-impl<'a> FastProjectCommitIter<'a> {
-    pub fn from(database: &'a impl Database, project: &Project) -> FastProjectCommitIter<'a> {
-        return FastProjectCommitIter {
-            visited : HashSet::new(),
-            q : project.heads.iter().map(|(_, id)| *id).collect(),
-            db : database,
-        };
-    }
-}
-
-impl<'a> Iterator for FastProjectCommitIter<'a> {
-    type Item = Commit;
-
-    fn next(& mut self) -> Option<Self::Item> {
-        // nothing in the queue, we are done
-        loop {
-            if self.q.is_empty() {
-                return None;
-            }
-            let commit_id = self.q.pop_back().unwrap();
-            if ! self.visited.insert(commit_id) {
-                continue;
-            }
-            let commit = self.db.get_commit_bare(commit_id).unwrap();
-            self.q.extend(commit.parents.iter());
-            return Some(commit);
-        }
-    }
-}
+// rolled into CommitIter/BareCommitIter
+// pub struct FastProjectCommitIter<'a> {
+//     visited : HashSet<CommitId>,
+//     q : VecDeque<CommitId>,
+//     db : &'a dyn Database,
+// }
+//
+// impl<'a> FastProjectCommitIter<'a> {
+//     pub fn from(database: &'a impl Database, project: &Project) -> FastProjectCommitIter<'a> {
+//         return FastProjectCommitIter {
+//             visited : HashSet::new(),
+//             q : project.heads.iter().map(|(_, id)| *id).collect(),
+//             db : database,
+//         };
+//     }
+// }
+//
+// impl<'a> Iterator for FastProjectCommitIter<'a> {
+//     type Item = Commit;
+//
+//     fn next(& mut self) -> Option<Self::Item> {
+//         // nothing in the queue, we are done
+//         loop {
+//             if self.q.is_empty() {
+//                 return None;
+//             }
+//             let commit_id = self.q.pop_back().unwrap();
+//             if ! self.visited.insert(commit_id) {
+//                 continue;
+//             }
+//             let commit = self.db.get_commit_bare(commit_id).unwrap();
+//             self.q.extend(commit.parents.iter());
+//             return Some(commit);
+//         }
+//     }
+// }
 
 /** Iterates over all commits within a specific project.
  */
 pub struct ProjectCommitIter<'a> {
     visited:  HashSet<CommitId>,
-    to_visit: HashSet<CommitId>,
+    to_visit: VecDeque<CommitId>,
     database: &'a dyn Database,
 }
 
 impl<'a> ProjectCommitIter<'a> {
     pub fn from(database: &'a impl Database, project: &Project) -> ProjectCommitIter<'a> {
-        let visited: HashSet<CommitId>  = HashSet::new();
-        let head_commits: Vec<CommitId> = project.heads.iter().map(|(_, id)| *id).collect();
-        let to_visit: HashSet<CommitId> = HashSet::from_iter(head_commits);
+        let visited: HashSet<CommitId> = HashSet::new();
+        let to_visit: VecDeque<CommitId> = project.heads.iter().map(|(_, id)| *id).collect();
         ProjectCommitIter { visited, to_visit, database }
     }
 }
@@ -830,23 +831,16 @@ impl<'a> Iterator for ProjectCommitIter<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            let commit_id = self.to_visit.iter().next().map(|u| *u); // Blergh...
-
-            if let Some(commit_id) = commit_id {
-                self.to_visit.remove(&commit_id); // There are only unseen user_ids in cache.
-
-                if !self.visited.insert(commit_id) {
-                    continue; // Commit already visited - ignoring, going to the next one.
-                }
-
-                let commit_opt = self.database.get_commit(commit_id);
-                if let Some(commit) = &commit_opt {
-                    self.to_visit.extend(&commit.parents);
-                }
-                return commit_opt;
+            if self.to_visit.is_empty() {
+                return None;
             }
-
-            return None;
+            let commit_id = self.to_visit.pop_back().unwrap();
+            if ! self.visited.insert(commit_id) {
+                continue;
+            }
+            let commit = self.database.get_commit(commit_id).unwrap();
+            self.to_visit.extend(commit.parents.iter());
+            return Some(commit);
         }
     }
 }
@@ -857,15 +851,14 @@ impl<'a> Iterator for ProjectCommitIter<'a> {
  */
 pub struct ProjectBareCommitIter<'a> {
     visited:  HashSet<CommitId>,
-    to_visit: HashSet<CommitId>,
+    to_visit: VecDeque<CommitId>,
     database: &'a dyn Database,
 }
 
 impl<'a> ProjectBareCommitIter<'a> {
     pub fn from(database: &'a impl Database, project: &Project) -> ProjectBareCommitIter<'a> {
-        let visited: HashSet<CommitId>  = HashSet::new();
-        let head_commits: Vec<CommitId> = project.heads.iter().map(|(_, id)| *id).collect();
-        let to_visit: HashSet<CommitId> = HashSet::from_iter(head_commits);
+        let visited: HashSet<CommitId> = HashSet::new();
+        let to_visit: VecDeque<CommitId> = project.heads.iter().map(|(_, id)| *id).collect();
         ProjectBareCommitIter { visited, to_visit, database }
     }
 }
@@ -875,27 +868,19 @@ impl<'a> Iterator for ProjectBareCommitIter<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            let commit_id = self.to_visit.iter().next().map(|u| *u); // Blergh...
-
-            if let Some(commit_id) = commit_id {
-                self.to_visit.remove(&commit_id); // There are only unseen user_ids in cache.
-
-                if !self.visited.insert(commit_id) {
-                    continue; // Commit already visited - ignoring, going to the next one.
-                }
-
-                let commit_opt = self.database.get_commit_bare(commit_id);
-                if let Some(commit) = &commit_opt {
-                    self.to_visit.extend(&commit.parents);
-                }
-                return commit_opt;
+            if self.to_visit.is_empty() {
+                return None;
             }
-
-            return None;
+            let commit_id = self.to_visit.pop_back().unwrap();
+            if ! self.visited.insert(commit_id) {
+                continue;
+            }
+            let commit = self.database.get_commit_bare(commit_id).unwrap();
+            self.to_visit.extend(commit.parents.iter());
+            return Some(commit);
         }
     }
 }
-
 
 pub struct ProjectUserIdIter<'a> {
     commit_iter: ProjectCommitIter<'a>,
@@ -968,6 +953,9 @@ impl<'a> Iterator for ProjectUserIdIter<'a> {
 
 /**
  * Guaranteed to provide Projects from lowest to highiest ID.
+ *
+ * Returns a ProjectId and an empty list of commits when hits a Project in range that is not found
+ * in the dataset.
  */
 pub struct ProjectAllCommitIdsIter<'a, D> where D: Database + Sized {
     current:  ProjectId,
@@ -995,6 +983,12 @@ impl<'a, D> Iterator for ProjectAllCommitIdsIter<'a, D> where D: Database + Size
                 let commits = self.database.bare_commits_from(&project);
                 return Some((project.id, commits.map(|c| c.id).collect()));
             } else {
+                if self.current < self.total { // FIXME should this happen or not?
+                     //unreachable!()
+                    let fake = Some((self.current, vec![]));
+                    self.current += 1;
+                    return fake
+                }
                 self.current += 1;
             }
         }

@@ -15,7 +15,7 @@ fn main() {
         //helpers::progress_line(format!("    projects: {}, commits : {}", num_projects, num_commits));
         if args.len() == 2 {
             let mut commits_in_project = 0;
-            for _commit in FastProjectCommitIter::from(& dcd, & project) {
+            for _commit in ProjectBareCommitIter::from(& dcd, & project) {
                 num_commits += 1;
                 commits_in_project += 1;
             }
