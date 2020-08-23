@@ -1,6 +1,7 @@
 use std::io::*;
 use std::fs::*;
 use std::collections::*;
+use std::cmp::*;
 use dcd::*;
 
 /** This exports the summarized table for the model, i.e. instead of per commit, we already calculate the information on per project and language basis
@@ -23,11 +24,11 @@ fn main() {
         panic!{"Invalid usage - dcd PATH_TO_DATABASE OUTPUT_FILE [MAX_T]"}
     }
     let dcd = DCD::new(args[1].to_owned());
-    let mut projects = Vec::<ProjectId>::new();
     let max_t = if args.len() == 3 { std::i64::MAX } else { args[3].parse::<i64>().unwrap() };
     let mut f = File::create(& args[2]).unwrap();
     writeln!(& mut f, "project,language,commits,tins,max_commit_age,bcommits,devs").unwrap();
     for project in dcd.projects() {
+        summarize_project(& project, & dcd, max_t, & mut f);
         /*
         let result = summarize_project(& project, & dcd);
         for (lang,  (commits, tins, max_commit_age, bcommits, devs)) in result {
@@ -97,35 +98,43 @@ fn get_languages(commit : & Commit, dcd : & DCD) -> HashSet<String> {
 }
 */
 
-struct Summary {
+
+struct SummaryDev {
     commits : usize,
-    tins : usize,
+    tins : u64,
     bcommits : usize,
     devs : HashSet<UserId>,
-    youngest : i64,
     oldest : i64,
+    newest : i64,
 }
 
-impl Summary {
-    fn new() -> Summary {
-        return Summary{
+impl SummaryDev {
+    fn new() -> SummaryDev {
+        return SummaryDev{
             commits : 0,
             tins : 0,
             bcommits : 0,
             devs : HashSet::new(),
-            youngest : std::i64::MAX,
-            oldest : std::i64::MIN,
+            oldest : std::i64::MAX,
+            newest : std::i64::MIN,
         };
     }
 
     fn update_with(& mut self, commit : & Commit, is_bug : bool) {
-
+        self.commits += 1;
+        if is_bug {
+            self.bcommits += 1;
+        }
+        self.devs.insert(commit.author_id);
+        self.tins += commit.additions.unwrap();
+        self.oldest = min(self.oldest, commit.author_time);
+        self.newest = max(self.newest, commit.author_time);
     }
 }
 
 /** Summarizes the project infromation per language */
-fn summarize_project(project : & Project, dcd : & DCD, max_t : i64) {
-    let mut result = HashMap::<String, Summary>::new();
+fn summarize_project(project : & Project, dcd : & DCD, max_t : i64, into : & mut File) {
+    let mut result = HashMap::<String, SummaryDev>::new();
     for commit in dcd.commits_from(& project) {
         // count only commits younget than the given date
         if commit.committer_time < max_t {
@@ -143,11 +152,26 @@ fn summarize_project(project : & Project, dcd : & DCD, max_t : i64) {
                     }
                     // for all languages touched by the commit, update the summary
                     for lang in languages {
-                        result.entry(lang).or_insert(Summary::new()).update_with(& commit, is_bug);
+                        result.entry(lang).or_insert(SummaryDev::new()).update_with(& commit, is_bug);
                     }
                 }
             }
         }
     }
-
+    // now remove all project - language pairs that have fewer than 20 commits per language
+    // and append the rest to the vector
+    for (language, summary) in result {
+        if summary.commits < 20 {
+            continue;
+        }
+        writeln!(into, "{},{},{},{},{},{},{}",
+            project.id,
+            language,
+            summary.commits,
+            summary.tins,
+            max((summary.newest - summary.oldest) / (3600 * 24), 1),
+            summary.bcommits,
+            summary.devs.len()
+        ).unwrap();
+    }
 }

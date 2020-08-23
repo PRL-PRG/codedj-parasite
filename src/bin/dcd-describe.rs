@@ -24,7 +24,7 @@ fn main() {
         let mut authors = HashSet::<UserId>::new();
         let mut committers = HashSet::<UserId>::new();
         let mut commits = 0;
-        for commit in FastProjectCommitIter::from(& dcd, & project) {
+        for commit in ProjectCommitIter::from(& dcd, & project) {
             commits += 1;
             authors.insert(commit.author_id);
             committers.insert(commit.author_id);
