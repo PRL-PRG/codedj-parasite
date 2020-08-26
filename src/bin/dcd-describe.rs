@@ -43,7 +43,7 @@ fn main() {
     writeln!(& mut output_sizes, "validProjects,{}", valid_projects).unwrap();
     writeln!(& mut output_sizes, "validCommits,{}", dcd.num_commit_messages()).unwrap();
     writeln!(& mut output_sizes, "validPaths,{}", dcd.num_file_paths()).unwrap();
-    let output = Command::new("du").arg("-s").arg(& args[1]).output().unwrap();
+    let output = Command::new("du").arg("-sb").arg(& args[1]).output().unwrap();
     let output_str = String::from(String::from_utf8_lossy(& output.stdout).split("\t").next().unwrap());
     writeln!(& mut output_sizes, "bytes,{}", output_str.parse::<u64>().unwrap()).unwrap();
 }

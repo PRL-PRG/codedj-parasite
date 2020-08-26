@@ -46,7 +46,8 @@ fn get_file_language(path : & str) -> Option<String> {
     if let Some(ext) = std::path::Path::new(path).extension() {
         match ext.to_str().unwrap() {
             "c" => return Some("C".to_owned()),
-            "C" | ".cc" | "cpp" | "cxx" | "c++" => return Some("C++".to_owned()),
+            "C" | "cc" | "cpp" | "cxx" | "c++" => return Some("C++".to_owned()),
+            "cs" => return Some("C#".to_owned()),
             "m" | "mm" | "M" => return Some("Objective-C".to_owned()),
             "go" => return Some("Go".to_owned()),
             "java" => return Some("Java".to_owned()),
