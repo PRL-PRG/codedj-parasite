@@ -17,7 +17,7 @@
             "type": "lldb",
             "request": "launch",
             "program": "${workspaceFolder}/target/debug/dcd",
-            "args": [ "/dejavuii/dejacode/peta-tiny", "4", "3600"],
+            "args": [ "add", "https://github.com/terminalpp/terminalpp.git" ],
             "cwd": "${workspaceFolder}",
         },
         {
@@ -61,6 +61,14 @@
             "program": "${workspaceFolder}/target/debug/dcd-merge",
             //"args": ["/dejavuii/dejacode/peta-tiny", "/dejavuii/dejacode/peta-small"],
             "args": ["/dejavuii/dejacode/merging/toplas", "/dejavuii/dejacode/merging/dcd-1000"],
+            "cwd": "${workspaceFolder}",
+        }
+        {
+            "name": "(gdb) dcd-test",
+            "type": "lldb",
+            "request": "launch",
+            "program": "${workspaceFolder}/target/debug/dcd-test",
+            "args": [],
             "cwd": "${workspaceFolder}",
         }
     ]

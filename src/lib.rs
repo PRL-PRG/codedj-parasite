@@ -14,6 +14,9 @@ pub mod db_manager;
 pub mod record;
 pub mod helpers;
 
+//pub mod property_store;
+pub mod db;
+pub mod datastore;
 
 /** Different ids for the entities the database contains.
  */
