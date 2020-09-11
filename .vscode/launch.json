@@ -17,8 +17,11 @@
             "type": "lldb",
             "request": "launch",
             "program": "${workspaceFolder}/target/debug/dcd",
-            "args": [ "add", "https://github.com/terminalpp/terminalpp.git" ],
+            "args": [ "-o=/home/peta/dcd2", "update", "https://github.com/terminalpp/terminalpp.git" ],
             "cwd": "${workspaceFolder}",
+            "env" : {
+                "RUST_BACKTRACE" : "1"
+            }
         },
         {
             "name": "(gdb) dcd-reader",

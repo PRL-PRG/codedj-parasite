@@ -1,22 +1,24 @@
-use std::collections::*;
-use serde::{Deserialize, Serialize};
-use std::fs::*;
-use std::sync::*;
-use std::io::prelude::*;
-use std::io::SeekFrom;
-use std::marker::Sized;
-use db_manager::*;
-use byteorder::*;
-
-// TODO how can I make these package only?
-// this should be package-only
-pub mod db_manager;
-pub mod record;
+pub mod datastore;
+pub mod records;
+pub mod db;
 pub mod helpers;
 
-//pub mod property_store;
-pub mod db;
-pub mod datastore;
+
+// v2 from here:
+
+use std::fs::*;
+use std::io::*;
+use std::collections::hash_map::*;
+use std::str;
+use byteorder::*;
+use db::*;
+
+
+
+
+/*
+
+
 
 /** Different ids for the entities the database contains.
  */
@@ -999,3 +1001,5 @@ impl<'a, D> Iterator for ProjectAllCommitIdsIter<'a, D> where D: Database + Size
         //panic!("Database returned None for ProjectId={}", self.current); // FIXME maybe better handling
     }
 }
+
+*/

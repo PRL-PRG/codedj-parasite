@@ -2,63 +2,83 @@ use std::collections::*;
 
 mod db;
 mod datastore;
+mod updater;
+mod records;
+mod helpers;
 
 use db::*;
 use datastore::*;
+use updater::*;
 
 fn main() {
     let args : Vec<String> = std::env::args().collect();
-    if args.len() < 2 {
+    let mut i = 1;
+    if args.len() <= i {
         help()
     }
-    match args[1].as_str() {
-        "init" => dcd_init(args),
-        "add" => dcd_add(args),
-        "update" => dcd_update(args),
+    let mut wd = String::from(std::env::current_dir().unwrap().to_str().unwrap());
+    if args[i].starts_with("-o=") {
+        wd = args[i][3..].to_string();
+        i += 1;
+    }
+    if args.len() <= i {
+        help()
+    }
+    let cmd = & args[i];
+    i += 1;
+    match cmd.as_str() {
+        "init" => dcd_init(& wd, & args[i..]),
+        "add" => dcd_add(& wd, & args[i..]),
+        "update" => dcd_update(& wd, & args[i..]),
         &_ => help(),
     }
 }
 
 /** Initializes the datastore in current directory.  
  */
-fn dcd_init(args : Vec<String>) {
-    let mut x = PropertyStore::<String>::new("/home/peta/test.dat");
-    x.set(0, & String::from("zeroth"));
-    x.set(1, & String::from("first"));
-    x.set(2, & String::from("second"));
-    x.set(3, & String::from("third"));
-    for (id, value) in x.iter() {
-        println!("{}:{}", id, value);
+fn dcd_init(working_dir : & str, args : & [String]) {
+    // clear and create the working directory
+    let wd_path = std::path::Path::new(working_dir);
+    if wd_path.exists() {
+        std::fs::remove_dir_all(&wd_path).unwrap();
     }
+    std::fs::create_dir_all(&wd_path).unwrap();
+    // create the datastore and initialize the basic values
+    let ds = Datastore::from(working_dir);
+    println!("Initializing new repository with common values...");
+    ds.hashes.lock().unwrap().get_or_create(& git2::Oid::zero());
+    println!("    hash 0");
 }
 
 /** Adds projects from given file or a single url project to the datastore. 
- 
-    To be able to add projects, the datastore must be loaded 
+
+    For now, for project to be added, it must have unique url across all of the known urls, including the dead ones. This is correct for most cases, but one can imagive a project being created, then developed, then deleted and then a project of the same name, but different one being created as well. Or even moved and then old name reused.
+
+    TODO how to actually handle this?
  */
-fn dcd_add(args : Vec<String>) {
-    if (args.len() < 3) {
+fn dcd_add(working_dir : & str, args : & [String]) {
+    if args.len() < 1 {
         help();
     }
-    let ds = Datastore::from_cwd();
+    let ds = Datastore::from(working_dir);
     println!("Loading known project urls...");
-    let mut project_urls = ds.project_urls.lock().unwrap();
     let mut urls = HashSet::<String>::new();
-    for (id, url) in project_urls.iter() {
+    for (id, url) in ds.project_urls.lock().unwrap().iter() {
         urls.insert(url);
     }
     println!("    urls: {}", urls.len());
     // now go through all arguments and see if they can be added
-    for arg in & args[2..] {
+    for arg in args {
         if arg.starts_with("https://") {
             println!("Adding project {}", arg);
             if urls.contains(arg) {
                 println!("    already exists");
             } else {
-                let id = project_urls.len() as u64;
-                project_urls.set(id, arg);
-                println!("    added as id: {}", id);
+                println!("    added as id: {}", ds.add_project(arg));
             }
+        } else if arg.ends_with(".csv") {
+            // TODO implement reading from CSV files
+            unimplemented!();
         } else {
             println!("Unrecognized project file or url format: {}", arg);
             help();
@@ -67,8 +87,13 @@ fn dcd_add(args : Vec<String>) {
 
 }
 
-
-fn dcd_update(args : Vec<String>) {
+/** Runs the incremental updater. 
+ 
+    Creates the updater and starts the continuous update of the projects. 
+ */ 
+fn dcd_update(working_dir : & str, args : & [String]) {
+    let updater = Updater::new(Datastore::from(working_dir));
+    updater.run(1);
 
 }
 

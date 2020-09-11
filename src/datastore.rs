@@ -2,10 +2,12 @@ use std::sync::*;
 use std::fs::*;
 use std::io::*;
 use std::collections::hash_map::*;
-use byteorder::*;
 
-use crate::*;
 use crate::db::*;
+
+use crate::records::*;
+
+
 
 /** The datastore implementation. 
  
@@ -18,37 +20,59 @@ pub struct Datastore {
         Contains both dead and live urls for the projects known. The latest (i.e. indexed) url for a project is its live url, all previous urls are its past urls currently considered dead.  
      */
     pub (crate) project_urls : Mutex<PropertyStore<String>>,
+    pub (crate) project_last_updates : Mutex<Indexer<i64>>,
+    pub (crate) project_heads : Mutex<PropertyStore<Heads>>,
 
     /** Mappings of the objects the datastore keeps track of. 
      */
     pub (crate) commits : Mutex<DirectMapping<git2::Oid>>,
+    pub (crate) commits_info : Mutex<PropertyStore<CommitInfo>>,
     pub (crate) users : Mutex<IndirectMapping<String>>,
+    pub (crate) paths : Mutex<IndirectMapping<String>>,
+    pub (crate) hashes : Mutex<DirectMapping<git2::Oid>>,
 
+    pub (crate) contents : Mutex<DirectMapping<u64>>,
+    pub (crate) contents_data : Mutex<PropertyStore<ContentsData>>,
 }
 
 impl Datastore {
-
-    /** Creates datastore in the current working directory. 
-     */
-    pub fn from_cwd() -> Datastore {
-        return Datastore::from(std::env::current_dir().unwrap().to_str().unwrap());
-    }
 
     /** Creates datastore in the specified directory. 
      */
     pub fn from(root : & str) -> Datastore {
         let result = Datastore {
             root : root.to_owned(),
-            project_urls : Mutex::new(PropertyStore::new(& format!("{}/project_urls.dat", root))),
+            project_urls : Mutex::new(PropertyStore::new(& format!("{}/project-urls.dat", root))),
+            project_last_updates : Mutex::new(Indexer::new(& format!("{}/project-updates.dat", root))),
+            project_heads : Mutex::new(PropertyStore::new(& format!("{}/project-heads.dat", root))),
 
             commits : Mutex::new(DirectMapping::new(& format!("{}/commits.dat", root))),
-            users : Mutex::new(IndirectMapping::new(& format!("{}/users.dat", root)))
+            commits_info : Mutex::new(PropertyStore::new(& format!("{}/commits-info.dat", root))),
+            users : Mutex::new(IndirectMapping::new(& format!("{}/users.dat", root))),
+            paths : Mutex::new(IndirectMapping::new(& format!("{}/paths.dat", root))),
+            hashes : Mutex::new(DirectMapping::new(& format!("{}/hashes.dat", root))),
+
+            contents : Mutex::new(DirectMapping::new(& format!("{}/contents.dat", root))),
+            contents_data : Mutex::new(PropertyStore::new(& format!("{}/contents-data.dat", root))),
         };
         println!("Datastore loaded from {}:", root);
         println!("    projects: {}", result.project_urls.lock().unwrap().len());
         println!("    commits:  {}", result.commits.lock().unwrap().len());
         println!("    users:    {}", result.users.lock().unwrap().len());
+        println!("    paths:    {}", result.paths.lock().unwrap().len());
+        println!("    hashes:   {}", result.hashes.lock().unwrap().len());
+        println!("    contents: {}", result.contents.lock().unwrap().len());
         return result;
+    }
+
+    pub fn root(& self) -> & String {
+        return & self.root;
+    }
+
+    /** Returns the number of projects in the datastore. 
+     */ 
+    pub fn num_projects(& self) -> usize {
+        return self.project_urls.lock().unwrap().len();
     }
 
     /** Fills the mappings of the datastore. 
@@ -58,8 +82,17 @@ impl Datastore {
         TODO maybe this should go to the updater. 
      */
     pub fn fill_mappings(& mut self) {
+        println!("Filling datastore mappings...");
         self.commits.lock().unwrap().fill();
-        self.users.lock().unwrap().fill();
+        println!("    commits:  {}", self.commits.lock().unwrap().loaded_len());
+        self.users.lock().unwrap ().fill();
+        println!("    users:    {}", self.users.lock().unwrap().loaded_len());
+        self.paths.lock().unwrap().fill();
+        println!("    paths:    {}", self.paths.lock().unwrap().loaded_len());
+        self.hashes.lock().unwrap().fill();
+        println!("    hashes:   {}", self.hashes.lock().unwrap().loaded_len());
+        self.contents.lock().unwrap().fill();
+        println!("    contents: {}", self.contents.lock().unwrap().loaded_len());
     }
 
     /** Creates a savepoint. 
@@ -70,122 +103,42 @@ impl Datastore {
         unimplemented!();
     }
 
-}
-
-/*
-/** The Datastore 
- 
-    project_urls = from project id to project url, latest record matters, indexing not necessary
-    => we get both active and inactive urls... 
-
-    project_heads = from project id to project heads, need to keep index 
- */
-pub struct Datastore {
-    root : String,
-
-    /** Project urls - dead (past) and live (current)
+    /** Adds new project to the store. 
      
-        Not having the url means that the project is dead. This is geared towards quick updates of already known projects, but is bad for adding new projects where the projects must be disambiguated.  
+        Returns the new project id and sets its last update time to 0 so that the project will be updated first. 
+        
+        NOTE: Does not check whether the added url already exists in the dataset, only makes sure that the mappings are preserved. 
      */
-    //project_urls : Mutex<PropertyStore<String>>,
-    /** Latest project heads. 
-     */ 
-    //project_heads : Mutex<PropertyStore<Heads>>,
-
-    commits : Mutex<HashMap<git2::Oid, u64>>,
-    users : Mutex<HashMap<String, u64>>,
-
-}
-impl Datastore {
-
-    /** Initializes the datastore from current working directory.
-     */
-    pub fn new() -> Datastore {
-        return Datastore::new_at(std::env::current_dir().unwrap().to_str().unwrap());
+    pub fn add_project(& self, url : & String) -> u64 {
+        let mut project_urls = self.project_urls.lock().unwrap();
+        let mut project_last_updates = self.project_last_updates.lock().unwrap();
+        assert!(project_urls.len() == project_last_updates.len());
+        let id = project_urls.len() as u64;
+        project_urls.set(id, url);
+        project_last_updates.set(id, & 0);
+        return id;
     }
 
-    /** Initializes the datastore from given root folder. 
-     
-        Loads the necessary information to start the downloader. This includes the project urls, and disambiguation maps for other objects being stored.   
-     */
-    pub fn new_at(root : & str) -> Datastore {
-        println!("Loading datastore from {}", root);
-        return Datastore{
-            root : String::from(root),
-            //project_urls : Mutex::new(PropertyStore::new(& format!("{}/project_urls", root))),
-            //project_heads : Mutex::new(PropertyStore::new(& format!("{}/project_heads", root))),
-            commits : Mutex::new(HashMap::new()),
-            users : Mutex::new(HashMap::new()),
-        };
-    }
-
-    pub fn load_mappings(& mut self) {
-        println!("Loading datastore mappings...");
-        let commits = Datastore::load_hash_mapping(& self.root, "commit_hashes.dat");
-        let users = Datastore::load_string_mapping(& self.root, "user_emails.dat");
-
-    }
-
-    /** Creates a savepoint. 
-     
-        Flushes all held buffers and remembers the actual sizes of files that exist in the database so that any information stored *after* the latest savepoint can be easily rolled back if needed.
-     */
-    pub fn savepoint(& self) {
-        unimplemented!();
-    }
-
-    /*
-    pub fn get_project_url(& self, id : u64) -> Option<String> {
-        return self.project_urls.lock().unwrap().get(id);
-    }
-
-    pub fn get_project_heads(& self, id: u64) -> Option<Heads> {
-        return self.project_heads.lock().unwrap().get(id);
-    }
-    */
-
-    // helper functions
-
-
-    /** Loads hash to ID mapping, which consists of sequentially stored hashes.
-     */
-    fn load_hash_mapping(root: & str, file : & str) -> HashMap<git2::Oid, u64> {
-        println!("loading hash mapping {}", file);
-        let mut result = HashMap::new();
-        let path = format!("{}/{}", root, file);
-        if std::path::Path::new(& path).exists() {
-            let mut f = OpenOptions::new()
-                .read(true)
-                .open(format!("{}/{}", root, file)).unwrap();
-            // read the mapping 
-            let mut buffer = vec![0; 20];
-            while let Ok(20) = f.read(& mut buffer) {
-                result.insert(git2::Oid::from_bytes(& buffer).unwrap(), result.len() as u64);
-            }
+    pub fn get_project_url(& self, id : u64) -> String {
+        if let Some(url) = self.project_urls.lock().unwrap().get(id) {
+            return url;
+        } else {
+            panic!(format!("Project {} does not have url", id));
         }
-        println!("    {} records loaded", result.len());
-        return result;
     }
 
-    fn load_string_mapping(root: & str, file : & str) -> HashMap<String, u64> {
-        println!("loading string mapping {}", file);
-        let mut result = HashMap::new();
-        let path = format!("{}/{}", root, file);
-        if std::path::Path::new(& path).exists() {
-            let mut f = OpenOptions::new()
-                .read(true)
-                .open(format!("{}/{}", root, file)).unwrap();
-            // read the mapping 
-            while let Ok(size) = f.read_u32::<LittleEndian>() {
-                let mut buffer = vec![0; size as usize];
-                f.read(& mut buffer).unwrap();
-                result.insert(String::from_utf8(buffer).unwrap(), result.len() as u64);
-            }
+    /** Returns the last observed heads for given project. 
+     
+        If heads were never sampled, returns empty heads. 
+     */
+    pub fn get_project_heads(& self, id : u64) -> Heads {
+        if let Some(heads) = self.project_heads.lock().unwrap().get(id) {
+            return heads;
+        } else {
+            return Heads::new();
         }
-        println!("    {} records loaded", result.len());
-        return result;
     }
+
+    pub const DEAD_PROJECT_UPDATE_TIME : i64 = std::i64::MAX;
+
 }
-*/
-
-

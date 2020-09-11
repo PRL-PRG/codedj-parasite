@@ -1,4 +1,11 @@
-/* The database support.
+/** The database support.
+
+    Provides serialization and deserialization of various structures used by the downloader and extra infrastructure for their efficiency, such as indexes and mappings. 
+
+    Indexer = Writes stuff to file, 
+    PropertyStore = Writes properties to file, can (but does not have to override)
+    Mappings = also contains a hashmap for quick retrieval
+
  */
 use std::fs::*;
 use std::io::*;
@@ -21,7 +28,7 @@ pub trait FileWriter<T> {
     fn write(f : & mut File, value : & T);
 }
 
-/** Serialization for unsigned 64. 
+/** Serialization for unsigned and unsigned 64 bit integers. 
  */
 impl FileWriter<u64> for u64 {
     fn read(f : & mut File) -> u64 {
@@ -33,7 +40,19 @@ impl FileWriter<u64> for u64 {
     }
 }
 
+impl FileWriter<i64> for i64 {
+    fn read(f : & mut File) -> i64 {
+        return f.read_i64::<LittleEndian>().unwrap();
+    }
+
+    fn write(f : & mut File, value : & i64) {
+        f.write_i64::<LittleEndian>(*value).unwrap();
+    }
+}
+
+
 impl FileWriterStaticSize for u64 { }
+impl FileWriterStaticSize for i64 { }
 
 /** Serialization for SHA1 hashes. 
  */
@@ -179,6 +198,10 @@ impl<T: FileWriter<T> + std::cmp::Eq + std::hash::Hash + std::clone::Clone + Fil
         return self.indexer.len();
     }
 
+    pub fn loaded_len(& self) -> usize {
+        return self.mapping.len();
+    }
+
 }
 
 impl<T: FileWriter<T> + std::cmp::Eq + std::hash::Hash + std::clone::Clone + FileWriterStaticSize> Mapping<T> for DirectMapping<T> {
@@ -242,6 +265,11 @@ impl<T: FileWriter<T> + std::cmp::Eq + std::hash::Hash + std::clone::Clone> Indi
     pub fn len(& self) -> usize {
         return self.indexer.len();
     }
+
+    pub fn loaded_len(& self) -> usize {
+        return self.mapping.len();
+    }
+
 }
 
 impl<T: FileWriter<T> + std::cmp::Eq + std::hash::Hash + std::clone::Clone> Mapping<T> for IndirectMapping<T> {
@@ -297,6 +325,9 @@ impl<T : FileWriter<T>> PropertyStore<T> {
     }
 
     pub fn get(& mut self, id : u64) -> Option<T> {
+        if id >= self.indexer.len() as u64 {
+            return None;
+        }
         let offset = self.indexer.get(id);
         if offset != std::u64::MAX {
             self.f.seek(SeekFrom::Start(offset)).unwrap();
@@ -356,11 +387,6 @@ impl<'a, T : FileWriter<T>> Iterator for PropertyStoreIter<'a, T> {
 
 // Extra types
 
-/** Project heads
- 
-    For each project we store the latest project heads so that these can be compared against projects already used. 
- */
-pub type Heads = HashMap<Vec<u8>, u64>;
 
 /*
 impl FileWriter<Heads> for PropertyWriter<Heads> {

@@ -1,6 +1,76 @@
 use std::time::SystemTime;
 use chrono::NaiveDateTime;
 use std::io::Write;
+use std::str;
+
+/** Lossless conversion from possibly non-UTF8 strings to valid UTF8 strings with the non-UTF bytes escaped. 
+ 
+    Because we can, we use the BEL character as escape character because the chances of real text containing it are rather small, yet it is reasonably simple for further processing.   
+ */
+pub fn to_string(bytes : & [u8]) -> String {
+    let mut result = String::new();
+    let mut x = bytes;
+    loop {
+        match str::from_utf8(x) {
+            // if successful, replace any bel character with double bel, add to the buffer and exit
+            Ok(s) => {
+                result.push_str(& s.replace("%", "%%"));
+                return result;
+            },
+            Err(e) => {
+                let (ok, bad) = bytes.split_at(e.valid_up_to());
+                if !ok.is_empty() {
+                    result.push_str(& str::from_utf8(ok).unwrap().replace("%","%%"));
+                }
+                // encode the bad character
+                result.push_str(& format!("%{:x}", bad[0]));
+                // move past the offending character
+                x = & bad[1..];
+            }
+        }
+    }
+}
+
+
+/*
+let mut output = String::new();
+
+loop {
+    match str::from_utf8(bytes) {
+        Ok(s) => {
+            // The entire rest of the string was valid UTF-8, we are done
+            output.push_str(s);
+            return output;
+        }
+        Err(e) => {
+            let (good, bad) = bytes.split_at(e.valid_up_to());
+
+            if !good.is_empty() {
+                let s = unsafe {
+                    // This is safe because we have already validated this
+                    // UTF-8 data via the call to `str::from_utf8`; there's
+                    // no need to check it a second time
+                    str::from_utf8_unchecked(good)
+                };
+                output.push_str(s);
+            }
+
+            if bad.is_empty() {
+                //  No more data left
+                return output;
+            }
+
+            // Do whatever type of recovery you need to here
+            output.push_str("<badbyte>");
+
+            // Skip the bad byte and try again
+            bytes = &bad[1..];
+        }
+    }
+}
+
+
+*/
 
 /** Returns current time in milliseconds.
  */
