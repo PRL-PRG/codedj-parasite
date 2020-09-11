@@ -26,15 +26,15 @@ pub struct Datastore {
         Contains both dead and live urls for the projects known. The latest (i.e. indexed) url for a project is its live url, all previous urls are its past urls currently considered dead.  
      */
     pub (crate) project_urls : Mutex<PropertyStore<String>>,
-    pub (crate) project_last_updates : Mutex<Indexer<i64>>,
+    pub (crate) project_last_updates : Mutex<PropertyStore<i64>>,
     pub (crate) project_heads : Mutex<PropertyStore<Heads>>,
 
     /** Mappings of the objects the datastore keeps track of. 
      */
     pub (crate) commits : Mutex<DirectMapping<git2::Oid>>,
     pub (crate) commits_info : Mutex<PropertyStore<CommitInfo>>,
-    pub (crate) users : Mutex<IndirectMapping<String>>,
-    pub (crate) paths : Mutex<IndirectMapping<String>>,
+    pub (crate) users : Mutex<Mapping<String>>,
+    pub (crate) paths : Mutex<Mapping<String>>,
     pub (crate) hashes : Mutex<DirectMapping<git2::Oid>>,
 
     pub (crate) contents : Mutex<DirectMapping<u64>>,
@@ -52,20 +52,20 @@ impl Datastore {
             root : root.to_owned(),
             version : 0,
             project_urls : Mutex::new(PropertyStore::new(& format!("{}/project-urls.dat", root))),
-            project_last_updates : Mutex::new(Indexer::new(& format!("{}/project-updates.dat", root))),
+            project_last_updates : Mutex::new(PropertyStore::new(& format!("{}/project-updates.dat", root))),
             project_heads : Mutex::new(PropertyStore::new(& format!("{}/project-heads.dat", root))),
 
             commits : Mutex::new(DirectMapping::new(& format!("{}/commits.dat", root))),
             commits_info : Mutex::new(PropertyStore::new(& format!("{}/commits-info.dat", root))),
-            users : Mutex::new(IndirectMapping::new(& format!("{}/users.dat", root))),
-            paths : Mutex::new(IndirectMapping::new(& format!("{}/paths.dat", root))),
+            users : Mutex::new(Mapping::new(& format!("{}/users.dat", root))),
+            paths : Mutex::new(Mapping::new(& format!("{}/paths.dat", root))),
             hashes : Mutex::new(DirectMapping::new(& format!("{}/hashes.dat", root))),
 
             contents : Mutex::new(DirectMapping::new(& format!("{}/contents.dat", root))),
             contents_data : Mutex::new(PropertyStore::new(& format!("{}/contents-data.dat", root))),
         };
         println!("Datastore loaded from {}:", root);
-        println!("    projects: {}", result.project_urls.lock().unwrap().len());
+        println!("    projects: {}", result.project_urls.lock().unwrap().indices_len());
         println!("    commits:  {}", result.commits.lock().unwrap().len());
         println!("    users:    {}", result.users.lock().unwrap().len());
         println!("    paths:    {}", result.paths.lock().unwrap().len());
@@ -81,7 +81,7 @@ impl Datastore {
     /** Returns the number of projects in the datastore. 
      */ 
     pub fn num_projects(& self) -> usize {
-        return self.project_urls.lock().unwrap().len();
+        return self.project_urls.lock().unwrap().indices_len();
     }
 
     /** Fills the mappings of the datastore. 
@@ -121,8 +121,7 @@ impl Datastore {
     pub fn add_project(& self, url : & String) -> u64 {
         let mut project_urls = self.project_urls.lock().unwrap();
         let mut project_last_updates = self.project_last_updates.lock().unwrap();
-        assert!(project_urls.len() == project_last_updates.len());
-        let id = project_urls.len() as u64;
+        let id = project_urls.indices_len() as u64;
         project_urls.set(id, url);
         project_last_updates.set(id, & 0);
         return id;

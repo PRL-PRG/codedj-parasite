@@ -2,9 +2,7 @@
 
     Provides serialization and deserialization of various structures used by the downloader and extra infrastructure for their efficiency, such as indexes and mappings. 
 
-    Indexer = Writes stuff to file, 
-    PropertyStore = Writes properties to file, can (but does not have to override)
-    Mappings = also contains a hashmap for quick retrieval
+
 
  */
 use std::fs::*;
@@ -16,7 +14,9 @@ use std::collections::*;
  
     This is important for mappings as statically sized values do not need an extra index file to store the offsets as offset can simply be calculated as the size of the value times the id.
  */
-pub trait FileWriterStaticSize {
+pub trait FileWriterStaticSize<T> {
+    fn empty_value() -> T;
+    fn is_empty_value(value : & T) -> bool;
 }
 
 /** File serialization. 
@@ -51,8 +51,24 @@ impl FileWriter<i64> for i64 {
 }
 
 
-impl FileWriterStaticSize for u64 { }
-impl FileWriterStaticSize for i64 { }
+impl FileWriterStaticSize<u64> for u64 {
+    fn empty_value() -> u64 {
+        return std::u64::MAX;
+    }
+
+    fn is_empty_value(value : & u64) -> bool {
+        return *value == std::u64::MAX;
+    }
+}
+impl FileWriterStaticSize<i64> for i64 {
+    fn empty_value() -> i64 {
+        return std::i64::MAX;
+    }
+
+    fn is_empty_value(value : & i64) -> bool {
+        return *value == std::i64::MAX;
+    }
+ }
 
 /** Serialization for SHA1 hashes. 
  */
@@ -68,7 +84,20 @@ impl FileWriter<git2::Oid> for git2::Oid {
     }
 }
 
-impl FileWriterStaticSize for git2::Oid { }
+impl FileWriterStaticSize<git2::Oid> for git2::Oid {
+    fn empty_value() -> git2::Oid {
+        return git2::Oid::from_str("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF").unwrap();
+    }
+
+    fn is_empty_value(value : & git2::Oid) -> bool {
+        for byte in value.as_bytes() {
+            if *byte != 0xff {
+                return false;
+            }
+        }
+        return true;
+    }
+}
 
 /** Serialization of strings. 
  */
@@ -88,45 +117,45 @@ impl FileWriter<String> for String {
     }
 }
 
-/** Indexing file for statically sized values. 
+
+/** Holds indices for each id.
  
-    Consists of a file that can be read and written to, containing the values ordered by their consecutive ids. The values associated with their ids can be read and written (overwritten) by seeking the file. 
-    
-    This provides cheap and not completely slow random access to the values stored. 
+    To a degree the ids don't have to be consecutive.  
  */
-pub struct Indexer<T: FileWriter<T> + FileWriterStaticSize> {
-    f : File,
-    size : u64,
-    why_oh_why : std::marker::PhantomData<T>,
+pub struct Indexer {
+    f : File, 
+    size: u64
 }
 
-impl<T : FileWriter<T> + FileWriterStaticSize> Indexer<T> {
-    pub fn new(filename : & str) -> Indexer<T> {
+impl Indexer {
+    pub fn new(filename : & str) -> Indexer {
         let mut f = OpenOptions::new().read(true).write(true).create(true).open(filename).unwrap();
-        let size = f.seek(SeekFrom::End(0)).unwrap() / std::mem::size_of::<T>() as u64;
-        return Indexer{ f, size, why_oh_why : std::marker::PhantomData{} };
-    }
+        let size = f.seek(SeekFrom::End(0)).unwrap() / 8;
+        return Indexer{ f, size };
+    } 
 
-    pub fn get(& mut self, id : u64) -> T {
-        assert!(id < self.size);
-        self.f.seek(SeekFrom::Start(id * std::mem::size_of::<T>() as u64)).unwrap();
-        return T::read(& mut self.f);
-    }
-
-    pub fn set(& mut self, id : u64, value : & T) {
+    pub fn get(& mut self, id : u64) -> Option<u64> {
         if id < self.size {
-            self.f.seek(SeekFrom::Start(id * std::mem::size_of::<T>() as u64)).unwrap();
-            T::write(& mut self.f, value);
+            self.f.seek(SeekFrom::Start(8 * id)).unwrap();
+            let result = self.f.read_u64::<LittleEndian>().unwrap();
+            if result != Indexer::EMPTY {
+                return Some(result);
+            }
+        }
+        return None;
+    }
+
+    pub fn set(& mut self, id : u64, offset : u64) {
+        if id < self.size {
+            self.f.seek(SeekFrom::Start(8 * id)).unwrap();
+            self.f.write_u64::<LittleEndian>(offset).unwrap();
         } else {
             self.f.seek(SeekFrom::End(0)).unwrap();
-            if id > self.size {
-                let fill = vec!(255; std::mem::size_of::<T>());
-                while id > self.size  {
-                    self.f.write(& fill).unwrap();
-                    self.size += 1;
-                }
+            while id > self.size  {
+                self.f.write_u64::<LittleEndian>(Indexer::EMPTY);
+                self.size += 1;
             }
-            T::write(& mut self.f, value);
+            self.f.write_u64::<LittleEndian>(offset);
             self.size += 1;
         }
     }
@@ -135,185 +164,271 @@ impl<T : FileWriter<T> + FileWriterStaticSize> Indexer<T> {
         return self.size as usize;
     }
 
-    pub fn iter(& mut self) -> DirectIndexerIter<T> {
-        self.f.seek(SeekFrom::Start(0)).unwrap();
-        return DirectIndexerIter{indexer : self, id : 0};
-    }
-} 
-
-pub struct DirectIndexerIter<'a, T> where T : FileWriter<T> + FileWriterStaticSize  {
-    indexer : &'a mut Indexer<T>,
-    id : u64
+    const EMPTY : u64 = std::u64::MAX;
 }
 
-impl<'a, T : FileWriter<T> + FileWriterStaticSize> Iterator for DirectIndexerIter<'a, T> {
+pub struct IndexedWriter<T: FileWriter<T>> {
+    indexer : Indexer,
+    f : File, 
+    why_oh_why : std::marker::PhantomData<T>,
+}
+
+impl<T : FileWriter<T>> IndexedWriter<T> {
+    pub fn new(filename : & str) -> IndexedWriter<T> {
+        let mut f = OpenOptions::new().read(true).write(true).create(true).open(filename).unwrap();
+        return IndexedWriter{
+            indexer : Indexer::new(& 
+                format!("{}.index", filename)),
+            f,
+            why_oh_why : std::marker::PhantomData{}
+        }
+    }   
+
+    pub fn len(& self) -> usize {
+        return self.indexer.len();
+    }
+    
+    pub fn get(& mut self, id : u64) -> Option<T> {
+        if let Some(offset) = self.indexer.get(id) {
+            self.f.seek(SeekFrom::Start(offset)).unwrap();
+            let stored_id = self.f.read_u64::<LittleEndian>().unwrap();
+            assert!(stored_id == id);
+            return Some(T::read(& mut self.f));
+        }
+        return None;
+    }
+
+    pub fn add(& mut self, id : u64, value : & T) {
+        assert!(self.indexer.get(id).is_none(), "Value already exists");
+        let offset = self.f.seek(SeekFrom::Current(0)).unwrap();
+        self.f.write_u64::<LittleEndian>(id).unwrap();
+        T::write(& mut self.f, value);
+        self.indexer.set(id, offset);
+    }
+
+    pub fn iter(& mut self) -> IndexedWriterIterator<T> {
+        self.f.seek(SeekFrom::Start(0)).unwrap();
+        return IndexedWriterIterator{writer : self};
+    }
+}
+
+pub struct IndexedWriterIterator<'a, T : FileWriter<T>> {
+    writer : &'a mut IndexedWriter<T>
+}
+
+impl<'a, T: FileWriter<T>> Iterator for IndexedWriterIterator<'a, T> {
     type Item = (u64, T);
 
     fn next(& mut self) -> Option<Self::Item> {
-        if self.id == self.indexer.size {
+        if let Ok(id) = self.writer.f.read_u64::<LittleEndian>() {
+            return Some((id, T::read(& mut self.writer.f)));
+        } else {
+            return None;
+        }
+    }
+} 
+
+/** Indexed writer optimized for record of static size. 
+ 
+    Here we can do without the extra index file as offset for any given index can be easily calculated. This does however pose a problem as it is now not possible to 
+ */
+pub struct DirectIndexedWriter<T : FileWriter<T> + FileWriterStaticSize<T>> {
+    f : File, 
+    size : u64, 
+    why_oh_why : std::marker::PhantomData<T>,
+}
+
+impl<T : FileWriter<T> + FileWriterStaticSize<T>> DirectIndexedWriter<T> {
+    pub fn new(filename : & str) -> DirectIndexedWriter<T> {
+        let mut f = OpenOptions::new().read(true).write(true).create(true).open(filename).unwrap();
+        let size = f.seek(SeekFrom::End(0)).unwrap() / std::mem::size_of::<T>() as u64;
+        return DirectIndexedWriter{
+            f,
+            size,
+            why_oh_why : std::marker::PhantomData{}
+        }
+    }
+
+    pub fn len(& self) -> usize {
+        return self.size as usize;
+    }
+
+    pub fn get(& mut self, id : u64) -> Option<T> {
+        if id >= self.size {
+            return None;
+        }
+        self.f.seek(SeekFrom::Start(id * std::mem::size_of::<T>() as u64)).unwrap();
+        let result = T::read(& mut self.f);
+        if T::is_empty_value(& result) {
             return None;
         } else {
-            let id = self.id;
-            self.id += 1;
-            return Some((id, T::read(& mut self.indexer.f)));
+            return Some(result);
         }
+    }
+
+    pub fn add(& mut self, id : u64, value : & T) {
+        assert!(self.get(id).is_none(), "Value already exists");
+        if id < self.size {
+            self.f.seek(SeekFrom::Start(id * std::mem::size_of::<T>() as u64)).unwrap();
+            T::write(& mut self.f, value);
+        } else {
+            self.f.seek(SeekFrom::End(0)).unwrap();
+            if id > self.size {
+                let fill = T::empty_value();
+                while id > self.size  {
+                    T::write(& mut self.f, & fill);
+                    self.size += 1;
+                }
+            }
+            T::write(& mut self.f, value);
+            self.size += 1;
+        }
+    }
+
+    pub fn iter(& mut self) -> DirectIndexedWriterIterator<T> {
+        self.f.seek(SeekFrom::Start(0)).unwrap();
+        return DirectIndexedWriterIterator{writer : self, id : 0};
     }
 }
 
-/** Special form of indexer that allows both random access from id to value, but also keeps a mapping from values to already assigned ids. 
-  
-    Mappings do not allow updates, only additions.    
- */
-pub trait Mapping<T> {
-    fn get(& mut self, key : & T) -> Option<u64>;
-    fn get_or_create(& mut self, key : & T) -> (u64, bool);
-    fn get_value(& mut self, id : u64) -> T;
+pub struct DirectIndexedWriterIterator<'a, T : FileWriter<T> + FileWriterStaticSize<T>> {
+    writer : &'a mut  DirectIndexedWriter<T>,
+    id : u64
 }
 
-/** Direct mapping for statically sized values. 
- 
-    Since the values are statically sized, the mapping does with a single file that contains the values in the order of their ids. The mapping then contains a hashmap from values to ids and the file itself can be used for the reverse mapping from ids to values. 
+impl<'a, T: FileWriter<T> + FileWriterStaticSize<T>> Iterator for DirectIndexedWriterIterator<'a, T> {
+    type Item = (u64, T);
+
+    fn next(& mut self) -> Option<Self::Item> {
+        loop {
+            if self.id == self.writer.size {
+                return None;
+            }
+            let id = self.id;
+            let result = T::read(& mut self.writer.f);
+            self.id += 1;
+            if ! T::is_empty_value(& result) {
+                return Some((id, result));
+            }
+        }
+    }
+} 
+
+/** An appendable file with hash map in memory that provides translation from T to unique ids. 
  */
-pub struct DirectMapping<T : FileWriter<T> + std::cmp::Eq + std::hash::Hash + std::clone::Clone + FileWriterStaticSize> {
+pub struct Mapping<T : FileWriter<T> + std::cmp::Eq + std::hash::Hash + std::clone::Clone> {
     mapping : HashMap<T, u64>,
-    indexer : Indexer<T>,
+    writer : IndexedWriter<T>
 }
 
-impl<T: FileWriter<T> + std::cmp::Eq + std::hash::Hash + std::clone::Clone + FileWriterStaticSize> DirectMapping<T> {
-    pub fn new(filename : & str) -> DirectMapping<T> {
-        return DirectMapping::<T>{
-            mapping : HashMap::new(), 
-            indexer : Indexer::new(filename),
-        };
+impl<T: FileWriter<T> + std::cmp::Eq + std::hash::Hash + std::clone::Clone> Mapping<T> {
+    pub fn new(filename : & str) -> Mapping<T> {
+        return Mapping{
+            mapping : HashMap::new(),
+            writer : IndexedWriter::new(filename),
+        }
     }
 
     pub fn fill(& mut self) {
         self.mapping.clear();
-        for (id, value) in self.indexer.iter() {
+        for (id, value) in self.writer.iter() {
             self.mapping.insert(value, id);
         }
     }
 
     pub fn len(& self) -> usize {
-        return self.indexer.len();
+        return self.writer.len();
     }
 
     pub fn loaded_len(& self) -> usize {
         return self.mapping.len();
     }
 
-}
-
-impl<T: FileWriter<T> + std::cmp::Eq + std::hash::Hash + std::clone::Clone + FileWriterStaticSize> Mapping<T> for DirectMapping<T> {
-
-    fn get(& mut self, key : & T) -> Option<u64> {
-        match self.mapping.get(key) {
-            Some(id) => return Some(*id),
-            _ => return None
+    pub fn get(& self, key : &T) -> Option<u64> {
+        if let Some(id) = self.mapping.get(key) {
+            return Some(*id);
+        } else {
+            return None;
         }
     }
 
-    fn get_or_create(& mut self, key : & T) -> (u64, bool) {
-        match self.mapping.get(key) {
-            Some(id) => return (*id, false),
-            _ => {
-                let id = self.mapping.len() as u64;
-                self.mapping.insert((*key).clone(), id);
-                self.indexer.set(id, key);
-                return (id, true);
-            }
+    pub fn get_or_create(& mut self, key : & T) -> (u64, bool) {
+        if let Some(id) = self.get(key) {
+            return (id, false);
+        } else {
+            let id = self.writer.indexer.size;
+            self.writer.add(id, key);
+            self.mapping.insert(key.clone(), id);
+            return (id, true);
         }
     }
 
-    fn get_value(& mut self, id : u64) -> T {
-        return self.indexer.get(id);
+    pub fn get_value(& mut self, id : u64) -> T {
+        return self.writer.get(id).unwrap();
     }
-
 }
 
-/** Indirect mapping is suitable for value that do not have static sizes, such as strings. 
- 
-    The mapping adds a level of indirection, where the indexer points to the file containing the actual values of different sizes, thus allowing random access. 
- */
-pub struct IndirectMapping<T : FileWriter<T> + std::cmp::Eq + std::hash::Hash + std::clone::Clone> {
+
+pub struct DirectMapping<T : FileWriter<T> + FileWriterStaticSize<T> + std::cmp::Eq + std::hash::Hash + std::clone::Clone> {
     mapping : HashMap<T, u64>,
-    indexer : Indexer<u64>,
-    f : File
+    writer : DirectIndexedWriter<T>
 }
 
-impl<T: FileWriter<T> + std::cmp::Eq + std::hash::Hash + std::clone::Clone> IndirectMapping<T> {
-    pub fn new(filename : & str) -> IndirectMapping<T> {
-        let f = OpenOptions::new().read(true).write(true).create(true).open(filename).unwrap();
-        let index_filename = format!("{}.index", filename);
-        return IndirectMapping::<T>{
-            mapping : HashMap::new(), 
-            indexer : Indexer::new(& index_filename),
-            f : f,
-        };
+impl<T : FileWriter<T> + FileWriterStaticSize<T> + std::cmp::Eq + std::hash::Hash + std::clone::Clone> DirectMapping<T> {
+    pub fn new(filename : & str) -> DirectMapping<T> {
+        return DirectMapping{
+            mapping : HashMap::new(),
+            writer : DirectIndexedWriter::new(filename),
+        }
     }
 
     pub fn fill(& mut self) {
         self.mapping.clear();
-        self.f.seek(SeekFrom::Start(0)).unwrap();
-        let mut id : u64 = 0;
-        while id < self.indexer.size {
-            self.mapping.insert(T::read(& mut self.f), id);
-            id += 1;
+        for (id, value) in self.writer.iter() {
+            self.mapping.insert(value, id);
         }
     }
 
     pub fn len(& self) -> usize {
-        return self.indexer.len();
+        return self.writer.len();
     }
 
     pub fn loaded_len(& self) -> usize {
         return self.mapping.len();
     }
 
-}
-
-impl<T: FileWriter<T> + std::cmp::Eq + std::hash::Hash + std::clone::Clone> Mapping<T> for IndirectMapping<T> {
-
-    fn get(& mut self, key : & T) -> Option<u64> {
-        match self.mapping.get(key) {
-            Some(id) => return Some(*id),
-            _ => return None
+    pub fn get(& self, key : &T) -> Option<u64> {
+        if let Some(id) = self.mapping.get(key) {
+            return Some(*id);
+        } else {
+            return None;
         }
     }
 
-    fn get_or_create(& mut self, key : & T) -> (u64, bool) {
-        match self.mapping.get(key) {
-            Some(id) => return (*id, false),
-            _ => {
-                let id = self.mapping.len() as u64;
-                let offset = self.f.seek(SeekFrom::Current(0)).unwrap();
-                T::write(& mut self.f, key);
-                self.mapping.insert((*key).clone(), id);
-                self.indexer.set(id, & offset);
-                return (id, true);
-            }
+    pub fn get_or_create(& mut self, key : & T) -> (u64, bool) {
+        if let Some(id) = self.get(key) {
+            return (id, false);
+        } else {
+            let id = self.writer.size;
+            self.writer.add(id, key);
+            self.mapping.insert(key.clone(), id);
+            return (id, true);
         }
     }
 
-    fn get_value(& mut self, id : u64) -> T {
-        let offset = self.indexer.get(id);
-        self.f.seek(SeekFrom::Start(offset)).unwrap();
-        return T::read(& mut self.f);
+    pub fn get_value(& mut self, id : u64) -> T {
+        return self.writer.get(id).unwrap();
     }
 
 }
 
-/** Indexed Property Store
- 
-    Property store consists of two files - the actual properties which are stored as consecutive records of id followed by the value, and where updates are recorded as new values for already specified id (i.e. no value is ever deleted) and an index file that contains the offsets into the property file for given ids. 
- */
-pub struct PropertyStore<T> {
-    indexer : Indexer<u64>,
-    f : File,
+pub struct PropertyStore<T : FileWriter<T>> {
+    indexer : Indexer,
+    f : File, 
     why_oh_why : std::marker::PhantomData<T>,
 }
 
-impl<T : FileWriter<T>> PropertyStore<T> {
+impl<T: FileWriter<T>> PropertyStore<T> {
     pub fn new(filename : & str) -> PropertyStore<T> {
         let f = OpenOptions::new().read(true).write(true).create(true).open(filename).unwrap();
         let index_file = format!("{}.index", filename);
@@ -324,12 +439,16 @@ impl<T : FileWriter<T>> PropertyStore<T> {
         };
     }
 
+    pub fn indices_len(& self) -> usize {
+        return self.indexer.len();
+    }
+
+    pub fn has(& mut self, id : u64) -> bool {
+        return !self.indexer.get(id).is_none();
+    }
+
     pub fn get(& mut self, id : u64) -> Option<T> {
-        if id >= self.indexer.len() as u64 {
-            return None;
-        }
-        let offset = self.indexer.get(id);
-        if offset != std::u64::MAX {
+        if let Some(offset) = self.indexer.get(id) {
             self.f.seek(SeekFrom::Start(offset)).unwrap();
             let check_id = self.f.read_u64::<LittleEndian>().unwrap();
             assert_eq!(check_id, id);
@@ -339,37 +458,52 @@ impl<T : FileWriter<T>> PropertyStore<T> {
         }
     }
 
-    pub fn has(& mut self, id : u64) -> bool {
-        if id >= self.indexer.len() as u64 {
-            return false;
-        }
-        return self.indexer.get(id) != std::u64::MAX;
-    }
-
     pub fn set(& mut self, id : u64, value : & T) {
         let offset = self.f.seek(SeekFrom::End(0)).unwrap();
         self.f.write_u64::<LittleEndian>(id).unwrap();
         T::write(& mut self.f, value);
-        self.indexer.set(id, & offset);
+        self.indexer.set(id, offset);
     }
 
-    pub fn len(& self) -> usize {
-        return self.indexer.len();
+    pub fn latest_iter(& mut self) -> PropertyStoreLatestIterator<T> {
+        return PropertyStoreLatestIterator{ps : self, id : 0};
     }
 
-    /** Returns the iterator to the property store that returns *all* stored records chronologically, i.e. including the old ones that were later overwritten. 
-     */
-    pub fn iter(& mut self) -> PropertyStoreIter<T> {
+    pub fn all_iter(& mut self) -> PropertyStoreAllIterator<T> {
         self.f.seek(SeekFrom::Start(0)).unwrap();
-        return PropertyStoreIter{ps : self};
+        return PropertyStoreAllIterator{ps : self};
+    }
+
+}
+
+pub struct PropertyStoreLatestIterator<'a, T : FileWriter<T>> {
+    ps : &'a mut PropertyStore<T>,
+    id : u64,
+}
+
+impl<'a, T: FileWriter<T>> Iterator for PropertyStoreLatestIterator<'a, T> {
+    type Item = (u64, T);
+
+    fn next(& mut self) -> Option<Self::Item> {
+        loop {
+            if self.id >= self.ps.indexer.size {
+                return None;
+            }
+            if let Some(result) = self.ps.get(self.id) {
+                let id = self.id;
+                self.id += 1;
+                return Some((id, result));
+            }
+            self.id += 1;
+        }
     }
 }
 
-pub struct PropertyStoreIter<'a, T> {
+pub struct PropertyStoreAllIterator<'a, T : FileWriter<T>> {
     ps : &'a mut PropertyStore<T>
 }
 
-impl<'a, T : FileWriter<T>> Iterator for PropertyStoreIter<'a, T> {
+impl<'a, T : FileWriter<T>> Iterator for PropertyStoreAllIterator<'a, T> {
     type Item = (u64, T);
 
     fn next(& mut self) -> Option<Self::Item> {
@@ -382,4 +516,9 @@ impl<'a, T : FileWriter<T>> Iterator for PropertyStoreIter<'a, T> {
     }
 }
 
+/*
+struct LinkedPropertyStore<T> {
+
+}
+*/
 

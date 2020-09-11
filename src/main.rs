@@ -11,6 +11,7 @@ use datastore::*;
 use updater::*;
 
 fn main() {
+    println!("DejaCode Downloader mark II");
     let args : Vec<String> = std::env::args().collect();
     let mut i = 1;
     if args.len() <= i {
@@ -63,7 +64,7 @@ fn dcd_add(working_dir : & str, args : & [String]) {
     let ds = Datastore::from(working_dir);
     println!("Loading known project urls...");
     let mut urls = HashSet::<String>::new();
-    for (id, url) in ds.project_urls.lock().unwrap().iter() {
+    for (id, url) in ds.project_urls.lock().unwrap().all_iter() {
         urls.insert(url);
     }
     println!("    urls: {}", urls.len());

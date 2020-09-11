@@ -346,7 +346,7 @@ impl ProjectQueue {
         };
         {
             let mut q = result.q.lock().unwrap();
-            for (id, last_update_time) in ds.project_last_updates.lock().unwrap().iter() {
+            for (id, last_update_time) in ds.project_last_updates.lock().unwrap().latest_iter() {
                 if last_update_time != Datastore::DEAD_PROJECT_UPDATE_TIME {
                     q.push(std::cmp::Reverse(QueuedProject{ id, last_update_time }));
                 }
