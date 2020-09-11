@@ -97,6 +97,10 @@ impl FileWriter<CommitInfo> for CommitInfo {
     }
 }
 
+/** Data about contents of a file. 
+ 
+    This is just a dumb array of bytes. 
+ */
 pub type ContentsData = Vec<u8>;
 
 impl FileWriter<ContentsData> for ContentsData {
@@ -114,6 +118,17 @@ impl FileWriter<ContentsData> for ContentsData {
         f.write(value).unwrap();
     }
 }
+
+
+
+/** Update Log Entry. 
+ */
+pub enum UpdateLog {
+    NoChange{time : i64, version : u16},
+    Error{time : i64, version : u16, error : String},
+    Ok{time : i64, version : u16}
+}
+
 
 
 

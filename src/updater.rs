@@ -42,11 +42,14 @@ impl Updater {
             q,
             ds : datastore,
             extensions : [
+                // generic files
                 "README",
-                "js",
-                "cpp",
-                "h",
+                // C
                 "c",
+                // C++
+                "cpp", "h",
+                // javascript
+                "js",
             ].iter().cloned().collect(),
         };
     } 
@@ -82,14 +85,16 @@ impl Updater {
         // TODO get update time start now
         let url = self.ds.get_project_url(id);
         // TODO update metadata and project url 
-        self.update_project_contents(id, & url);
+        let force = true;
+
+        self.update_project_contents(id, & url, force);
 
     }
 
     /** Updates the contents of the project. 
      
      */
-    fn update_project_contents(& self, id : u64, url : & str) -> Result<(), git2::Error> {
+    fn update_project_contents(& self, id : u64, url : & str, force : bool) -> Result<(), git2::Error> {
         let old_heads = self.ds.get_project_heads(id);
         // time to create the repository
         let mut repo = git2::Repository::init_bare(format!("{}/{}", self.tmp_folder, id))?;
@@ -97,12 +102,12 @@ impl Updater {
         remote.connect(git2::Direction::Fetch)?;
         let new_heads = self.fetch_remote_heads(& mut remote)?;
         // compare the old and new heads, if there are changes, download the repository contents and analyze the inputs 
-        let heads_to_be_updated = self.compare_remote_heads(& old_heads, & new_heads);
+        let heads_to_be_updated = self.compare_remote_heads(& old_heads, & new_heads, force);
         if ! heads_to_be_updated.is_empty() {
             // fetch the project
             self.fetch_contents(& mut remote, & heads_to_be_updated)?;
             // add the new commits 
-            let mut commits_updater = CommitsUpdater::new(& repo, self);
+            let mut commits_updater = CommitsUpdater::new(& repo, self, force);
             commits_updater.update(& heads_to_be_updated)?;
             // update the remote heads
             self.ds.project_heads.lock().unwrap().set(id, & self.translate_heads(& new_heads));
@@ -129,18 +134,19 @@ impl Updater {
      
         If the list is empty, it means that no changes have been recorded since the last update.
      */
-    fn compare_remote_heads(& self, last : & Heads, current : & HashMap<String, git2::Oid>) -> Vec<(String, git2::Oid)> {
+    fn compare_remote_heads(& self, last : & Heads, current : & HashMap<String, git2::Oid>, force : bool) -> Vec<(String, git2::Oid)> {
         let mut result = Vec::<(String,git2::Oid)>::new();
         // lock the commits and check for each new head if it exists in the old ones and if the commit id is the same (and found)
         let mut commits = self.ds.commits.lock().unwrap();
         for (name, hash) in current {
-            if let Some(id) = last.get(name) {
-                if let Some(current_id) = commits.get(hash) {
-                    if *id == current_id {
-                        continue;
+            if ! force {
+                if let Some(id) = last.get(name) {
+                    if let Some(current_id) = commits.get(hash) {
+                        if *id == current_id {
+                        }
                     }
-                }
-            } 
+                } 
+            }
             result.push((name.to_owned(), *hash));
         }
         return result;
@@ -178,13 +184,16 @@ impl Updater {
 struct CommitsUpdater<'a> {
     repo : &'a git2::Repository,
     u : &'a Updater, 
+    force : bool,
+    visited_commits : HashSet<u64>,
     q : Vec<(git2::Oid, u64)>,
+    
 
 }
 
 impl<'a> CommitsUpdater<'a> {
-    pub fn new(repo : &'a git2::Repository, u: &'a Updater) -> CommitsUpdater<'a> {
-        return CommitsUpdater{ repo, u, q : Vec::new() };
+    pub fn new(repo : &'a git2::Repository, u: &'a Updater, force : bool) -> CommitsUpdater<'a> {
+        return CommitsUpdater{ repo, u, force, visited_commits : HashSet::new(), q : Vec::new() };
     }
 
     /** Updates the commits. 
@@ -209,7 +218,13 @@ impl<'a> CommitsUpdater<'a> {
             // calculate the changes
             commit_info.changes = self.get_commit_changes(& commit)?;
             // output the commit info
-            self.u.ds.commits_info.lock().unwrap().set(id, & commit_info);
+            {
+                let mut commits_info = self.u.ds.commits_info.lock().unwrap();
+                if ! commits_info.has(id) {
+                    commits_info.set(id, & commit_info);
+                }
+            }
+
         }
         return Ok(());
     }
@@ -220,8 +235,15 @@ impl<'a> CommitsUpdater<'a> {
      */
     fn add_commit(& mut self, hash : & git2::Oid) -> u64 {
         let (id, is_new) = self.u.ds.commits.lock().unwrap().get_or_create(hash); 
-        if is_new {
-            self.q.push((*hash, id));
+        if self.force {
+            if ! self.visited_commits.contains(& id) {
+                self.visited_commits.insert(id);
+                self.q.push((*hash, id));
+            }
+        } else {
+            if is_new {
+                self.q.push((*hash, id));
+            }
         }
         return id;
     }
@@ -255,7 +277,7 @@ impl<'a> CommitsUpdater<'a> {
             for (path, hash) in changes.iter() {
                 let (path_id, _) = paths.get_or_create(path);
                 let (hash_id, is_new) = hashes.get_or_create(hash);
-                if is_new {
+                if is_new || self.force {
                     new_snapshots.push((path.to_owned(), hash_id, *hash));
                 }
                 result.insert(path_id, hash_id);

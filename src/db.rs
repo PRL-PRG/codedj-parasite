@@ -339,6 +339,13 @@ impl<T : FileWriter<T>> PropertyStore<T> {
         }
     }
 
+    pub fn has(& mut self, id : u64) -> bool {
+        if id >= self.indexer.len() as u64 {
+            return false;
+        }
+        return self.indexer.get(id) != std::u64::MAX;
+    }
+
     pub fn set(& mut self, id : u64, value : & T) {
         let offset = self.f.seek(SeekFrom::End(0)).unwrap();
         self.f.write_u64::<LittleEndian>(id).unwrap();
@@ -375,45 +382,4 @@ impl<'a, T : FileWriter<T>> Iterator for PropertyStoreIter<'a, T> {
     }
 }
 
-
-
-
-
-
-// PropertyStore
-
-
-
-
-// Extra types
-
-
-/*
-impl FileWriter<Heads> for PropertyWriter<Heads> {
-
-    fn read(& mut self) -> Heads {
-        let mut result = Heads::new();
-        let records = self.f.read_u32::<LittleEndian>().unwrap() as usize;
-        while result.len() < records {
-            let head_name_len = self.f.read_u32::<LittleEndian>().unwrap();
-            let mut head_name = vec![0; head_name_len as usize];
-            if self.f.read(& mut head_name).unwrap() as u32 != head_name_len {
-                panic!("Corrupted binary format");
-            }
-            let commit_id = self.f.read_u64::<LittleEndian>().unwrap();
-            result.insert(head_name, commit_id);
-        }
-        return result;
-    }
-
-    fn write(& mut self, value : & Heads) {
-        self.f.write_u32::<LittleEndian>(value.len() as u32).unwrap();
-        for (head_name, commit_id) in value {
-            self.f.write_u32::<LittleEndian>(head_name.len() as u32).unwrap();
-            self.f.write(head_name).unwrap();
-            self.f.write_u64::<LittleEndian>(*commit_id).unwrap();
-        }
-    }
-}
-*/
 
