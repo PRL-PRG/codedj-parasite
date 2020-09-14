@@ -5,10 +5,11 @@
 
 
  */
-use std::fs::*;
+use std::fs::{File, OpenOptions};
 use std::io::*;
 use byteorder::*;
 use std::collections::*;
+use crate::records::*;
 
 /** Trait that signifies that given type has a static size, i.e. all its values occupy the same ammount of bytes.
  
@@ -516,9 +517,148 @@ impl<'a, T : FileWriter<T>> Iterator for PropertyStoreAllIterator<'a, T> {
     }
 }
 
-/*
-struct LinkedPropertyStore<T> {
+/** Similar to property store, but each record has also a link to previous record for the same id, so that the records can be traversed. 
+ */
+struct LinkedPropertyStore<T : FileWriter<T>> {
+    latest : Indexer, 
+    f : File, 
+    why_oh_why : std::marker::PhantomData<T>,
+}
+
+impl<T: FileWriter<T>> LinkedPropertyStore<T> {
+    pub fn new(filename : & str) -> LinkedPropertyStore<T> {
+        let f = OpenOptions::new().read(true).write(true).create(true).open(filename).unwrap();
+        let index_file = format!("{}.index", filename);
+        return LinkedPropertyStore::<T>{
+            latest : Indexer::new(& index_file),
+            f : f, 
+            why_oh_why : std::marker::PhantomData{},
+        };
+    }
+
+    pub fn indices_len(& self) -> usize {
+        return self.latest.len();
+    }
+
+    pub fn has(& mut self, id : u64) -> bool {
+        return !self.latest.get(id).is_none();
+    }
+
+    pub fn get(& mut self, id : u64) -> Option<T> {
+        if let Some(offset) = self.latest.get(id) {
+            self.f.seek(SeekFrom::Start(offset)).unwrap();
+            let check_id = self.f.read_u64::<LittleEndian>().unwrap();
+            assert_eq!(check_id, id);
+            return Some(T::read(& mut self.f));
+        } else {
+            return None;
+        }
+    }
+
+    pub fn set(& mut self, id : u64, value : & T) {
+        let old_offset = self.latest.get(id).or(Some(Indexer::EMPTY)).unwrap();
+        let offset = self.f.seek(SeekFrom::End(0)).unwrap();
+        self.f.write_u64::<LittleEndian>(id).unwrap();
+        T::write(& mut self.f, value);
+        self.f.write_u64::<LittleEndian>(old_offset).unwrap();
+        self.latest.set(id, offset);
+    }
+
+    pub fn latest_iter(& mut self) -> LinkedPropertyStoreLatestIterator<T> {
+        return LinkedPropertyStoreLatestIterator{ps : self, id : 0};
+    }
+
+    pub fn all_iter(& mut self) -> LinkedPropertyStoreAllIterator<T> {
+        self.f.seek(SeekFrom::Start(0)).unwrap();
+        return LinkedPropertyStoreAllIterator{ps : self};
+    }
+
+    pub fn id_iter(& mut self, id : u64) -> LinkedPropertyStoreIdIterator<T> {
+        let offset = self.latest.get(id).or(Some(Indexer::EMPTY)).unwrap();
+        return LinkedPropertyStoreIdIterator{ps : self, offset};
+    }
 
 }
-*/
+
+pub struct LinkedPropertyStoreLatestIterator<'a, T : FileWriter<T>> {
+    ps : &'a mut LinkedPropertyStore<T>,
+    id : u64,
+}
+
+impl<'a, T: FileWriter<T>> Iterator for LinkedPropertyStoreLatestIterator<'a, T> {
+    type Item = (u64, T);
+
+    fn next(& mut self) -> Option<Self::Item> {
+        loop {
+            if self.id >= self.ps.latest.size {
+                return None;
+            }
+            if let Some(result) = self.ps.get(self.id) {
+                let id = self.id;
+                self.id += 1;
+                return Some((id, result));
+            }
+            self.id += 1;
+        }
+    }
+}
+
+pub struct LinkedPropertyStoreAllIterator<'a, T : FileWriter<T>> {
+    ps : &'a mut LinkedPropertyStore<T>
+}
+
+impl<'a, T : FileWriter<T>> Iterator for LinkedPropertyStoreAllIterator<'a, T> {
+    type Item = (u64, T);
+
+    fn next(& mut self) -> Option<Self::Item> {
+        if let Ok(id) = self.ps.f.read_u64::<LittleEndian>() {
+            let value = T::read(& mut self.ps.f);
+            // read and skip the previous record offset
+            self.ps.f.read_u64::<LittleEndian>().unwrap();
+            return Some((id, value));
+        } else {
+            return None;
+        }
+    }
+}
+
+pub struct LinkedPropertyStoreIdIterator<'a, T : FileWriter<T>> {
+    ps : &'a mut LinkedPropertyStore<T>,
+    offset : u64
+}
+
+impl<'a, T : FileWriter<T>> Iterator for LinkedPropertyStoreIdIterator<'a, T> {
+    type Item = T;
+
+    fn next(& mut self) -> Option<Self::Item> {
+        if self.offset == Indexer::EMPTY {
+            return None;
+        } else {
+            // skip the ID which is the same
+            self.ps.f.seek(SeekFrom::Start(self.offset + 8)).unwrap();
+            let result = T::read(& mut self.ps.f);
+            self.offset = self.ps.f.read_u64::<LittleEndian>().unwrap();
+            return Some(result);
+        }
+    }
+}
+
+impl MetadataReader for LinkedPropertyStore<Metadata> {
+    fn read_metadata(& mut self, id : u64) -> HashMap<String, String> {
+        let mut result = HashMap::<String, String>::new();
+        for Metadata{key, value} in self.id_iter(id) {
+            result.insert(key, value);
+        }
+        return result;
+    }
+
+    fn get_metadata(& mut self, id : u64, key : & str) -> Option<String> {
+        for Metadata{key : k, value} in self.id_iter(id) {
+            if k == key {
+                return Some(value);
+            }
+        }
+        return None;
+    }
+}
 

@@ -142,20 +142,26 @@ impl FileWriter<UpdateLog> for UpdateLog {
 /** Metadata Entry 
  */
 
- pub struct Metadata {
-     key : String, 
-     value : String
- }
+pub struct Metadata {
+    pub key : String, 
+    pub value : String
+}
 
- impl FileWriter<Metadata> for Metadata {
-     fn read(f : & mut File) -> Metadata {
-         let key = String::read(f);
-         let value = String::read(f);
-         return Metadata{key, value};
-     }
+pub trait MetadataReader {
+    fn read_metadata(& mut self, id : u64) -> HashMap<String, String>;
+    fn get_metadata(& mut self, id : u64, key : & str) -> Option<String>;
+}
 
-     fn write(f : & mut File, value : & Metadata) {
-         String::write(f, & value.key);
-         String::write(f, & value.value);
-     }
- }
+impl FileWriter<Metadata> for Metadata {
+    fn read(f : & mut File) -> Metadata {
+        let key = String::read(f);
+        let value = String::read(f);
+        return Metadata{key, value};
+    }
+
+    fn write(f : & mut File, value : & Metadata) {
+        String::write(f, & value.key);
+        String::write(f, & value.value);
+    }
+}
+

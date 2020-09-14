@@ -2,13 +2,13 @@ use std::collections::*;
 
 mod db;
 mod datastore;
-mod updater;
+mod repo_updater;
 mod records;
 mod helpers;
 
 use db::*;
 use datastore::*;
-use updater::*;
+use repo_updater::*;
 
 fn main() {
     println!("DejaCode Downloader mark II");
@@ -93,7 +93,7 @@ fn dcd_add(working_dir : & str, args : & [String]) {
     Creates the updater and starts the continuous update of the projects. 
  */ 
 fn dcd_update(working_dir : & str, args : & [String]) {
-    let updater = Updater::new(Datastore::from(working_dir));
+    let updater = RepoUpdater::new(Datastore::from(working_dir));
     updater.run(1);
 
 }

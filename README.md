@@ -1,6 +1,8 @@
 # Setup
 
-    sudo apt-get install libssl-dev libgit2-dev
+    #sudo apt-get install libssl-dev libgit2-dev cmake pkg-config libicu-dev zlib1g-dev libcurl4-openssl-dev ruby-dev cloc
+    sudo apt-get install libssl-dev libgit2-dev cmake pkg-config libicu-dev zlib1g-dev libcurl4-gnutls-dev ruby-dev cloc
+    gem install github-linguist    
 
 # TODO
 
