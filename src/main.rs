@@ -1,4 +1,5 @@
 use std::collections::*;
+use dcd::*;
 
 mod db;
 mod datastore;
@@ -30,6 +31,7 @@ fn main() {
         "init" => dcd_init(& wd, & args[i..]),
         "add" => dcd_add(& wd, & args[i..]),
         "update" => dcd_update(& wd, & args[i..]),
+        "export" => dcd_export(& wd, & args[i..]),
         &_ => help(),
     }
 }
@@ -96,6 +98,17 @@ fn dcd_update(working_dir : & str, args : & [String]) {
     updater.run(1);
 
 }
+
+fn dcd_export(working_dir : & str, args : & [String]) {
+    let dsview = DatastoreView::new(working_dir, helpers::now());
+    for (id, commit) in dsview.commits() {
+
+    }
+
+}
+
+
+
 
 fn help() {
     println!("Usage:");

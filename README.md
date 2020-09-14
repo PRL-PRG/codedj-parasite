@@ -5,9 +5,8 @@
 
 # TODO
 
-- add savepoints
 - add updater ui
 - add snapshots analysis
 - add github metadata
-- add library iterators & simple csv exporter
+- add simple csv exporter
 

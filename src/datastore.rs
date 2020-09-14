@@ -1,6 +1,10 @@
 use std::sync::*;
+use std::io::*;
+use std::fs::{File, OpenOptions};
+
 
 use crate::db::*;
+
 
 use crate::records::*;
 
@@ -31,6 +35,10 @@ pub struct Datastore {
     pub (crate) contents : Mutex<DirectMapping<u64>>,
     pub (crate) contents_data : Mutex<PropertyStore<ContentsData>>,
 
+    /** Record of file sizes for each savepoint so that the database can be viewed at certain dates. 
+     */ 
+    savepoints : Mutex<File>,
+
 
 }
 
@@ -41,7 +49,6 @@ impl Datastore {
         Versions have backwards compatibility, but newer versions may add extra items, or metadata. When new version is executed, all projects & commits and other items are force updated to make sure that all data that should be obtained are obtained. 
      */
     pub (crate) const VERSION : u16 = 0;
-
 
     /** Creates datastore in the specified directory. 
      */
@@ -60,6 +67,8 @@ impl Datastore {
 
             contents : Mutex::new(DirectMapping::new(& format!("{}/contents.dat", root))),
             contents_data : Mutex::new(PropertyStore::new(& format!("{}/contents-data.dat", root))),
+
+            savepoints : Mutex::new(OpenOptions::new().read(true).write(true).open(& format!("{}/savepoints.dat", root)).unwrap()),
         };
         println!("Datastore loaded from {}:", root);
         println!("    projects: {}", result.project_urls.lock().unwrap().indices_len());
@@ -106,7 +115,44 @@ impl Datastore {
         Flushes all held buffers and remembers the actual sizes of files that exist in the database so that any information stored *after* the latest savepoint can be easily rolled back if needed.
      */
     pub fn savepoint(& self) {
-        unimplemented!();
+        let sp = self.create_savepoint();
+        // and save the savepoint
+        let mut x = self.savepoints.lock().unwrap();
+        x.seek(SeekFrom::End(0)).unwrap();
+        Savepoint::write(& mut x, & sp);
+    }
+
+    pub fn get_savepoint(& self, time : i64) -> Savepoint {
+        let mut x = self.savepoints.lock().unwrap();
+        let end = x.seek(SeekFrom::End(0)).unwrap();
+        x.seek(SeekFrom::Start(0)).unwrap();
+        println!("Seeking closest savepoint...");
+        let mut result = self.create_savepoint();
+        while x.seek(SeekFrom::Current(0)).unwrap() < end {
+            let sp = Savepoint::read(& mut x);
+            if sp.time() > time {
+                break;
+            }
+            result = sp;
+        }
+        return result;        
+    }
+
+    /** Creates savepoint corresponding to current datastore state, but does not store it. 
+     */
+    fn create_savepoint(& self) -> Savepoint {
+        let mut sp = Savepoint::new();
+        sp.add_entry("project_urls", & mut self.project_urls.lock().unwrap().f);
+        sp.add_entry("project_last_updates", & mut self.project_last_updates.lock().unwrap().f);
+        sp.add_entry("project_heads", & mut self.project_heads.lock().unwrap().f);
+        sp.add_entry("commits", & mut self.commits.lock().unwrap().writer.f);
+        sp.add_entry("commits_info", & mut self.commits_info.lock().unwrap().f);
+        sp.add_entry("users", & mut self.users.lock().unwrap().writer.f);
+        sp.add_entry("paths", & mut self.paths.lock().unwrap().writer.f);
+        sp.add_entry("hashes", & mut self.hashes.lock().unwrap().writer.f);
+        sp.add_entry("contents", & mut self.contents.lock().unwrap().writer.f);
+        sp.add_entry("contents_data", & mut self.contents_data.lock().unwrap().f);
+        return sp;
     }
 
     /** Adds new project to the store. 

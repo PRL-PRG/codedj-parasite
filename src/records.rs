@@ -3,6 +3,7 @@ use std::io::*;
 use std::collections::hash_map::*;
 use byteorder::*;
 
+use crate::*;
 use crate::db::*;
 
 /** Project heads
@@ -222,3 +223,63 @@ impl FileWriter<Metadata> for Metadata {
     }
 }
 
+/** Savepoint is simply a hashmap from file name to its size. 
+ */
+pub struct Savepoint {
+    time : i64, 
+    file_sizes : HashMap<String, u64>
+}
+
+impl Savepoint {
+
+    pub fn new() -> Savepoint {
+        return Savepoint{
+            time : helpers::now(), 
+            file_sizes : HashMap::new(),
+        }
+    }
+
+    pub fn time(& self) -> i64 {
+        return self.time;
+    }
+
+    pub fn add_entry(& mut self, fname : & str, f : & mut File) {
+        let old = f.seek(SeekFrom::Current(0)).unwrap();
+        let size = f.seek(SeekFrom::End(0)).unwrap();
+        f.seek(SeekFrom::Start(old)).unwrap();
+        self.file_sizes.insert(fname.to_owned(), size);
+    }
+
+    pub fn limit_for(& self, fname : & str) -> u64 {
+        if let Some(limit) = self.file_sizes.get(fname) {
+            return *limit;
+        } else {
+            // if not found, it means the file did not exist when the savepoint was taken so stop immediately
+            return 0;
+        }
+    }
+
+}
+
+impl FileWriter<Savepoint> for Savepoint {
+    fn read(f : & mut File) -> Savepoint {
+        let time = f.read_i64::<LittleEndian>().unwrap();
+        let mut result = Savepoint{time, file_sizes : HashMap::new()};
+        let entries = f.read_u16::<LittleEndian>().unwrap() as usize;
+        while result.file_sizes.len() < entries {
+            let fname = String::read(f);
+            let size = f.read_u64::<LittleEndian>().unwrap();
+            result.file_sizes.insert(fname, size);
+        }
+        return result;
+    }
+
+    fn write(f : & mut File, value : & Savepoint) {
+        f.write_i64::<LittleEndian>(value.time).unwrap();
+        f.write_u16::<LittleEndian>(value.file_sizes.len() as u16).unwrap();
+        for (fname, size) in value.file_sizes.iter() {
+            String::write(f, fname);
+            f.write_u64::<LittleEndian>(*size).unwrap();
+        }
+    }
+}

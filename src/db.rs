@@ -170,7 +170,7 @@ impl Indexer {
 
 pub struct IndexedWriter<T: FileWriter<T>> {
     indexer : Indexer,
-    f : File, 
+    pub (crate) f : File, 
     why_oh_why : std::marker::PhantomData<T>,
 }
 
@@ -234,7 +234,7 @@ impl<'a, T: FileWriter<T>> Iterator for IndexedWriterIterator<'a, T> {
     Here we can do without the extra index file as offset for any given index can be easily calculated. This does however pose a problem as it is now not possible to 
  */
 pub struct DirectIndexedWriter<T : FileWriter<T> + FileWriterStaticSize<T>> {
-    f : File, 
+    pub (crate) f : File, 
     size : u64, 
     why_oh_why : std::marker::PhantomData<T>,
 }
@@ -319,7 +319,7 @@ impl<'a, T: FileWriter<T> + FileWriterStaticSize<T>> Iterator for DirectIndexedW
  */
 pub struct Mapping<T : FileWriter<T> + std::cmp::Eq + std::hash::Hash + std::clone::Clone> {
     mapping : HashMap<T, u64>,
-    writer : IndexedWriter<T>
+    pub (crate) writer : IndexedWriter<T>
 }
 
 impl<T: FileWriter<T> + std::cmp::Eq + std::hash::Hash + std::clone::Clone> Mapping<T> {
@@ -372,7 +372,7 @@ impl<T: FileWriter<T> + std::cmp::Eq + std::hash::Hash + std::clone::Clone> Mapp
 
 pub struct DirectMapping<T : FileWriter<T> + FileWriterStaticSize<T> + std::cmp::Eq + std::hash::Hash + std::clone::Clone> {
     mapping : HashMap<T, u64>,
-    writer : DirectIndexedWriter<T>
+    pub (crate) writer : DirectIndexedWriter<T>
 }
 
 impl<T : FileWriter<T> + FileWriterStaticSize<T> + std::cmp::Eq + std::hash::Hash + std::clone::Clone> DirectMapping<T> {
@@ -425,7 +425,7 @@ impl<T : FileWriter<T> + FileWriterStaticSize<T> + std::cmp::Eq + std::hash::Has
 
 pub struct PropertyStore<T : FileWriter<T>> {
     indexer : Indexer,
-    f : File, 
+    pub (crate) f : File, 
     why_oh_why : std::marker::PhantomData<T>,
 }
 
@@ -521,7 +521,7 @@ impl<'a, T : FileWriter<T>> Iterator for PropertyStoreAllIterator<'a, T> {
  */
 struct LinkedPropertyStore<T : FileWriter<T>> {
     latest : Indexer, 
-    f : File, 
+    pub (crate) f : File, 
     why_oh_why : std::marker::PhantomData<T>,
 }
 
