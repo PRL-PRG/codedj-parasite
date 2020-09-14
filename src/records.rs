@@ -124,18 +124,75 @@ impl FileWriter<ContentsData> for ContentsData {
 /** Update Log Entry. 
  */
 pub enum UpdateLog {
-    NoChange{time : i64, version : u16},
-    Error{time : i64, version : u16, error : String},
-    Ok{time : i64, version : u16}
+    NoChange{time : i64, version : u16}, // = 0
+    Ok{time : i64, version : u16}, // = 1
+    Error{time : i64, version : u16, error : String}, // = 255
+}
+
+impl UpdateLog {
+    pub fn time(& self) -> i64 {
+        match self {
+            UpdateLog::NoChange{time, version : _} => return *time, 
+            UpdateLog::Ok{time, version : _} => return *time, 
+            UpdateLog::Error{time, version : _, error : _} => return *time, 
+        }
+    }
+
+    pub fn version(& self) -> u16 {
+        match self {
+            UpdateLog::NoChange{time : _, version} => return *version, 
+            UpdateLog::Ok{time : _, version} => return *version, 
+            UpdateLog::Error{time : _, version, error : _} => return *version, 
+        }
+    }
+
+    pub fn is_ok(& self) -> bool {
+        match self {
+            UpdateLog::Error{time : _, version : _, error : _} => return false,
+            _ => return true
+        }
+    }
 }
 
 impl FileWriter<UpdateLog> for UpdateLog {
     fn read(f : & mut File) -> UpdateLog {
-        unimplemented!();
+        let kind = f.read_u8().unwrap();
+        let time = f.read_i64::<LittleEndian>().unwrap();
+        let version = f.read_u16::<LittleEndian>().unwrap();
+        match kind {
+            0 => {
+                return UpdateLog::NoChange{time, version};
+            },
+            1 => {
+                return UpdateLog::Ok{time, version};
+            },
+            255 => {
+                let error = String::read(f);
+                return UpdateLog::Error{time, version, error};
+            }
+            _ => panic!("Invalid log kind")
+        }
     }   
 
     fn write(f : & mut File, value : & UpdateLog) {
-        unimplemented!();
+        match value {
+            UpdateLog::NoChange{time, version} => {
+                f.write_u8(0).unwrap();
+                f.write_i64::<LittleEndian>(*time).unwrap();
+                f.write_u16::<LittleEndian>(*version).unwrap();
+            },
+            UpdateLog::Ok{time, version} => {
+                f.write_u8(1).unwrap();
+                f.write_i64::<LittleEndian>(*time).unwrap();
+                f.write_u16::<LittleEndian>(*version).unwrap();
+            },
+            UpdateLog::Error{time, version, error} => {
+                f.write_u8(255).unwrap();
+                f.write_i64::<LittleEndian>(*time).unwrap();
+                f.write_u16::<LittleEndian>(*version).unwrap();
+                String::write(f, error);
+            }
+        }
     }
 }
 

@@ -1,7 +1,13 @@
 use std::time::SystemTime;
-use chrono::NaiveDateTime;
-use std::io::Write;
+//use chrono::NaiveDateTime;
+//use std::io::Write;
 use std::str;
+
+/** Returns current time in milliseconds.
+ */
+pub fn now() -> i64 {
+    return SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).expect("Invalid time detected").as_secs() as i64;
+}
 
 /** Lossless conversion from possibly non-UTF8 strings to valid UTF8 strings with the non-UTF bytes escaped. 
  
@@ -72,11 +78,7 @@ loop {
 
 */
 
-/** Returns current time in milliseconds.
- */
-pub fn now() -> i64 {
-    return SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).expect("Invalid time detected").as_secs() as i64;
-}
+/*
 
 pub fn to_unix_epoch(timestamp : & str) -> i64 {
     return NaiveDateTime::parse_from_str(timestamp, "%Y-%m-%d %H:%M:%S").unwrap().timestamp() as i64;
@@ -112,3 +114,5 @@ pub fn encode_quotes(from : & str) -> String {
 pub fn decode_quotes(from : & str) -> String {
     return from.replace("%34", "\"").replace("%92", "\\").replace("%37", "%");
 }
+
+*/

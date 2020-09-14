@@ -1,7 +1,4 @@
 use std::sync::*;
-use std::fs::*;
-use std::io::*;
-use std::collections::hash_map::*;
 
 use crate::db::*;
 
@@ -15,18 +12,12 @@ use crate::records::*;
 pub struct Datastore {
     pub (crate) root : String,
 
-    /** The version of the datastore. 
-     
-        Versions have backwards compatibility, but newer versions may add extra items, or metadata. When new version is executed, all projects & commits and other items are force updated to make sure that all data that should be obtained are obtained. 
-     */
-    pub (crate) version : u16,
-
     /** Project URLs. 
        
         Contains both dead and live urls for the projects known. The latest (i.e. indexed) url for a project is its live url, all previous urls are its past urls currently considered dead.  
      */
     pub (crate) project_urls : Mutex<PropertyStore<String>>,
-    pub (crate) project_last_updates : Mutex<PropertyStore<i64>>,
+    pub (crate) project_last_updates : Mutex<PropertyStore<UpdateLog>>,
     pub (crate) project_heads : Mutex<PropertyStore<Heads>>,
 
     /** Mappings of the objects the datastore keeps track of. 
@@ -45,12 +36,18 @@ pub struct Datastore {
 
 impl Datastore {
 
+    /** The version of the datastore. 
+     
+        Versions have backwards compatibility, but newer versions may add extra items, or metadata. When new version is executed, all projects & commits and other items are force updated to make sure that all data that should be obtained are obtained. 
+     */
+    pub (crate) const VERSION : u16 = 0;
+
+
     /** Creates datastore in the specified directory. 
      */
     pub fn from(root : & str) -> Datastore {
         let result = Datastore {
             root : root.to_owned(),
-            version : 0,
             project_urls : Mutex::new(PropertyStore::new(& format!("{}/project-urls.dat", root))),
             project_last_updates : Mutex::new(PropertyStore::new(& format!("{}/project-updates.dat", root))),
             project_heads : Mutex::new(PropertyStore::new(& format!("{}/project-heads.dat", root))),
@@ -123,7 +120,7 @@ impl Datastore {
         let mut project_last_updates = self.project_last_updates.lock().unwrap();
         let id = project_urls.indices_len() as u64;
         project_urls.set(id, url);
-        project_last_updates.set(id, & 0);
+        project_last_updates.set(id, & UpdateLog::Ok{time : 0, version : 0});
         return id;
     }
 
@@ -146,7 +143,5 @@ impl Datastore {
             return Heads::new();
         }
     }
-
-    pub const DEAD_PROJECT_UPDATE_TIME : i64 = std::i64::MAX;
 
 }

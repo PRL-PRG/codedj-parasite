@@ -1,6 +1,6 @@
 use std::collections::*;
 use std::sync::*;
-use crate::db::*;
+use crate::*;
 use crate::datastore::*;
 use crate::records::*;
 use crate::helpers::*;
@@ -81,13 +81,28 @@ impl RepoUpdater {
     /** Single worker thread implementation. 
      */
     fn worker(& self) {
-        let id = self.q.deque();
-        // TODO get update time start now
+        let t = helpers::now();
+        let (id, version) = self.q.deque();
+        // if the datastore version is different than the last update version, force the update
+        let force = version != Datastore::VERSION;
         let url = self.ds.get_project_url(id);
         // TODO update metadata and project url 
-        let force = true;
-
-        self.update_project_contents(id, & url, force);
+        match self.update_project_contents(id, & url, force) {
+            Err(e) => {
+                self.ds.project_last_updates.lock().unwrap().set(id, & UpdateLog::Error{
+                    time : t,
+                    version : Datastore::VERSION,
+                    error : e.message().to_owned()
+                });
+            },
+            Ok(_) => {
+                // TODO determine whether there have been any changes, or not to store appropriate result
+                self.ds.project_last_updates.lock().unwrap().set(id, & UpdateLog::Ok{
+                    time : t,
+                    version : Datastore::VERSION
+                });
+            }
+        }
 
     }
 
@@ -98,7 +113,7 @@ impl RepoUpdater {
         let old_heads = self.ds.get_project_heads(id);
         // time to create the repository
         let repo_path = format!("{}/{}", self.tmp_folder, id);
-        let mut repo = git2::Repository::init_bare(repo_path.clone())?;
+        let repo = git2::Repository::init_bare(repo_path.clone())?;
         let mut remote = repo.remote("dcd", & url)?;
         remote.connect(git2::Direction::Fetch)?;
         let new_heads = self.fetch_remote_heads(& mut remote)?;
@@ -129,7 +144,7 @@ impl RepoUpdater {
     }
 
     fn translate_heads(& self, heads : & HashMap<String, git2::Oid>) -> Heads {
-        let mut commits = self.ds.commits.lock().unwrap();
+        let commits = self.ds.commits.lock().unwrap();
         return heads.iter().map(|(name, hash)| (name.to_owned(), commits.get(hash).unwrap())).collect();
     }
 
@@ -140,7 +155,7 @@ impl RepoUpdater {
     fn compare_remote_heads(& self, last : & Heads, current : & HashMap<String, git2::Oid>, force : bool) -> Vec<(String, git2::Oid)> {
         let mut result = Vec::<(String,git2::Oid)>::new();
         // lock the commits and check for each new head if it exists in the old ones and if the commit id is the same (and found)
-        let mut commits = self.ds.commits.lock().unwrap();
+        let commits = self.ds.commits.lock().unwrap();
         for (name, hash) in current {
             if ! force {
                 if let Some(id) = last.get(name) {
@@ -348,26 +363,31 @@ impl ProjectQueue {
         };
         {
             let mut q = result.q.lock().unwrap();
-            for (id, last_update_time) in ds.project_last_updates.lock().unwrap().latest_iter() {
-                if last_update_time != Datastore::DEAD_PROJECT_UPDATE_TIME {
-                    q.push(std::cmp::Reverse(QueuedProject{ id, last_update_time }));
+            for (id, last_update) in ds.project_last_updates.lock().unwrap().latest_iter() {
+                if last_update.is_ok() {
+                    q.push(std::cmp::Reverse(QueuedProject{
+                        id, 
+                        last_update_time : last_update.time(),
+                        version : last_update.version()
+                    }));
                 }
             }
         }
         return result;
     }
 
-    fn deque(& self) -> u64 {
+    fn deque(& self) -> (u64, u16) {
         let mut projects = self.q.lock().unwrap();
         while projects.is_empty() {
             projects = self.qcv.wait(projects).unwrap();
         }
-        return projects.pop().unwrap().0.id;
+        let x = projects.pop().unwrap().0;
+        return (x.id, x.version);
     }
 
     fn enqueue(& self, id : u64, time : i64) {
         let mut projects = self.q.lock().unwrap();
-        projects.push(std::cmp::Reverse(QueuedProject{id, last_update_time : time}));
+        projects.push(std::cmp::Reverse(QueuedProject{id, last_update_time : time, version : Datastore::VERSION }));
         self.qcv.notify_one();
     }
 
@@ -397,7 +417,8 @@ impl ProjectQueue {
 #[derive(Eq)]
 struct QueuedProject {
     id : u64, 
-    last_update_time : i64
+    last_update_time : i64,
+    version : u16,
 }
 
 impl Ord for QueuedProject {

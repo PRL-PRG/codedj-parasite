@@ -153,10 +153,10 @@ impl Indexer {
         } else {
             self.f.seek(SeekFrom::End(0)).unwrap();
             while id > self.size  {
-                self.f.write_u64::<LittleEndian>(Indexer::EMPTY);
+                self.f.write_u64::<LittleEndian>(Indexer::EMPTY).unwrap();
                 self.size += 1;
             }
-            self.f.write_u64::<LittleEndian>(offset);
+            self.f.write_u64::<LittleEndian>(offset).unwrap();
             self.size += 1;
         }
     }
@@ -176,7 +176,7 @@ pub struct IndexedWriter<T: FileWriter<T>> {
 
 impl<T : FileWriter<T>> IndexedWriter<T> {
     pub fn new(filename : & str) -> IndexedWriter<T> {
-        let mut f = OpenOptions::new().read(true).write(true).create(true).open(filename).unwrap();
+        let f = OpenOptions::new().read(true).write(true).create(true).open(filename).unwrap();
         return IndexedWriter{
             indexer : Indexer::new(& 
                 format!("{}.index", filename)),

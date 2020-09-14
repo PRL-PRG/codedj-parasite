@@ -6,7 +6,6 @@ mod repo_updater;
 mod records;
 mod helpers;
 
-use db::*;
 use datastore::*;
 use repo_updater::*;
 
