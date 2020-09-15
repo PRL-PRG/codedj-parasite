@@ -16,10 +16,11 @@ use records::*;
 
 type Commit = records::CommitInfo;
 
+/** View into the datastore at a particular time. 
+ */
 pub struct DatastoreView {
     ds : Datastore,
     sp : Savepoint,
-
 }
 
 impl DatastoreView {
@@ -86,7 +87,6 @@ pub struct HashMappingIterator<'a> {
     id : u64,
     buffer : Vec<u8>,
 }
-
 
 impl<'a> Iterator for HashMappingIterator<'a> {
     type Item = (u64, git2::Oid);

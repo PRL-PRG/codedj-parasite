@@ -4,43 +4,33 @@ use crate::*;
 use crate::datastore::*;
 use crate::records::*;
 use crate::helpers::*;
+use crate::updater::*;
 
 /* This is the updater. 
 
    Manage the workers and the 
  */
-pub struct RepoUpdater {
-    tmp_folder : String,
-    q : ProjectQueue,
-    ds : Datastore,
+pub struct RepoUpdater<'a> {
+    q : ProjectQueue<'a>,
+    u : &'a Updater,
     extensions: HashSet<&'static str>,
 }
 
-impl RepoUpdater {
+impl<'a> RepoUpdater<'a> {
 
     /** Creates the updater for given datastore. 
      
         Fills in the datastore mappings and initializes the updater queue based on valid dates. 
      */
-    pub fn new(mut datastore : Datastore) -> RepoUpdater {
-        println!("Creating updater...");
-        datastore.fill_mappings();
+    pub fn new(u : & Updater) -> RepoUpdater {
         println!("Creating projects queue...");
-        let q = ProjectQueue::new(& datastore);
+        let q = ProjectQueue::new(& u);
         println!("    projects queueued: {}", q.len());
         println!("    valid time:        {}", q.valid_time());
-        // check the tmp directory inside the datastore
-        let tmp_folder = format!("{}/tmp", datastore.root());
-        let tmp_path = std::path::Path::new(& tmp_folder);
-        if tmp_path.exists() {
-            std::fs::remove_dir_all(&tmp_path).unwrap();
-        }
-        std::fs::create_dir_all(&tmp_path).unwrap();
         // create the updater and return it
         return RepoUpdater{
-            tmp_folder,
             q,
-            ds : datastore,
+            u,
             extensions : [
                 // generic files
                 "README",
@@ -63,56 +53,44 @@ impl RepoUpdater {
         return self.extensions.contains(parts[parts.len() - 1]);
     }
 
-    /** Runs the updater with given number of parallel workers. 
-     
-        TODO when to stop and so on
-     */
-    pub fn run(& self, num_workers: u64) {
-        crossbeam::thread::scope(|s| {
-            // start the worker threads
-            for _ in 0..num_workers {
-                s.spawn(|_| {
-                    self.worker();
-                });
-            }
-        }).unwrap();
-    }
-    
     /** Single worker thread implementation. 
      */
-    fn worker(& self) {
-        let t = helpers::now();
-        let (id, version) = self.q.deque();
-        // if the datastore version is different than the last update version, force the update
-        let force = version != Datastore::VERSION;
-        let url = self.ds.get_project_url(id);
-        // TODO update metadata and project url 
-        match self.update_project_contents(id, & url, force) {
-            Err(e) => {
-                self.ds.project_last_updates.lock().unwrap().set(id, & UpdateLog::Error{
-                    time : t,
-                    version : Datastore::VERSION,
-                    error : e.message().to_owned()
-                });
-            },
-            Ok(_) => {
-                // TODO determine whether there have been any changes, or not to store appropriate result
-                self.ds.project_last_updates.lock().unwrap().set(id, & UpdateLog::Ok{
-                    time : t,
-                    version : Datastore::VERSION
-                });
+    pub (crate) fn worker(& self) {
+        self.u.thread_start();
+        while self.u.thread_next() {
+            let t = helpers::now();
+            let (id, version) = self.q.deque();
+            // if the datastore version is different than the last update version, force the update
+            let force = version != Datastore::VERSION;
+            let url = self.u.ds.get_project_url(id);
+            // TODO update metadata and project url 
+            match self.update_project_contents(id, & url, force) {
+                Err(e) => {
+                    self.u.ds.project_last_updates.lock().unwrap().set(id, & UpdateLog::Error{
+                        time : t,
+                        version : Datastore::VERSION,
+                        error : e.message().to_owned()
+                    });
+                },
+                Ok(_) => {
+                    // TODO determine whether there have been any changes, or not to store appropriate result
+                    self.u.ds.project_last_updates.lock().unwrap().set(id, & UpdateLog::Ok{
+                        time : t,
+                        version : Datastore::VERSION
+                    });
+                }
             }
         }
-
+        self.u.thread_done();
     }
 
     /** Updates the contents of the project. 
      
      */
     fn update_project_contents(& self, id : u64, url : & str, force : bool) -> Result<(), git2::Error> {
-        let old_heads = self.ds.get_project_heads(id);
+        let old_heads = self.u.ds.get_project_heads(id);
         // time to create the repository
-        let repo_path = format!("{}/{}", self.tmp_folder, id);
+        let repo_path = format!("{}/{}", self.u.tmp_folder, id);
         let repo = git2::Repository::init_bare(repo_path.clone())?;
         let mut remote = repo.remote("dcd", & url)?;
         remote.connect(git2::Direction::Fetch)?;
@@ -126,7 +104,7 @@ impl RepoUpdater {
             let mut commits_updater = CommitsUpdater::new(& repo, self, force);
             commits_updater.update(& heads_to_be_updated)?;
             // update the remote heads
-            self.ds.project_heads.lock().unwrap().set(id, & self.translate_heads(& new_heads));
+            self.u.ds.project_heads.lock().unwrap().set(id, & self.translate_heads(& new_heads));
         }
         // delete the repository from disk
         std::fs::remove_dir_all(& repo_path).unwrap();        
@@ -144,7 +122,7 @@ impl RepoUpdater {
     }
 
     fn translate_heads(& self, heads : & HashMap<String, git2::Oid>) -> Heads {
-        let commits = self.ds.commits.lock().unwrap();
+        let commits = self.u.ds.commits.lock().unwrap();
         return heads.iter().map(|(name, hash)| (name.to_owned(), commits.get(hash).unwrap())).collect();
     }
 
@@ -155,7 +133,7 @@ impl RepoUpdater {
     fn compare_remote_heads(& self, last : & Heads, current : & HashMap<String, git2::Oid>, force : bool) -> Vec<(String, git2::Oid)> {
         let mut result = Vec::<(String,git2::Oid)>::new();
         // lock the commits and check for each new head if it exists in the old ones and if the commit id is the same (and found)
-        let commits = self.ds.commits.lock().unwrap();
+        let commits = self.u.ds.commits.lock().unwrap();
         for (name, hash) in current {
             if ! force {
                 if let Some(id) = last.get(name) {
@@ -201,7 +179,7 @@ impl RepoUpdater {
  */
 struct CommitsUpdater<'a> {
     repo : &'a git2::Repository,
-    u : &'a RepoUpdater, 
+    ru : &'a RepoUpdater<'a>, 
     force : bool,
     visited_commits : HashSet<u64>,
     q : Vec<(git2::Oid, u64)>,
@@ -210,8 +188,8 @@ struct CommitsUpdater<'a> {
 }
 
 impl<'a> CommitsUpdater<'a> {
-    pub fn new(repo : &'a git2::Repository, u: &'a RepoUpdater, force : bool) -> CommitsUpdater<'a> {
-        return CommitsUpdater{ repo, u, force, visited_commits : HashSet::new(), q : Vec::new() };
+    pub fn new(repo : &'a git2::Repository, ru: &'a RepoUpdater, force : bool) -> CommitsUpdater<'a> {
+        return CommitsUpdater{ repo, ru, force, visited_commits : HashSet::new(), q : Vec::new() };
     }
 
     /** Updates the commits. 
@@ -237,7 +215,7 @@ impl<'a> CommitsUpdater<'a> {
             commit_info.changes = self.get_commit_changes(& commit)?;
             // output the commit info
             {
-                let mut commits_info = self.u.ds.commits_info.lock().unwrap();
+                let mut commits_info = self.ru.u.ds.commits_info.lock().unwrap();
                 if ! commits_info.has(id) {
                     commits_info.set(id, & commit_info);
                 }
@@ -252,7 +230,7 @@ impl<'a> CommitsUpdater<'a> {
         If the commit is already known to the datastore it will not be added to the queue as someone else has already analyzed it, or is currently analyzing. 
      */
     fn add_commit(& mut self, hash : & git2::Oid) -> u64 {
-        let (id, is_new) = self.u.ds.commits.lock().unwrap().get_or_create(hash); 
+        let (id, is_new) = self.ru.u.ds.commits.lock().unwrap().get_or_create(hash); 
         if self.force {
             if ! self.visited_commits.contains(& id) {
                 self.visited_commits.insert(id);
@@ -267,7 +245,7 @@ impl<'a> CommitsUpdater<'a> {
     }
 
     fn get_or_create_user(& mut self, user : & git2::Signature) -> u64 {
-        let (id, is_new) = self.u.ds.users.lock().unwrap().get_or_create(& to_string(user.email_bytes()));
+        let (id, is_new) = self.ru.u.ds.users.lock().unwrap().get_or_create(& to_string(user.email_bytes()));
         // add name as metadata in case the user is new
         if is_new {
             // TODO 
@@ -290,8 +268,8 @@ impl<'a> CommitsUpdater<'a> {
         let mut result = HashMap::<u64,u64>::new();
         let mut new_snapshots = Vec::<(String, u64,git2::Oid)>::new();
         {
-            let mut paths = self.u.ds.paths.lock().unwrap();
-            let mut hashes = self.u.ds.hashes.lock().unwrap();
+            let mut paths = self.ru.u.ds.paths.lock().unwrap();
+            let mut hashes = self.ru.u.ds.hashes.lock().unwrap();
             for (path, hash) in changes.iter() {
                 let (path_id, _) = paths.get_or_create(path);
                 let (hash_id, is_new) = hashes.get_or_create(hash);
@@ -303,12 +281,12 @@ impl<'a> CommitsUpdater<'a> {
         }
         // look at the new snapshots, determine if they are to be downloaded and download those that we are interested in. 
         for (path, id, hash) in new_snapshots {
-            if self.u.want_contents_of(& path) {
-                let (contents_id, is_new) = self.u.ds.contents.lock().unwrap().get_or_create(& id);
+            if self.ru.want_contents_of(& path) {
+                let (contents_id, is_new) = self.ru.u.ds.contents.lock().unwrap().get_or_create(& id);
                 if let Ok(blob) = self.repo.find_blob(hash) {
                     let bytes = ContentsData::from(blob.content());
                     if is_new {
-                        self.u.ds.contents_data.lock().unwrap().set(contents_id, & bytes);
+                        self.ru.u.ds.contents_data.lock().unwrap().set(contents_id, & bytes);
                     }
                 }
             }
@@ -348,22 +326,24 @@ impl<'a> CommitsUpdater<'a> {
 
 /** Priority queue for the projects based on their update times with the oldest projects having the highest priority. 
  */
-struct ProjectQueue {
+struct ProjectQueue<'a> {
     q : Mutex<BinaryHeap<std::cmp::Reverse<QueuedProject>>>,
     qcv : Condvar,
+    u : &'a Updater,
 }
 
-impl ProjectQueue {
+impl<'a> ProjectQueue<'a> {
     /** Creates new projects queue and fills it with projects from given datastore. 
      */
-    fn new(ds : & Datastore) -> ProjectQueue {
+    fn new(u : & Updater) -> ProjectQueue {
         let result = ProjectQueue{
             q : Mutex::new(BinaryHeap::new()),
             qcv : Condvar::new(),
+            u, 
         };
         {
             let mut q = result.q.lock().unwrap();
-            for (id, last_update) in ds.project_last_updates.lock().unwrap().latest_iter() {
+            for (id, last_update) in u.ds.project_last_updates.lock().unwrap().latest_iter() {
                 if last_update.is_ok() {
                     q.push(std::cmp::Reverse(QueuedProject{
                         id, 
@@ -379,7 +359,9 @@ impl ProjectQueue {
     fn deque(& self) -> (u64, u16) {
         let mut projects = self.q.lock().unwrap();
         while projects.is_empty() {
+            self.u.thread_running_to_idle();
             projects = self.qcv.wait(projects).unwrap();
+            self.u.thread_idle_to_running();
         }
         let x = projects.pop().unwrap().0;
         return (x.id, x.version);

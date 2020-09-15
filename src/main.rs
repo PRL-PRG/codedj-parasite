@@ -3,12 +3,13 @@ use dcd::*;
 
 mod db;
 mod datastore;
+mod updater;
 mod repo_updater;
 mod records;
 mod helpers;
 
 use datastore::*;
-use repo_updater::*;
+use updater::*;
 
 fn main() {
     println!("DejaCode Downloader mark II");
@@ -86,7 +87,6 @@ fn dcd_add(working_dir : & str, args : & [String]) {
             help();
         }
     }
-
 }
 
 /** Runs the incremental updater. 
@@ -94,8 +94,8 @@ fn dcd_add(working_dir : & str, args : & [String]) {
     Creates the updater and starts the continuous update of the projects. 
  */ 
 fn dcd_update(working_dir : & str, args : & [String]) {
-    let updater = RepoUpdater::new(Datastore::from(working_dir));
-    updater.run(1);
+    let mut updater = Updater::new(Datastore::from(working_dir));
+    updater.run();
 
 }
 

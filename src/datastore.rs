@@ -68,7 +68,7 @@ impl Datastore {
             contents : Mutex::new(DirectMapping::new(& format!("{}/contents.dat", root))),
             contents_data : Mutex::new(PropertyStore::new(& format!("{}/contents-data.dat", root))),
 
-            savepoints : Mutex::new(OpenOptions::new().read(true).write(true).open(& format!("{}/savepoints.dat", root)).unwrap()),
+            savepoints : Mutex::new(OpenOptions::new().read(true).write(true).create(true).open(& format!("{}/savepoints.dat", root)).unwrap()),
         };
         println!("Datastore loaded from {}:", root);
         println!("    projects: {}", result.project_urls.lock().unwrap().indices_len());
