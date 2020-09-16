@@ -17,6 +17,8 @@ use records::*;
 type Commit = records::CommitInfo;
 
 /** View into the datastore at a particular time. 
+ 
+    The datastore view is created with 
  */
 pub struct DatastoreView {
     ds : Datastore,

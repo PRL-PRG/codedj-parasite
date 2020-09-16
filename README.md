@@ -6,6 +6,7 @@
 # TODO
 
 - add updater ui
+- add more projects adder
 - add snapshots analysis
 - add github metadata
 - add simple csv exporter

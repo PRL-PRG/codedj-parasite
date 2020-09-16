@@ -13,10 +13,9 @@ pub struct Updater {
     pub (crate) tmp_folder : String,
     pub (crate) ds : Datastore,
     start : i64,
-    status : Mutex<BinaryHeap<std::cmp::Reverse<UpdateRecord>>>,
+    tasks : Mutex<HashMap<String, TaskInfo>>,
     thread_status : Mutex<ThreadStatus>,
     qcv_pause : Condvar,
-
 }
 
 impl Updater {
@@ -37,7 +36,7 @@ impl Updater {
             tmp_folder,
             ds : datastore,
             start : helpers::now(),
-            status : Mutex::new(BinaryHeap::new()),
+            tasks : Mutex::new(HashMap::new()),
             thread_status : Mutex::new(ThreadStatus{running : 0, idle : 0, paused : 0, pause : false, stop : false}),
             qcv_pause : Condvar::new(),
         };
@@ -108,15 +107,21 @@ impl Updater {
         x.running -= 1;
     }
 
+    pub (crate) fn new_task(& self, name : String) -> Task {
+        return Task::new(self, name);
+    }
+
     fn status_printer(& self) {
+        println!("\x1b[2J"); // clear screen
         loop {
             {
+                let tasks = self.tasks.lock().unwrap();
                 // acquire the lock so that we can print out stuff
-                let x = self.status.lock().unwrap();
+                //let x = self.status.lock().unwrap();
                 // print the global status
                 let ts = self.thread_status.lock().unwrap();
                 print!("\x1b[H\x1b[104;97m");
-                print!("DCD - {}, workers : {}r, {}i, {}p {} {}, datastore : p : {}, c : {}, co: {}",
+                print!("DCD - {}, workers : {}r, {}i, {}p {} {}, datastore : p : {}, c : {}, co: {}\x1b[K\n",
                     Updater::pretty_time(helpers::now() - self.start),
                     ts.running, ts.idle, ts.paused,
                     if ts.pause { " <PAUSE>" } else { "" },
@@ -125,10 +130,17 @@ impl Updater {
                     Updater::pretty_value(self.ds.commits.lock().unwrap().loaded_len()),
                     Updater::pretty_value(self.ds.contents.lock().unwrap().loaded_len()),
                 );
-                //println!("DCD - t : {}, ");
-                //for rec in x {
-                //    rec.print();
-                //}
+                println!("");
+                let mut odd = true;
+                for (name, task) in tasks.iter() {
+                    odd = ! odd;
+                    if odd {
+                        print!("\x1b[48;2;0;0;0m");
+                    } else {
+                        print!("\x1b[48;2;32;32;32m");
+                    }
+                    task.print(name);
+                }
                 println!("");
             }
             std::thread::sleep(std::time::Duration::from_millis(1000));
@@ -169,10 +181,10 @@ impl Updater {
         return format!("{}B", value);
     }
 
-    const HOME : &'static str = "\x1b[H";
-    const EOL : &'static str = "\x1b[K\r\n";
 }
 
+/** Thread counts and updater exections state.  
+ */
 struct ThreadStatus {
     running: u64, 
     idle : u64, 
@@ -180,6 +192,89 @@ struct ThreadStatus {
     pause : bool,
     stop : bool,
 }
+
+/** Information about each task the updater works on. 
+ 
+    A task can be updated. 
+ */ 
+pub struct Task<'a> {
+    name : String,
+    updater : &'a Updater,
+}
+
+impl<'a> Task<'a> {
+    fn new(updater : & Updater, name : String) -> Task {
+        updater.tasks.lock().unwrap().insert(name.clone(), TaskInfo::new());
+        return Task{ name, updater };
+    } 
+
+    pub fn update(& self) -> TaskUpdater {
+        return TaskUpdater{g : self.updater.tasks.lock().unwrap(), t : self};
+    }
+}
+
+pub struct TaskInfo {
+    start : i64,
+    url : String,
+    message : String,
+
+}
+
+impl TaskInfo {
+    fn new() -> TaskInfo {
+        return TaskInfo{
+            start : helpers::now(),
+            url : String::new(),
+            message : String::from("initializing..."),
+        };
+    }
+
+    pub fn set_url(& mut self, url : & str) -> & mut Self {
+        self.url = url.to_owned();
+        return self;
+    }
+
+    pub fn set_message(& mut self, msg : & str) -> & mut Self {
+        self.message = msg.to_owned();
+        return self;
+    }
+
+    /** Prints the task. */
+    fn print(& self, name : & str) {
+        println!("{}: {} - {}\x1b[K", 
+            name, 
+            Updater::pretty_time(helpers::now() - self.start),
+            self.url,
+        );
+        println!("    {}\x1b[K", self.message)
+    }
+}
+
+pub struct TaskUpdater<'a> {
+    g : MutexGuard<'a, HashMap<String, TaskInfo>>,
+    t : &'a Task<'a>
+}
+
+impl<'a> std::ops::Deref for TaskUpdater<'a> {
+    type Target = TaskInfo;
+
+    fn deref(&self) -> &Self::Target {
+        return self.g.get(& self.t.name).unwrap();
+    }
+}
+
+impl<'a> std::ops::DerefMut for TaskUpdater<'a> {
+
+    fn deref_mut(&mut self) -> & mut Self::Target {
+        return self.g.get_mut(& self.t.name).unwrap();
+    }
+}
+
+
+
+
+
+
 
 /** Status of the update record. 
  */
@@ -206,6 +301,17 @@ pub struct UpdateRecord {
 }
 
 impl UpdateRecord {
+    fn new() -> UpdateRecord {
+        return UpdateRecord{
+            id : 0,
+            state : UpdateRecordState::Running,
+            start : helpers::now(),
+            progress : 0,
+            progress_max : 0,
+            status : String::new(),
+            url : String::new(),
+        }
+    }
     /** Prints the update record. 
      */
     fn print(& self) {
@@ -229,3 +335,27 @@ impl PartialEq for UpdateRecord {
         return self.id == other.id;
     }
 }
+
+/** Holds locked mutex guard and dereferences to the particular update record. 
+ */
+pub struct UpdateRecordGuard<'a> {
+    g : MutexGuard<'a, HashMap<String, UpdateRecord>>,
+    name : String,
+}
+
+impl<'a> std::ops::Deref for UpdateRecordGuard<'a> {
+    type Target = UpdateRecord;
+
+    fn deref(&self) -> &Self::Target {
+        return self.g.get(& self.name).unwrap();
+    }
+}
+
+impl<'a> std::ops::DerefMut for UpdateRecordGuard<'a> {
+
+    fn deref_mut(&mut self) -> & mut Self::Target {
+        return self.g.get_mut(& self.name).unwrap();
+    }
+}
+
+

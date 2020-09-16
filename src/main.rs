@@ -78,14 +78,83 @@ fn dcd_add(working_dir : & str, args : & [String]) {
                 println!("    already exists");
             } else {
                 println!("    added as id: {}", ds.add_project(arg));
+                urls.insert(arg.to_owned());
             }
         } else if arg.ends_with(".csv") {
-            // TODO implement reading from CSV files
-            unimplemented!();
+            add_projects_from_csv(arg, & ds, & mut urls);
         } else {
             println!("Unrecognized project file or url format: {}", arg);
             help();
         }
+    }
+}
+
+/** Given a csv file determines if it contains headers or not and determines the column that contains urls and adds projects from these urls to the datastore. 
+ 
+    Column contains url if it starts with `https://`. Only one column can contain url for the csv to be parsed correctly and the column must stay the same for the entire file. 
+ */
+fn add_projects_from_csv(filename : & str, ds : & Datastore, urls : & mut HashSet<String>) {
+    println!("Adding projects from csv file {}", filename);
+    let mut records = 0;
+    let mut added = 0;
+    let mut reader = csv::ReaderBuilder::new()
+        .has_headers(true)
+        .double_quote(false)
+        .escape(Some(b'\\'))
+        .from_path(filename).unwrap();
+    let headers = reader.headers().unwrap();
+    let mut col_id = if let Some(id) = analyze_csv_row(& headers) {
+        records += 1;
+        let url = String::from(& headers[id]);
+        if ! urls.contains(& url) {
+            ds.add_project(& url);
+            urls.insert(url);
+            added += 1;
+        }
+        id
+    } else {
+        std::usize::MAX
+    };
+    for x in reader.records() {
+        let record = x.unwrap();
+        if col_id == std::usize::MAX {
+            if let Some(id) = analyze_csv_row(& record) {
+                col_id = id;
+            } else {
+                println!("Cannot determine which column contains git urls.");
+                help();
+            }
+        }
+        records += 1;
+        let url = String::from(& record[col_id]);
+        if ! urls.contains(& url) {
+            ds.add_project(& url);
+            urls.insert(url);
+            added += 1;
+        }
+    }
+    println!("    {} records", records);
+    println!("    {} projects already exist", records - added);
+    println!("    {} projects added", added);
+}
+
+fn analyze_csv_row(row : & csv::StringRecord) -> Option<usize> {
+    let mut i : usize = 0;
+    let mut result : usize = std::usize::MAX;
+    for x in row {
+        if x.starts_with("https://") {
+            // there are multiple indices that could be urls, so we can't determine 
+            if result != std::usize::MAX {
+                return None;
+            }
+            result = i;
+        }
+        i += 1;
+    }
+    if result != std::usize::MAX {
+        return Some(result);
+    } else {
+        return None;
     }
 }
 

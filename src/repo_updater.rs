@@ -60,11 +60,17 @@ impl<'a> RepoUpdater<'a> {
         while self.u.thread_next() {
             let t = helpers::now();
             let (id, version) = self.q.deque();
+            let task = self.u.new_task(format!("{}", id));
             // if the datastore version is different than the last update version, force the update
-            let force = version != Datastore::VERSION;
+            let force = true; //version != Datastore::VERSION;
             let url = self.u.ds.get_project_url(id);
+            if force {
+                task.update().set_url(& format!("{} [FORCED]", url));
+            } else {
+                task.update().set_url(& url);
+            }
             // TODO update metadata and project url 
-            match self.update_project_contents(id, & url, force) {
+            match self.update_project_contents(id, & url, force, & task) {
                 Err(e) => {
                     self.u.ds.project_last_updates.lock().unwrap().set(id, & UpdateLog::Error{
                         time : t,
@@ -87,7 +93,8 @@ impl<'a> RepoUpdater<'a> {
     /** Updates the contents of the project. 
      
      */
-    fn update_project_contents(& self, id : u64, url : & str, force : bool) -> Result<(), git2::Error> {
+    fn update_project_contents(& self, id : u64, url : & str, force : bool, task : & Task) -> Result<(), git2::Error> {
+        task.update().set_message("analyzing remote heads...");
         let old_heads = self.u.ds.get_project_heads(id);
         // time to create the repository
         let repo_path = format!("{}/{}", self.u.tmp_folder, id);
@@ -99,9 +106,9 @@ impl<'a> RepoUpdater<'a> {
         let heads_to_be_updated = self.compare_remote_heads(& old_heads, & new_heads, force);
         if ! heads_to_be_updated.is_empty() {
             // fetch the project
-            self.fetch_contents(& mut remote, & heads_to_be_updated)?;
+            self.fetch_contents(& mut remote, & heads_to_be_updated, task)?;
             // add the new commits 
-            let mut commits_updater = CommitsUpdater::new(& repo, self, force);
+            let mut commits_updater = CommitsUpdater::new(& repo, self, force, task);
             commits_updater.update(& heads_to_be_updated)?;
             // update the remote heads
             self.u.ds.project_heads.lock().unwrap().set(id, & self.translate_heads(& new_heads));
@@ -150,10 +157,14 @@ impl<'a> RepoUpdater<'a> {
 
     /** Fetches the contents of the respository. 
      */
-    fn fetch_contents(& self, remote : & mut git2::Remote, heads : & Vec<(String, git2::Oid)>) -> Result<(), git2::Error> {
+    fn fetch_contents(& self, remote : & mut git2::Remote, heads : & Vec<(String, git2::Oid)>, task : & Task) -> Result<(), git2::Error> {
         let mut callbacks = git2::RemoteCallbacks::new();
         // TODO the callbacks should actually report stuff
-        callbacks.transfer_progress(|_progress : git2::Progress| -> bool {
+        callbacks.transfer_progress(|progress : git2::Progress| -> bool {
+            task.update().set_message(& format!("downloading contents {} / {}",
+                progress.received_objects() + progress.indexed_deltas() + progress.indexed_objects(),
+                progress.total_deltas() + progress.total_objects() * 2
+            ));
             return true;
         });
         let mut opts = git2::FetchOptions::new();
@@ -180,16 +191,21 @@ impl<'a> RepoUpdater<'a> {
 struct CommitsUpdater<'a> {
     repo : &'a git2::Repository,
     ru : &'a RepoUpdater<'a>, 
+    task : &'a Task<'a>,
     force : bool,
     visited_commits : HashSet<u64>,
     q : Vec<(git2::Oid, u64)>,
+    num_commits : u64, 
+    num_snapshots : u64,
+    num_changes : u64,
+    num_diffs : u64,
     
 
 }
 
 impl<'a> CommitsUpdater<'a> {
-    pub fn new(repo : &'a git2::Repository, ru: &'a RepoUpdater, force : bool) -> CommitsUpdater<'a> {
-        return CommitsUpdater{ repo, ru, force, visited_commits : HashSet::new(), q : Vec::new() };
+    pub fn new(repo : &'a git2::Repository, ru: &'a RepoUpdater, force : bool, task : &'a Task) -> CommitsUpdater<'a> {
+        return CommitsUpdater{ repo, ru, force, visited_commits : HashSet::new(), q : Vec::new(), task, num_commits : 0, num_snapshots : 0, num_changes : 0, num_diffs : 0 };
     }
 
     /** Updates the commits. 
@@ -201,6 +217,7 @@ impl<'a> CommitsUpdater<'a> {
         }
         // while the queue is not empty process each commit 
         while let Some((hash, id)) = self.q.pop() {
+            self.update_status();
             // get the commit information
             let commit = self.repo.find_commit(hash)?;
             let mut commit_info = CommitInfo::new();
@@ -220,9 +237,14 @@ impl<'a> CommitsUpdater<'a> {
                     commits_info.set(id, & commit_info);
                 }
             }
+            self.num_commits += 1;
 
         }
         return Ok(());
+    }
+
+    fn update_status(& mut self) {
+        self.task.update().set_message(& format!("analyzing commits: q: {}, c: {}, s: {}, ch: {}, d: {}", self.q.len(), self.num_commits, self.num_snapshots, self.num_changes, self.num_diffs));
     }
 
     /** Adds given commit to the queue and returns its id. 
@@ -259,9 +281,13 @@ impl<'a> CommitsUpdater<'a> {
         let mut changes = HashMap::<String,git2::Oid>::new();
         if commit.parent_count() == 0 {
             self.calculate_tree_diff(None, Some(& commit.tree()?), & mut changes)?;
+            self.num_diffs += 1;
+            self.update_status();
         } else {
             for p in commit.parents() {
                 self.calculate_tree_diff(Some(& p.tree()?), Some(& commit.tree()?), & mut changes)?;
+                self.num_diffs += 1;
+                self.update_status();
             }
         }
         // now that we have changes ready, time to convert paths and contents hashes, we do this under a single lock of paths and hashes
@@ -271,6 +297,10 @@ impl<'a> CommitsUpdater<'a> {
             let mut paths = self.ru.u.ds.paths.lock().unwrap();
             let mut hashes = self.ru.u.ds.hashes.lock().unwrap();
             for (path, hash) in changes.iter() {
+                self.num_changes += 1;
+                if self.num_changes % 1000 == 0 {
+                    self.update_status();
+                }
                 let (path_id, _) = paths.get_or_create(path);
                 let (hash_id, is_new) = hashes.get_or_create(hash);
                 if is_new || self.force {
@@ -287,6 +317,10 @@ impl<'a> CommitsUpdater<'a> {
                     let bytes = ContentsData::from(blob.content());
                     if is_new {
                         self.ru.u.ds.contents_data.lock().unwrap().set(contents_id, & bytes);
+                    }
+                    self.num_snapshots += 1;
+                    if self.num_snapshots % 1000 == 0 {
+                        self.update_status();
                     }
                 }
             }
