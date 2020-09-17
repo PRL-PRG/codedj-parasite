@@ -73,12 +73,13 @@ fn dcd_add(working_dir : & str, args : & [String]) {
     // now go through all arguments and see if they can be added
     for arg in args {
         if arg.starts_with("https://") {
-            println!("Adding project {}", arg);
-            if urls.contains(arg) {
+            let url = translate_url(arg.to_owned());            
+            println!("Adding project {}", & url);
+            if urls.contains(& url) {
                 println!("    already exists");
             } else {
-                println!("    added as id: {}", ds.add_project(arg));
-                urls.insert(arg.to_owned());
+                println!("    added as id: {}", ds.add_project(& url));
+                urls.insert(url);
             }
         } else if arg.ends_with(".csv") {
             add_projects_from_csv(arg, & ds, & mut urls);
@@ -105,7 +106,7 @@ fn add_projects_from_csv(filename : & str, ds : & Datastore, urls : & mut HashSe
     let headers = reader.headers().unwrap();
     let mut col_id = if let Some(id) = analyze_csv_row(& headers) {
         records += 1;
-        let url = String::from(& headers[id]);
+        let url = translate_url(String::from(& headers[id]));
         if ! urls.contains(& url) {
             ds.add_project(& url);
             urls.insert(url);
@@ -126,7 +127,7 @@ fn add_projects_from_csv(filename : & str, ds : & Datastore, urls : & mut HashSe
             }
         }
         records += 1;
-        let url = String::from(& record[col_id]);
+        let url = translate_url(String::from(& record[col_id]));
         if ! urls.contains(& url) {
             ds.add_project(& url);
             urls.insert(url);
@@ -136,6 +137,15 @@ fn add_projects_from_csv(filename : & str, ds : & Datastore, urls : & mut HashSe
     println!("    {} records", records);
     println!("    {} projects already exist", records - added);
     println!("    {} projects added", added);
+}
+
+fn translate_url(mut url: String) -> String {
+    url = url.to_ascii_lowercase();
+    if url.starts_with("https://api.github.com/repos/") {
+        return format!("https://github.com/{}.git", & url[29..]);
+    } else {
+        return url;
+    }
 }
 
 fn analyze_csv_row(row : & csv::StringRecord) -> Option<usize> {

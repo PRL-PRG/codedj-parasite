@@ -24,7 +24,7 @@ pub fn to_string(bytes : & [u8]) -> String {
                 return result;
             },
             Err(e) => {
-                let (ok, bad) = bytes.split_at(e.valid_up_to());
+                let (ok, bad) = x.split_at(e.valid_up_to());
                 if !ok.is_empty() {
                     result.push_str(& str::from_utf8(ok).unwrap().replace("%","%%"));
                 }

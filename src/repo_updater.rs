@@ -77,6 +77,7 @@ impl<'a> RepoUpdater<'a> {
                         version : Datastore::VERSION,
                         error : e.message().to_owned()
                     });
+                    task.update().error(e.message());
                 },
                 Ok(_) => {
                     // TODO determine whether there have been any changes, or not to store appropriate result
@@ -84,6 +85,7 @@ impl<'a> RepoUpdater<'a> {
                         time : t,
                         version : Datastore::VERSION
                     });
+                    task.update().done();
                 }
             }
         }
@@ -217,16 +219,22 @@ impl<'a> CommitsUpdater<'a> {
         }
         // while the queue is not empty process each commit 
         while let Some((hash, id)) = self.q.pop() {
-            self.update_status();
+            self.update_status("commit");
             // get the commit information
             let commit = self.repo.find_commit(hash)?;
+            self.update_status("commit found");
             let mut commit_info = CommitInfo::new();
             commit_info.committer = self.get_or_create_user(& commit.committer());
             commit_info.committer_time = commit.time().seconds();
+            self.update_status("committer found");
             let author = commit.author();
             commit_info.author = self.get_or_create_user(& author);
             commit_info.author_time = author.when().seconds();
+            self.update_status(& format!("author found {}", hash.to_string()));
+            let x = commit.message_raw_bytes();
+            self.update_status(& format!("message found {}", hash.to_string()));
             commit_info.message = to_string(commit.message_raw_bytes());
+            self.update_status("commit parents");
             commit_info.parents = commit.parents().map(|x| self.add_commit(& x.id())).collect();
             // calculate the changes
             commit_info.changes = self.get_commit_changes(& commit)?;
@@ -243,8 +251,8 @@ impl<'a> CommitsUpdater<'a> {
         return Ok(());
     }
 
-    fn update_status(& mut self) {
-        self.task.update().set_message(& format!("analyzing commits: q: {}, c: {}, s: {}, ch: {}, d: {}", self.q.len(), self.num_commits, self.num_snapshots, self.num_changes, self.num_diffs));
+    fn update_status(& mut self, action : & str) {
+        self.task.update().set_message(& format!("analyzing commits: q: {}, c: {}, s: {}, ch: {}, d: {} [{}]", self.q.len(), self.num_commits, self.num_snapshots, self.num_changes, self.num_diffs, action));
     }
 
     /** Adds given commit to the queue and returns its id. 
@@ -280,16 +288,17 @@ impl<'a> CommitsUpdater<'a> {
     fn get_commit_changes(& mut self, commit : & git2::Commit) -> Result<HashMap<u64, u64>, git2::Error> {
         let mut changes = HashMap::<String,git2::Oid>::new();
         if commit.parent_count() == 0 {
+            self.update_status("diff");
             self.calculate_tree_diff(None, Some(& commit.tree()?), & mut changes)?;
             self.num_diffs += 1;
-            self.update_status();
         } else {
             for p in commit.parents() {
+                self.update_status("diff");
                 self.calculate_tree_diff(Some(& p.tree()?), Some(& commit.tree()?), & mut changes)?;
                 self.num_diffs += 1;
-                self.update_status();
             }
         }
+        self.update_status("changes");
         // now that we have changes ready, time to convert paths and contents hashes, we do this under a single lock of paths and hashes
         let mut result = HashMap::<u64,u64>::new();
         let mut new_snapshots = Vec::<(String, u64,git2::Oid)>::new();
@@ -299,7 +308,7 @@ impl<'a> CommitsUpdater<'a> {
             for (path, hash) in changes.iter() {
                 self.num_changes += 1;
                 if self.num_changes % 1000 == 0 {
-                    self.update_status();
+                    self.update_status("changes");
                 }
                 let (path_id, _) = paths.get_or_create(path);
                 let (hash_id, is_new) = hashes.get_or_create(hash);
@@ -320,7 +329,7 @@ impl<'a> CommitsUpdater<'a> {
                     }
                     self.num_snapshots += 1;
                     if self.num_snapshots % 1000 == 0 {
-                        self.update_status();
+                        self.update_status("snapshots");
                     }
                 }
             }

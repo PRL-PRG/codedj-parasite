@@ -45,7 +45,7 @@ impl Updater {
     pub fn run(& mut self) {
         println!("Initializing repo updater...");
         let repo_updater = RepoUpdater::new(self);
-        let num_workers = 1;
+        let num_workers = 10;
 
         crossbeam::thread::scope(|s| {
             s.spawn(|_| {
@@ -114,15 +114,16 @@ impl Updater {
     fn status_printer(& self) {
         println!("\x1b[2J"); // clear screen
         loop {
+            let now = helpers::now();
             {
-                let tasks = self.tasks.lock().unwrap();
+                let mut tasks = self.tasks.lock().unwrap();
                 // acquire the lock so that we can print out stuff
                 //let x = self.status.lock().unwrap();
                 // print the global status
                 let ts = self.thread_status.lock().unwrap();
                 print!("\x1b[H\x1b[104;97m");
                 print!("DCD - {}, workers : {}r, {}i, {}p {} {}, datastore : p : {}, c : {}, co: {}\x1b[K\n",
-                    Updater::pretty_time(helpers::now() - self.start),
+                    Updater::pretty_time(now - self.start),
                     ts.running, ts.idle, ts.paused,
                     if ts.pause { " <PAUSE>" } else { "" },
                     if ts.stop { " <STOP>" } else { "" },
@@ -131,17 +132,26 @@ impl Updater {
                     Updater::pretty_value(self.ds.contents.lock().unwrap().loaded_len()),
                 );
                 println!("");
-                let mut odd = true;
-                for (name, task) in tasks.iter() {
-                    odd = ! odd;
-                    if odd {
-                        print!("\x1b[48;2;0;0;0m");
-                    } else {
-                        print!("\x1b[48;2;32;32;32m");
+                for (name, task) in tasks.iter_mut() {
+                    if task.error {
+                        task.print(name);
                     }
-                    task.print(name);
                 }
-                println!("");
+                let mut odd = false;
+                for (name, task) in tasks.iter_mut() {
+                    if task.end == 0 {
+                        odd = ! odd;
+                        if odd {
+                            print!("\x1b[48;2;0;0;0m\x1b[97m");
+                        } else {
+                            print!("\x1b[48;2;32;32;32m\x1b[97m");
+                        }
+                        task.print(name);
+                    }
+                }
+                println!("\x1b[0m\x1b[J");
+                // now remove all tasks that are long dead (10s)
+                tasks.retain(|&_, x| !x.is_done() || (now  - x.end < 10));
             }
             std::thread::sleep(std::time::Duration::from_millis(1000));
         }
@@ -215,6 +225,9 @@ impl<'a> Task<'a> {
 
 pub struct TaskInfo {
     start : i64,
+    end : i64,
+    ping : i64,
+    error : bool, 
     url : String,
     message : String,
 
@@ -224,6 +237,9 @@ impl TaskInfo {
     fn new() -> TaskInfo {
         return TaskInfo{
             start : helpers::now(),
+            end : 0,
+            ping : 0,
+            error : false,
             url : String::new(),
             message : String::from("initializing..."),
         };
@@ -231,23 +247,60 @@ impl TaskInfo {
 
     pub fn set_url(& mut self, url : & str) -> & mut Self {
         self.url = url.to_owned();
+        self.ping = 0;
         return self;
     }
 
     pub fn set_message(& mut self, msg : & str) -> & mut Self {
         self.message = msg.to_owned();
+        self.ping = 0;
         return self;
     }
 
-    /** Prints the task. */
-    fn print(& self, name : & str) {
-        println!("{}: {} - {}\x1b[K", 
-            name, 
-            Updater::pretty_time(helpers::now() - self.start),
-            self.url,
-        );
-        println!("    {}\x1b[K", self.message)
+    pub fn done(& mut self) -> & mut Self {
+        self.end = helpers::now();
+        self.message = "done".to_owned();
+        self.ping = 0;
+        return self;
     }
+
+    pub fn error(& mut self, msg : & str) -> & mut Self {
+        self.end = helpers::now();
+        self.message = format!("Error: {}", msg);
+        self.ping = 0;
+        self.error = true;
+        return self;
+    }
+
+    pub fn is_done(& self) -> bool {
+        return self.end != 0;
+    }
+
+    /** Prints the task. */
+    fn print(& mut self, name : & str) {
+        // first determine the status
+        let mut status = String::new();
+        if self.error {
+            print!("\x1b[101;30m");
+        } else if self.is_done() {
+            print!("\x1b[90m");
+        } else {
+            self.ping += 1;
+            if self.ping > 10 {
+                status = format!(" - NOT RESPONDING: {}", Updater::pretty_time(self.ping));
+                print!("\x1b[48;2;255;165;0m");
+            }
+        }
+        let end = if self.is_done() { self.end } else { helpers::now() };
+        println!("{}: {} - {}{}\x1b[K", 
+            name, 
+            Updater::pretty_time(end - self.start),
+            self.url,
+            status
+        );
+        println!("    {}\x1b[K", self.message);
+    }
+
 }
 
 pub struct TaskUpdater<'a> {
@@ -272,90 +325,5 @@ impl<'a> std::ops::DerefMut for TaskUpdater<'a> {
 
 
 
-
-
-
-
-/** Status of the update record. 
- */
-#[derive(Eq, PartialEq)]
-pub enum UpdateRecordState {
-    Running,
-    Done,
-    Error
-}
-
-/** Information about single work item. 
- 
-    Work items are ordered by their start time so that the oldest appear at the top. 
- */
-#[derive(Eq)]
-pub struct UpdateRecord {
-    pub id : u64,
-    pub state : UpdateRecordState,
-    pub start : i64, 
-    pub progress : u64,
-    pub progress_max : u64,
-    pub status : String,
-    pub url : String,
-}
-
-impl UpdateRecord {
-    fn new() -> UpdateRecord {
-        return UpdateRecord{
-            id : 0,
-            state : UpdateRecordState::Running,
-            start : helpers::now(),
-            progress : 0,
-            progress_max : 0,
-            status : String::new(),
-            url : String::new(),
-        }
-    }
-    /** Prints the update record. 
-     */
-    fn print(& self) {
-    }
-}
-
-impl Ord for UpdateRecord {
-    fn cmp(& self, other : & Self) -> std::cmp::Ordering {
-        return self.start.cmp(& other.start);
-    }
-}
-
-impl PartialOrd for UpdateRecord {
-    fn partial_cmp(& self, other : & Self) -> Option<std::cmp::Ordering> {
-        return Some(self.start.cmp(& other.start));
-    }
-}
-
-impl PartialEq for UpdateRecord {
-    fn eq(& self, other : & Self) -> bool {
-        return self.id == other.id;
-    }
-}
-
-/** Holds locked mutex guard and dereferences to the particular update record. 
- */
-pub struct UpdateRecordGuard<'a> {
-    g : MutexGuard<'a, HashMap<String, UpdateRecord>>,
-    name : String,
-}
-
-impl<'a> std::ops::Deref for UpdateRecordGuard<'a> {
-    type Target = UpdateRecord;
-
-    fn deref(&self) -> &Self::Target {
-        return self.g.get(& self.name).unwrap();
-    }
-}
-
-impl<'a> std::ops::DerefMut for UpdateRecordGuard<'a> {
-
-    fn deref_mut(&mut self) -> & mut Self::Target {
-        return self.g.get_mut(& self.name).unwrap();
-    }
-}
 
 
