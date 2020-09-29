@@ -5,8 +5,7 @@
 
 # TODO
 
-- add updater ui
-- add more projects adder
+- add updater ui responsiveness
 - add snapshots analysis
 - add github metadata
 - add simple csv exporter

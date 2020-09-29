@@ -4,61 +4,50 @@ use std::sync::*;
 use crate::datastore::*;
 use crate::helpers;
 use crate::repo_updater::*;
+use crate::github::*;
 
-
-/** The updater status structure that displays various information about the running updater. 
- 
+/** Thread counts and updater exections state.  
  */
-pub struct Updater {
-    pub (crate) tmp_folder : String,
-    pub (crate) ds : Datastore,
-    start : i64,
-    tasks : Mutex<HashMap<String, TaskInfo>>,
+struct ThreadStatus {
+    running: u64, 
+    idle : u64, 
+    paused : u64,
+    pause : bool,
+    stop : bool,
+}
+
+/** The task manager. 
+ */
+struct TaskManager {
+    tasks : Mutex<(HashMap<u32, TaskInfo>, u32)>,
     thread_status : Mutex<ThreadStatus>,
     qcv_pause : Condvar,
 }
 
-impl Updater {
-
-    pub fn new(mut datastore : Datastore) -> Updater {
-        // prep datastore 
-        println!("Creating updater...");
-        datastore.fill_mappings();
-        // check the tmp directory inside the datastore
-        let tmp_folder = format!("{}/tmp", datastore.root());
-        let tmp_path = std::path::Path::new(& tmp_folder);
-        if tmp_path.exists() {
-            std::fs::remove_dir_all(&tmp_path).unwrap();
-        }
-        std::fs::create_dir_all(&tmp_path).unwrap();
-        // create the updater
-        return Updater{
-            tmp_folder,
-            ds : datastore,
-            start : helpers::now(),
-            tasks : Mutex::new(HashMap::new()),
+impl TaskManager {
+    fn new() -> TaskManager {
+        return TaskManager{
+            tasks : Mutex::new((HashMap::new(), 0)),
             thread_status : Mutex::new(ThreadStatus{running : 0, idle : 0, paused : 0, pause : false, stop : false}),
             qcv_pause : Condvar::new(),
         };
     }
 
-    pub fn run(& mut self) {
-        println!("Initializing repo updater...");
-        let repo_updater = RepoUpdater::new(self);
-        let num_workers = 10;
-
-        crossbeam::thread::scope(|s| {
-            s.spawn(|_| {
-                self.status_printer();
-            });
-            // start the worker threads
-            for _ in 0..num_workers {
-                s.spawn(|_| {
-                    repo_updater.worker();
-                });
+    /** creates new task
+     */ 
+    fn new_task(& self) -> Task {
+        loop {
+            let mut x = self.tasks.lock().unwrap();
+            let id = x.1;
+            x.1 += 1;
+            if ! x.0.contains_key(& id) {
+                x.0.insert(id, TaskInfo::new());
+                return Task{
+                    id,
+                    tasks : & self.tasks, 
+                };
             }
-        }).unwrap();
-
+        }
     }
 
     /** Informs the updater that a thread has started. 
@@ -107,20 +96,110 @@ impl Updater {
         x.running -= 1;
     }
 
-    pub (crate) fn new_task(& self, name : String) -> Task {
-        return Task::new(self, name);
+}
+
+
+/** The updater status structure that displays various information about the running updater. 
+ 
+ */
+pub struct Updater {
+    pub (crate) tmp_folder : String,
+    pub (crate) ds : Datastore,
+    gh : Github, 
+    start : i64,
+    tm : TaskManager,
+}
+
+impl Updater {
+
+    pub fn new(mut datastore : Datastore) -> Updater {
+        // prep datastore 
+        println!("Creating updater...");
+        datastore.fill_mappings();
+        // check the tmp directory inside the datastore
+        let tmp_folder = format!("{}/tmp", datastore.root());
+        let tmp_path = std::path::Path::new(& tmp_folder);
+        if tmp_path.exists() {
+            std::fs::remove_dir_all(&tmp_path).unwrap();
+        }
+        std::fs::create_dir_all(&tmp_path).unwrap();
+        // create the updater
+        return Updater{
+            tmp_folder,
+            ds : datastore,
+            gh : Github::new("/dejacode/github-tokens.csv"),
+            start : helpers::now(),
+            tm : TaskManager::new(),
+        };
     }
+
+    pub fn run(& mut self) {
+        println!("Initializing repo updater...");
+        let repo_updater = RepoUpdater::new(& self.ds);
+        println!("Creating projects queue...");
+        let project_queue = ProjectQueue::new(self);
+        println!("    projects queueued: {}", project_queue.len());
+        println!("    valid time:        {}", project_queue.valid_time());
+        let num_workers = 20;
+
+        crossbeam::thread::scope(|s| {
+            s.spawn(|_| {
+                self.status_printer();
+            });
+            // start the worker threads
+            for _ in 0..num_workers {
+                s.spawn(|_| {
+                    self.worker(& |task : & Task|{
+                        repo_updater.worker(& project_queue, task);
+                    });
+                });
+            }
+        }).unwrap();
+
+    }
+
+    /** Determines whether the contents of given file should be archived or not. 
+     
+        By default, we archive source code files. 
+     */
+    pub fn want_contents_of(path : & str) -> bool {
+        let parts = path.split(".").collect::<Vec<& str>>();
+        match parts[parts.len() - 1] {
+            // generic files
+            "README" => true,
+            // C
+            "c" => true,
+            // C++
+            "cpp" | "h" => true,
+            // JavaScript
+            "js" => true,
+            _ => false
+        }
+    }
+
+    /** The worker creates a task, and then calls with the task and a datastore the actuakl worker function. 
+     */
+    fn worker(& self, worker : & dyn Fn(& Task)) {
+        self.tm.thread_start();
+        while self.tm.thread_next() {
+            let task = self.tm.new_task();
+            worker(& task);
+        }
+        self.tm.thread_done();
+
+    }
+
 
     fn status_printer(& self) {
         println!("\x1b[2J"); // clear screen
         loop {
             let now = helpers::now();
             {
-                let mut tasks = self.tasks.lock().unwrap();
+                let mut tasks = self.tm.tasks.lock().unwrap();
                 // acquire the lock so that we can print out stuff
                 //let x = self.status.lock().unwrap();
                 // print the global status
-                let ts = self.thread_status.lock().unwrap();
+                let ts = self.tm.thread_status.lock().unwrap();
                 print!("\x1b[H\x1b[104;97m");
                 print!("DCD - {}, workers : {}r, {}i, {}p {} {}, datastore : p : {}, c : {}, co: {}\x1b[K\n",
                     Updater::pretty_time(now - self.start),
@@ -132,13 +211,13 @@ impl Updater {
                     Updater::pretty_value(self.ds.contents.lock().unwrap().loaded_len()),
                 );
                 println!("");
-                for (name, task) in tasks.iter_mut() {
+                for (id, task) in tasks.0.iter_mut() {
                     if task.error {
-                        task.print(name);
+                        task.print(*id);
                     }
                 }
                 let mut odd = false;
-                for (name, task) in tasks.iter_mut() {
+                for (id, task) in tasks.0.iter_mut() {
                     if task.end == 0 {
                         odd = ! odd;
                         if odd {
@@ -146,12 +225,12 @@ impl Updater {
                         } else {
                             print!("\x1b[48;2;32;32;32m\x1b[97m");
                         }
-                        task.print(name);
+                        task.print(*id);
                     }
                 }
                 println!("\x1b[0m\x1b[J");
                 // now remove all tasks that are long dead (10s)
-                tasks.retain(|&_, x| !x.is_done() || (now  - x.end < 10));
+                tasks.0.retain(|&_, x| !x.is_done() || (now  - x.end < 10));
             }
             std::thread::sleep(std::time::Duration::from_millis(1000));
         }
@@ -193,33 +272,19 @@ impl Updater {
 
 }
 
-/** Thread counts and updater exections state.  
- */
-struct ThreadStatus {
-    running: u64, 
-    idle : u64, 
-    paused : u64,
-    pause : bool,
-    stop : bool,
-}
-
 /** Information about each task the updater works on. 
  
     A task can be updated. 
  */ 
 pub struct Task<'a> {
-    name : String,
-    updater : &'a Updater,
+    id : u32,
+    tasks : &'a Mutex<(HashMap<u32, TaskInfo>, u32)>,
 }
 
 impl<'a> Task<'a> {
-    fn new(updater : & Updater, name : String) -> Task {
-        updater.tasks.lock().unwrap().insert(name.clone(), TaskInfo::new());
-        return Task{ name, updater };
-    } 
 
     pub fn update(& self) -> TaskUpdater {
-        return TaskUpdater{g : self.updater.tasks.lock().unwrap(), t : self};
+        return TaskUpdater{g : self.tasks.lock().unwrap(), t : self};
     }
 }
 
@@ -277,7 +342,7 @@ impl TaskInfo {
     }
 
     /** Prints the task. */
-    fn print(& mut self, name : & str) {
+    fn print(& mut self, id : u32) {
         // first determine the status
         let mut status = String::new();
         if self.error {
@@ -293,7 +358,7 @@ impl TaskInfo {
         }
         let end = if self.is_done() { self.end } else { helpers::now() };
         println!("{}: {} - {}{}\x1b[K", 
-            name, 
+            id, 
             Updater::pretty_time(end - self.start),
             self.url,
             status
@@ -304,7 +369,7 @@ impl TaskInfo {
 }
 
 pub struct TaskUpdater<'a> {
-    g : MutexGuard<'a, HashMap<String, TaskInfo>>,
+    g : MutexGuard<'a, (HashMap<u32, TaskInfo>, u32)>,
     t : &'a Task<'a>
 }
 
@@ -312,14 +377,14 @@ impl<'a> std::ops::Deref for TaskUpdater<'a> {
     type Target = TaskInfo;
 
     fn deref(&self) -> &Self::Target {
-        return self.g.get(& self.t.name).unwrap();
+        return self.g.0.get(& self.t.id).unwrap();
     }
 }
 
 impl<'a> std::ops::DerefMut for TaskUpdater<'a> {
 
     fn deref_mut(&mut self) -> & mut Self::Target {
-        return self.g.get_mut(& self.t.name).unwrap();
+        return self.g.0.get_mut(& self.t.id).unwrap();
     }
 }
 

@@ -519,7 +519,7 @@ impl<'a, T : FileWriter<T>> Iterator for PropertyStoreAllIterator<'a, T> {
 
 /** Similar to property store, but each record has also a link to previous record for the same id, so that the records can be traversed. 
  */
-struct LinkedPropertyStore<T : FileWriter<T>> {
+pub struct LinkedPropertyStore<T : FileWriter<T>> {
     latest : Indexer, 
     pub (crate) f : File, 
     why_oh_why : std::marker::PhantomData<T>,

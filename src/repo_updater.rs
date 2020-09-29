@@ -5,15 +5,15 @@ use crate::datastore::*;
 use crate::records::*;
 use crate::helpers::*;
 use crate::updater::*;
+use crate::github::*;
 
 /* This is the updater. 
 
    Manage the workers and the 
  */
 pub struct RepoUpdater<'a> {
-    q : ProjectQueue<'a>,
-    u : &'a Updater,
-    extensions: HashSet<&'static str>,
+    ds : &'a Datastore,
+    gh : Github,
 }
 
 impl<'a> RepoUpdater<'a> {
@@ -22,102 +22,108 @@ impl<'a> RepoUpdater<'a> {
      
         Fills in the datastore mappings and initializes the updater queue based on valid dates. 
      */
-    pub fn new(u : & Updater) -> RepoUpdater {
-        println!("Creating projects queue...");
-        let q = ProjectQueue::new(& u);
-        println!("    projects queueued: {}", q.len());
-        println!("    valid time:        {}", q.valid_time());
+    pub fn new(ds : & Datastore) -> RepoUpdater {
         // create the updater and return it
         return RepoUpdater{
-            q,
-            u,
-            extensions : [
-                // generic files
-                "README",
-                // C
-                "c",
-                // C++
-                "cpp", "h",
-                // javascript
-                "js",
-            ].iter().cloned().collect(),
+            ds,
+            gh : Github::new("/dejacode/github-tokens.csv"),
         };
     } 
 
-    /** Determines whether the contents of given file should be archived or not. 
-     
-        By default, we archive source code files. 
-     */
-    pub fn want_contents_of(& self, filename : & str) -> bool {
-        let parts = filename.split(".").collect::<Vec<& str>>();
-        return self.extensions.contains(parts[parts.len() - 1]);
-    }
-
     /** Single worker thread implementation. 
      */
-    pub (crate) fn worker(& self) {
-        self.u.thread_start();
-        while self.u.thread_next() {
-            let t = helpers::now();
-            let (id, version) = self.q.deque();
-            let task = self.u.new_task(format!("{}", id));
-            // if the datastore version is different than the last update version, force the update
-            let force = true; //version != Datastore::VERSION;
-            let url = self.u.ds.get_project_url(id);
-            if force {
-                task.update().set_url(& format!("{} [FORCED]", url));
-            } else {
-                task.update().set_url(& url);
-            }
-            // TODO update metadata and project url 
-            match self.update_project_contents(id, & url, force, & task) {
-                Err(e) => {
-                    self.u.ds.project_last_updates.lock().unwrap().set(id, & UpdateLog::Error{
-                        time : t,
-                        version : Datastore::VERSION,
-                        error : e.message().to_owned()
-                    });
-                    task.update().error(e.message());
-                },
-                Ok(_) => {
-                    // TODO determine whether there have been any changes, or not to store appropriate result
-                    self.u.ds.project_last_updates.lock().unwrap().set(id, & UpdateLog::Ok{
-                        time : t,
-                        version : Datastore::VERSION
-                    });
-                    task.update().done();
-                }
+    pub (crate) fn worker(& self, q : & ProjectQueue, task : & Task) {
+        let t = helpers::now();
+        let (id, version) = q.deque();
+        let result = std::panic::catch_unwind(||{ 
+            return self.update_project(id, version, task);
+        });
+        match result {
+            Ok(Ok(true)) => {
+                self.ds.project_last_updates.lock().unwrap().set(id, & UpdateLog::Ok{
+                    time : t,
+                    version : Datastore::VERSION
+                });
+                task.update().done();
+            },
+            Ok(Ok(false)) => {
+                self.ds.project_last_updates.lock().unwrap().set(id, & UpdateLog::NoChange{
+                    time : t,
+                    version : Datastore::VERSION
+                });
+                task.update().done();
+            },
+            Ok(Err(cause)) => {
+                self.ds.project_last_updates.lock().unwrap().set(id, & UpdateLog::Error{
+                    time : t,
+                    version : Datastore::VERSION,
+                    error : format!("{:?}", cause)
+                });
+                task.update().error(& format!("{:?}", cause));
+            },
+            Err(cause) => {
+                self.ds.project_last_updates.lock().unwrap().set(id, & UpdateLog::Error{
+                    time : t,
+                    version : Datastore::VERSION,
+                    error : format!("Panic: {:?}", cause)
+                });
+                task.update().error(& format!("Panic: {:?}", cause));
             }
         }
-        self.u.thread_done();
+    }
+
+    /** Updates the project and returns the update result. 
+     
+        This is either an error (in case of an error, the updater must guarantee that any information already committed to the data store is valid and complete), false if there were no changes since the last time the project was updated, or true if there were any changes. 
+     */
+    fn update_project(& self, id : u64, version : u16, task : & Task) -> Result<bool, std::io::Error> {
+        // if the datastore version is different than the last update version, force the update
+        let force = version != Datastore::VERSION;
+        let mut url = self.ds.get_project_url(id);
+        if force {
+            task.update().set_url(& format!("{} [FORCED]", url));
+        } else {
+            task.update().set_url(& url);
+        }
+        // update metadata and project url 
+        task.update().set_message("checking metadata...");
+        let mut updated = self.update_github_project(id, & mut url, task)?;
+        match self.update_project_contents(id, & url, force, task) {
+            Ok(value) => updated = updated || value,
+            Err(cause) => {
+                return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("{:?}", cause)));
+            }
+        }
+        return Ok(updated);
     }
 
     /** Updates the contents of the project. 
      
      */
-    fn update_project_contents(& self, id : u64, url : & str, force : bool, task : & Task) -> Result<(), git2::Error> {
+    fn update_project_contents(& self, id : u64, url : & str, force : bool, task : & Task) -> Result<bool, git2::Error> {
         task.update().set_message("analyzing remote heads...");
-        let old_heads = self.u.ds.get_project_heads(id);
+        let old_heads = self.ds.get_project_heads(id);
         // time to create the repository
-        let repo_path = format!("{}/{}", self.u.tmp_folder, id);
+        let repo_path = format!("{}/tmp/{}", self.ds.root(), id);
         let repo = git2::Repository::init_bare(repo_path.clone())?;
         let mut remote = repo.remote("dcd", & url)?;
         remote.connect(git2::Direction::Fetch)?;
         let new_heads = self.fetch_remote_heads(& mut remote)?;
         // compare the old and new heads, if there are changes, download the repository contents and analyze the inputs 
         let heads_to_be_updated = self.compare_remote_heads(& old_heads, & new_heads, force);
-        if ! heads_to_be_updated.is_empty() {
+        let updated = ! heads_to_be_updated.is_empty();
+        if updated {
             // fetch the project
             self.fetch_contents(& mut remote, & heads_to_be_updated, task)?;
             // add the new commits 
-            let mut commits_updater = CommitsUpdater::new(& repo, self, force, task);
+            let mut commits_updater = CommitsUpdater::new(& repo, self.ds, force, task);
             commits_updater.update(& heads_to_be_updated)?;
             // update the remote heads
-            self.u.ds.project_heads.lock().unwrap().set(id, & self.translate_heads(& new_heads));
+            self.ds.project_heads.lock().unwrap().set(id, & self.translate_heads(& new_heads));
         }
         // delete the repository from disk
         std::fs::remove_dir_all(& repo_path).unwrap();        
-        return Ok(());
+        return Ok(updated);
     }
 
     fn fetch_remote_heads(& self, remote : & mut git2::Remote) -> Result<HashMap<String, git2::Oid>, git2::Error> {
@@ -131,7 +137,7 @@ impl<'a> RepoUpdater<'a> {
     }
 
     fn translate_heads(& self, heads : & HashMap<String, git2::Oid>) -> Heads {
-        let commits = self.u.ds.commits.lock().unwrap();
+        let commits = self.ds.commits.lock().unwrap();
         return heads.iter().map(|(name, hash)| (name.to_owned(), commits.get(hash).unwrap())).collect();
     }
 
@@ -142,7 +148,7 @@ impl<'a> RepoUpdater<'a> {
     fn compare_remote_heads(& self, last : & Heads, current : & HashMap<String, git2::Oid>, force : bool) -> Vec<(String, git2::Oid)> {
         let mut result = Vec::<(String,git2::Oid)>::new();
         // lock the commits and check for each new head if it exists in the old ones and if the commit id is the same (and found)
-        let commits = self.u.ds.commits.lock().unwrap();
+        let commits = self.ds.commits.lock().unwrap();
         for (name, hash) in current {
             if ! force {
                 if let Some(id) = last.get(name) {
@@ -161,7 +167,6 @@ impl<'a> RepoUpdater<'a> {
      */
     fn fetch_contents(& self, remote : & mut git2::Remote, heads : & Vec<(String, git2::Oid)>, task : & Task) -> Result<(), git2::Error> {
         let mut callbacks = git2::RemoteCallbacks::new();
-        // TODO the callbacks should actually report stuff
         callbacks.transfer_progress(|progress : git2::Progress| -> bool {
             task.update().set_message(& format!("downloading contents {} / {}",
                 progress.received_objects() + progress.indexed_deltas() + progress.indexed_objects(),
@@ -176,11 +181,56 @@ impl<'a> RepoUpdater<'a> {
     }
 
 
-    fn update_github_project(& self, id : u64, url : & str) {
+    fn update_github_project(& self, id : u64, url : & mut String, task : & Task) -> Result<bool, std::io::Error> {
         if !url.starts_with("https://github.com") {
-            return;
+            return Ok(false);
+        }
+        task.update().set_message("github metadata");
+        let mut metadata = self.gh.get_repo(& url)?;
+        let new_url = format!("{}.git",metadata["html_url"]).to_lowercase();
+        let mut changed = false;
+        if *url != new_url {
+            // update the url
+            *url = new_url;
+            task.update().set_url(url);
+            self.ds.project_urls.lock().unwrap().set(id, & url);
+            changed = true;
+        }
+        // now minimize the metadata object and see if it has changed since last time
+        RepoUpdater::filter_github_metadata_keys(& mut metadata, true);
+        let metadata_str = metadata.to_string();
+        // try storing always, if new, no need to check the old value as it must have been different
+        let (contents_id, is_new) = self.ds.store_contents(& metadata_str);
+        let mut metadata_change = is_new;
+        if ! metadata_change {
+            let old_id = self.ds.projects_metadata.lock().unwrap().get_metadata(id, "github_metadata");
+            match old_id {
+                Some(real_old_id) => metadata_change = contents_id != real_old_id.parse::<u64>().unwrap(),
+                None => metadata_change = true,
+            }
+        }
+        if metadata_change {
+            self.ds.projects_metadata.lock().unwrap().set(id, & Metadata{key : "github_metadata".to_owned(), value : format!("{}", contents_id)});
+            changed = true;
         }
 
+        return Ok(changed);
+    }
+
+    fn filter_github_metadata_keys(json : & mut json::JsonValue, is_root : bool) {
+        let mut x = Vec::new();
+        for (key, value) in json.entries_mut() {
+            if is_root && key == "html_url" {
+                // do nothing
+            } else if key.ends_with("_url") || key == "url" {
+                x.push(key.to_string());
+                continue;
+            } 
+            RepoUpdater::filter_github_metadata_keys(value, false);
+        }
+        for k in x {
+            json.remove(&k);
+        }
     }
 
 }
@@ -192,7 +242,7 @@ impl<'a> RepoUpdater<'a> {
  */
 struct CommitsUpdater<'a> {
     repo : &'a git2::Repository,
-    ru : &'a RepoUpdater<'a>, 
+    ds : &'a Datastore, 
     task : &'a Task<'a>,
     force : bool,
     visited_commits : HashSet<u64>,
@@ -206,8 +256,8 @@ struct CommitsUpdater<'a> {
 }
 
 impl<'a> CommitsUpdater<'a> {
-    pub fn new(repo : &'a git2::Repository, ru: &'a RepoUpdater, force : bool, task : &'a Task) -> CommitsUpdater<'a> {
-        return CommitsUpdater{ repo, ru, force, visited_commits : HashSet::new(), q : Vec::new(), task, num_commits : 0, num_snapshots : 0, num_changes : 0, num_diffs : 0 };
+    pub fn new(repo : &'a git2::Repository, ds: &'a Datastore, force : bool, task : &'a Task) -> CommitsUpdater<'a> {
+        return CommitsUpdater{ repo, ds, force, visited_commits : HashSet::new(), q : Vec::new(), task, num_commits : 0, num_snapshots : 0, num_changes : 0, num_diffs : 0 };
     }
 
     /** Updates the commits. 
@@ -240,7 +290,7 @@ impl<'a> CommitsUpdater<'a> {
             commit_info.changes = self.get_commit_changes(& commit)?;
             // output the commit info
             {
-                let mut commits_info = self.ru.u.ds.commits_info.lock().unwrap();
+                let mut commits_info = self.ds.commits_info.lock().unwrap();
                 if ! commits_info.has(id) {
                     commits_info.set(id, & commit_info);
                 }
@@ -260,7 +310,7 @@ impl<'a> CommitsUpdater<'a> {
         If the commit is already known to the datastore it will not be added to the queue as someone else has already analyzed it, or is currently analyzing. 
      */
     fn add_commit(& mut self, hash : & git2::Oid) -> u64 {
-        let (id, is_new) = self.ru.u.ds.commits.lock().unwrap().get_or_create(hash); 
+        let (id, is_new) = self.ds.commits.lock().unwrap().get_or_create(hash); 
         if self.force {
             if ! self.visited_commits.contains(& id) {
                 self.visited_commits.insert(id);
@@ -275,7 +325,7 @@ impl<'a> CommitsUpdater<'a> {
     }
 
     fn get_or_create_user(& mut self, user : & git2::Signature) -> u64 {
-        let (id, is_new) = self.ru.u.ds.users.lock().unwrap().get_or_create(& to_string(user.email_bytes()));
+        let (id, is_new) = self.ds.users.lock().unwrap().get_or_create(& to_string(user.email_bytes()));
         // add name as metadata in case the user is new
         if is_new {
             // TODO 
@@ -303,8 +353,8 @@ impl<'a> CommitsUpdater<'a> {
         let mut result = HashMap::<u64,u64>::new();
         let mut new_snapshots = Vec::<(String, u64,git2::Oid)>::new();
         {
-            let mut paths = self.ru.u.ds.paths.lock().unwrap();
-            let mut hashes = self.ru.u.ds.hashes.lock().unwrap();
+            let mut paths = self.ds.paths.lock().unwrap();
+            let mut hashes = self.ds.hashes.lock().unwrap();
             for (path, hash) in changes.iter() {
                 self.num_changes += 1;
                 if self.num_changes % 1000 == 0 {
@@ -320,12 +370,12 @@ impl<'a> CommitsUpdater<'a> {
         }
         // look at the new snapshots, determine if they are to be downloaded and download those that we are interested in. 
         for (path, id, hash) in new_snapshots {
-            if self.ru.want_contents_of(& path) {
-                let (contents_id, is_new) = self.ru.u.ds.contents.lock().unwrap().get_or_create(& id);
+            if Updater::want_contents_of(& path) {
+                let (contents_id, is_new) = self.ds.contents.lock().unwrap().get_or_create(& id);
                 if let Ok(blob) = self.repo.find_blob(hash) {
                     let bytes = ContentsData::from(blob.content());
                     if is_new {
-                        self.ru.u.ds.contents_data.lock().unwrap().set(contents_id, & bytes);
+                        self.ds.contents_data.lock().unwrap().set(contents_id, & bytes);
                     }
                     self.num_snapshots += 1;
                     if self.num_snapshots % 1000 == 0 {
@@ -369,7 +419,7 @@ impl<'a> CommitsUpdater<'a> {
 
 /** Priority queue for the projects based on their update times with the oldest projects having the highest priority. 
  */
-struct ProjectQueue<'a> {
+pub struct ProjectQueue<'a> {
     q : Mutex<BinaryHeap<std::cmp::Reverse<QueuedProject>>>,
     qcv : Condvar,
     u : &'a Updater,
@@ -378,7 +428,7 @@ struct ProjectQueue<'a> {
 impl<'a> ProjectQueue<'a> {
     /** Creates new projects queue and fills it with projects from given datastore. 
      */
-    fn new(u : & Updater) -> ProjectQueue {
+    pub fn new(u : & Updater) -> ProjectQueue {
         let result = ProjectQueue{
             q : Mutex::new(BinaryHeap::new()),
             qcv : Condvar::new(),
@@ -399,18 +449,18 @@ impl<'a> ProjectQueue<'a> {
         return result;
     }
 
-    fn deque(& self) -> (u64, u16) {
+    pub fn deque(& self) -> (u64, u16) {
         let mut projects = self.q.lock().unwrap();
         while projects.is_empty() {
-            self.u.thread_running_to_idle();
+            //self.u.thread_running_to_idle();
             projects = self.qcv.wait(projects).unwrap();
-            self.u.thread_idle_to_running();
+            //self.u.thread_idle_to_running();
         }
         let x = projects.pop().unwrap().0;
         return (x.id, x.version);
     }
 
-    fn enqueue(& self, id : u64, time : i64) {
+    pub fn enqueue(& self, id : u64, time : i64) {
         let mut projects = self.q.lock().unwrap();
         projects.push(std::cmp::Reverse(QueuedProject{id, last_update_time : time, version : Datastore::VERSION }));
         self.qcv.notify_one();
@@ -418,13 +468,13 @@ impl<'a> ProjectQueue<'a> {
 
     /** Returns the number of projects in the queue.
      */
-    fn len(& self) -> usize {
+    pub fn len(& self) -> usize {
         return self.q.lock().unwrap().len();
     }
 
     /** Returns the oldest update time. 
      */
-    fn valid_time(& self) -> i64 {
+    pub fn valid_time(& self) -> i64 {
         let q = self.q.lock().unwrap();
         if q.is_empty() {
             return 0;

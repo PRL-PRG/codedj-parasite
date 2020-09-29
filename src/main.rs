@@ -7,11 +7,23 @@ mod updater;
 mod repo_updater;
 mod records;
 mod helpers;
+mod github;
 
 use datastore::*;
 use updater::*;
 
+use github::*;
+
 fn main() {
+
+    //let gh = Github::new("/dejacode/github-tokens.csv");
+    //let metadata = gh.get_repo("https://github.com/skyphp/pgbackup.git").unwrap();
+    //let new_url = format!("{}.git",metadata["html_url"]);
+    //println!("{}", new_url);
+
+    //return;
+
+
     println!("DejaCode Downloader mark II");
     let args : Vec<String> = std::env::args().collect();
     let mut i = 1;

@@ -2,6 +2,7 @@ use std::sync::*;
 use std::io::*;
 use std::fs::{File, OpenOptions};
 
+use sha1::{Sha1, Digest};
 
 use crate::db::*;
 
@@ -23,17 +24,22 @@ pub struct Datastore {
     pub (crate) project_urls : Mutex<PropertyStore<String>>,
     pub (crate) project_last_updates : Mutex<PropertyStore<UpdateLog>>,
     pub (crate) project_heads : Mutex<PropertyStore<Heads>>,
+    pub (crate) projects_metadata : Mutex<LinkedPropertyStore<Metadata>>,
 
     /** Mappings of the objects the datastore keeps track of. 
      */
     pub (crate) commits : Mutex<DirectMapping<git2::Oid>>,
     pub (crate) commits_info : Mutex<PropertyStore<CommitInfo>>,
+    pub (crate) commits_metadata : Mutex<LinkedPropertyStore<Metadata>>,
     pub (crate) users : Mutex<Mapping<String>>,
+    pub (crate) users_metadata : Mutex<LinkedPropertyStore<Metadata>>,
     pub (crate) paths : Mutex<Mapping<String>>,
+    pub (crate) paths_metadata : Mutex<LinkedPropertyStore<Metadata>>,
     pub (crate) hashes : Mutex<DirectMapping<git2::Oid>>,
 
     pub (crate) contents : Mutex<DirectMapping<u64>>,
     pub (crate) contents_data : Mutex<PropertyStore<ContentsData>>,
+    pub (crate) contents_metadata : Mutex<LinkedPropertyStore<Metadata>>,
 
     /** Record of file sizes for each savepoint so that the database can be viewed at certain dates. 
      */ 
@@ -58,15 +64,20 @@ impl Datastore {
             project_urls : Mutex::new(PropertyStore::new(& format!("{}/project-urls.dat", root))),
             project_last_updates : Mutex::new(PropertyStore::new(& format!("{}/project-updates.dat", root))),
             project_heads : Mutex::new(PropertyStore::new(& format!("{}/project-heads.dat", root))),
+            projects_metadata : Mutex::new(LinkedPropertyStore::new(& format!("{}/projects-metadata.dat", root))),
 
             commits : Mutex::new(DirectMapping::new(& format!("{}/commits.dat", root))),
             commits_info : Mutex::new(PropertyStore::new(& format!("{}/commits-info.dat", root))),
+            commits_metadata : Mutex::new(LinkedPropertyStore::new(& format!("{}/commits-metadata.dat", root))),
             users : Mutex::new(Mapping::new(& format!("{}/users.dat", root))),
+            users_metadata : Mutex::new(LinkedPropertyStore::new(& format!("{}/users-metadata.dat", root))),
             paths : Mutex::new(Mapping::new(& format!("{}/paths.dat", root))),
+            paths_metadata : Mutex::new(LinkedPropertyStore::new(& format!("{}/paths-metadata.dat", root))),
             hashes : Mutex::new(DirectMapping::new(& format!("{}/hashes.dat", root))),
 
             contents : Mutex::new(DirectMapping::new(& format!("{}/contents.dat", root))),
             contents_data : Mutex::new(PropertyStore::new(& format!("{}/contents-data.dat", root))),
+            contents_metadata : Mutex::new(LinkedPropertyStore::new(& format!("{}/contents-metadata.dat", root))),
 
             savepoints : Mutex::new(OpenOptions::new().read(true).write(true).create(true).open(& format!("{}/savepoints.dat", root)).unwrap()),
         };
@@ -145,13 +156,18 @@ impl Datastore {
         sp.add_entry("project_urls", & mut self.project_urls.lock().unwrap().f);
         sp.add_entry("project_last_updates", & mut self.project_last_updates.lock().unwrap().f);
         sp.add_entry("project_heads", & mut self.project_heads.lock().unwrap().f);
+        sp.add_entry("projects_metadata", & mut self.projects_metadata.lock().unwrap().f);
         sp.add_entry("commits", & mut self.commits.lock().unwrap().writer.f);
         sp.add_entry("commits_info", & mut self.commits_info.lock().unwrap().f);
+        sp.add_entry("commits_metadata", & mut self.commits_metadata.lock().unwrap().f);
         sp.add_entry("users", & mut self.users.lock().unwrap().writer.f);
+        sp.add_entry("users_metadata", & mut self.users_metadata.lock().unwrap().f);
         sp.add_entry("paths", & mut self.paths.lock().unwrap().writer.f);
+        sp.add_entry("paths_metadata", & mut self.paths_metadata.lock().unwrap().f);
         sp.add_entry("hashes", & mut self.hashes.lock().unwrap().writer.f);
         sp.add_entry("contents", & mut self.contents.lock().unwrap().writer.f);
         sp.add_entry("contents_data", & mut self.contents_data.lock().unwrap().f);
+        sp.add_entry("contents_metadata", & mut self.contents_metadata.lock().unwrap().f);
         return sp;
     }
 
@@ -188,6 +204,19 @@ impl Datastore {
         } else {
             return Heads::new();
         }
+    }
+
+    pub fn store_contents(& self, value : & str) -> (u64, bool) {
+        let mut hasher = Sha1::new();
+        hasher.update(value.as_bytes());
+        let hash = git2::Oid::from_bytes(& hasher.finalize()).unwrap();
+        // first create snapshot and then create contents
+        let (snapshot_id, _) = self.hashes.lock().unwrap().get_or_create(& hash); 
+        let (contents_id, is_new) = self.contents.lock().unwrap().get_or_create(& snapshot_id);
+        if is_new {
+            self.contents_data.lock().unwrap().set(contents_id, & Vec::from(value.as_bytes()));
+        }
+        return (contents_id, is_new);
     }
 
 }
