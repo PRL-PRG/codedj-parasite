@@ -18,7 +18,7 @@ struct ThreadStatus {
 
 /** The task manager. 
  */
-struct TaskManager {
+pub (crate) struct TaskManager {
     tasks : Mutex<(HashMap<u32, TaskInfo>, u32)>,
     thread_status : Mutex<ThreadStatus>,
     qcv_pause : Condvar,
@@ -107,7 +107,7 @@ pub struct Updater {
     pub (crate) ds : Datastore,
     gh : Github, 
     start : i64,
-    tm : TaskManager,
+    pub (crate) tm : TaskManager,
 }
 
 impl Updater {
@@ -135,12 +135,12 @@ impl Updater {
 
     pub fn run(& mut self) {
         println!("Initializing repo updater...");
-        let repo_updater = RepoUpdater::new(& self.ds);
+        let repo_updater = RepoUpdater::new(& self.ds, & self.gh);
         println!("Creating projects queue...");
         let project_queue = ProjectQueue::new(self);
         println!("    projects queueued: {}", project_queue.len());
         println!("    valid time:        {}", project_queue.valid_time());
-        let num_workers = 20;
+        let num_workers = 16;
 
         crossbeam::thread::scope(|s| {
             s.spawn(|_| {
@@ -210,10 +210,10 @@ impl Updater {
                     Updater::pretty_value(self.ds.commits.lock().unwrap().loaded_len()),
                     Updater::pretty_value(self.ds.contents.lock().unwrap().loaded_len()),
                 );
-                println!("");
+                println!("\x1b[K\n");
                 for (id, task) in tasks.0.iter_mut() {
                     if task.error {
-                        task.print(*id);
+                        task.print();
                     }
                 }
                 let mut odd = false;
@@ -225,7 +225,7 @@ impl Updater {
                         } else {
                             print!("\x1b[48;2;32;32;32m\x1b[97m");
                         }
-                        task.print(*id);
+                        task.print();
                     }
                 }
                 println!("\x1b[0m\x1b[J");
@@ -293,6 +293,7 @@ pub struct TaskInfo {
     end : i64,
     ping : i64,
     error : bool, 
+    name : String,
     url : String,
     message : String,
 
@@ -305,9 +306,16 @@ impl TaskInfo {
             end : 0,
             ping : 0,
             error : false,
+            name : "???".to_owned(),
             url : String::new(),
             message : String::from("initializing..."),
         };
+    }
+
+    pub fn set_name(& mut self, name : & str) -> & mut Self {
+        self.name = name.to_owned();
+        self.ping = 0;
+        return self;
     }
 
     pub fn set_url(& mut self, url : & str) -> & mut Self {
@@ -342,7 +350,7 @@ impl TaskInfo {
     }
 
     /** Prints the task. */
-    fn print(& mut self, id : u32) {
+    fn print(& mut self) {
         // first determine the status
         let mut status = String::new();
         if self.error {
@@ -358,7 +366,7 @@ impl TaskInfo {
         }
         let end = if self.is_done() { self.end } else { helpers::now() };
         println!("{}: {} - {}{}\x1b[K", 
-            id, 
+            self.name, 
             Updater::pretty_time(end - self.start),
             self.url,
             status

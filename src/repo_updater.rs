@@ -11,22 +11,22 @@ use crate::github::*;
 
    Manage the workers and the 
  */
-pub struct RepoUpdater<'a> {
+pub struct RepoUpdater<'a, 'b> {
     ds : &'a Datastore,
-    gh : Github,
+    gh : &'b Github,
 }
 
-impl<'a> RepoUpdater<'a> {
+impl<'a, 'b> RepoUpdater<'a, 'b> {
 
     /** Creates the updater for given datastore. 
      
         Fills in the datastore mappings and initializes the updater queue based on valid dates. 
      */
-    pub fn new(ds : & Datastore) -> RepoUpdater {
+    pub fn new(ds : &'a Datastore, gh : &'b Github) -> RepoUpdater<'a,'b> {
         // create the updater and return it
         return RepoUpdater{
             ds,
-            gh : Github::new("/dejacode/github-tokens.csv"),
+            gh
         };
     } 
 
@@ -35,6 +35,7 @@ impl<'a> RepoUpdater<'a> {
     pub (crate) fn worker(& self, q : & ProjectQueue, task : & Task) {
         let t = helpers::now();
         let (id, version) = q.deque();
+        task.update().set_name(& format!("{}", id));
         let result = std::panic::catch_unwind(||{ 
             return self.update_project(id, version, task);
         });
@@ -280,9 +281,6 @@ impl<'a> CommitsUpdater<'a> {
             let author = commit.author();
             commit_info.author = self.get_or_create_user(& author);
             commit_info.author_time = author.when().seconds();
-            self.update_status(& format!("author found {}", hash.to_string()));
-            let x = commit.message_raw_bytes();
-            self.update_status(& format!("message found {}", hash.to_string()));
             commit_info.message = to_string(commit.message_raw_bytes());
             self.update_status("commit parents");
             commit_info.parents = commit.parents().map(|x| self.add_commit(& x.id())).collect();
@@ -452,9 +450,9 @@ impl<'a> ProjectQueue<'a> {
     pub fn deque(& self) -> (u64, u16) {
         let mut projects = self.q.lock().unwrap();
         while projects.is_empty() {
-            //self.u.thread_running_to_idle();
+            self.u.tm.thread_running_to_idle();
             projects = self.qcv.wait(projects).unwrap();
-            //self.u.thread_idle_to_running();
+            self.u.tm.thread_idle_to_running();
         }
         let x = projects.pop().unwrap().0;
         return (x.id, x.version);
