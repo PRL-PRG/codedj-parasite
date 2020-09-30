@@ -1,5 +1,6 @@
 use std::collections::*;
 use std::sync::*;
+use std::io::{Write, stdout};
 
 use crate::datastore::*;
 use crate::helpers;
@@ -170,9 +171,41 @@ impl Updater {
             // C
             "c" => true,
             // C++
-            "cpp" | "h" => true,
+            "cpp" | "h" | "cc" | "cxx" | "hpp" | "C" => true,
+            // C#
+            "cs" => true,
+            // Objective-C
+            "m" | "mm" | "M" => true,
+            // Clojure
+            "clj" | "cljs" | "cljc" | "edn" => true,
+            // CoffeeScript
+            "coffee" | "litcoffee" => true,
+            // Erlang
+            "erl" | "hrl" => true,
+            // Go
+            "go" => true,
+            // Haskell
+            "hs" | "lhs" => true,
+            // HTML
+            "html" | "htm" => true,
+            // Java
+            "java" => true,
             // JavaScript
-            "js" => true,
+            "js" | "mjs" => true,
+            // Perl
+            "plx"| "pl" | "pm" | "xs" | "t" | "pod" => true,
+            // PHP
+            "php" | "phtml" | "php3" | "php4" | "php5" | "php7" | "phps" | "php-s" | "pht" | "phar" => true,            
+            // Python
+            "py" | "pyi" | "pyc" | "pyd" | "pyo" | "pyw" | "pyz" => true,
+            // Ruby
+            "rb" => true,
+            // Scala
+            "scala" | "sc" => true,
+            // Shell
+            "sh" => true,
+            // TypeScript
+            "ts" | "tsx" => true,
             _ => false
         }
     }
@@ -186,12 +219,12 @@ impl Updater {
             worker(& task);
         }
         self.tm.thread_done();
-
     }
 
-
     fn status_printer(& self) {
-        println!("\x1b[2J"); // clear screen
+        print!("\x1b[2J"); // clear screen
+        print!("\x1b[3;r"); // set scroll region
+        print!("\x1b[2;4H"); // set cursor to where it belongs
         loop {
             let now = helpers::now();
             {
@@ -200,6 +233,7 @@ impl Updater {
                 //let x = self.status.lock().unwrap();
                 // print the global status
                 let ts = self.tm.thread_status.lock().unwrap();
+                print!("\x1b7"); // save cursor
                 print!("\x1b[H\x1b[104;97m");
                 print!("DCD - {}, workers : {}r, {}i, {}p {} {}, datastore : p : {}, c : {}, co: {}\x1b[K\n",
                     Updater::pretty_time(now - self.start),
@@ -210,7 +244,7 @@ impl Updater {
                     Updater::pretty_value(self.ds.commits.lock().unwrap().loaded_len()),
                     Updater::pretty_value(self.ds.contents.lock().unwrap().loaded_len()),
                 );
-                println!("\x1b[K\n");
+                println!("\x1b[0m > \n");
                 for (id, task) in tasks.0.iter_mut() {
                     if task.error {
                         task.print();
@@ -231,6 +265,8 @@ impl Updater {
                 println!("\x1b[0m\x1b[J");
                 // now remove all tasks that are long dead (10s)
                 tasks.0.retain(|&_, x| !x.is_done() || (now  - x.end < 10));
+                print!("\x1b8"); // restore cursor
+                stdout().flush();
             }
             std::thread::sleep(std::time::Duration::from_millis(1000));
         }

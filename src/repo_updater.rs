@@ -34,6 +34,7 @@ impl<'a, 'b> RepoUpdater<'a, 'b> {
      */
     pub (crate) fn worker(& self, q : & ProjectQueue, task : & Task) {
         let t = helpers::now();
+        task.update().set_message("getting project from queue...");
         let (id, version) = q.deque();
         task.update().set_name(& format!("{}", id));
         let result = std::panic::catch_unwind(||{ 
@@ -376,7 +377,7 @@ impl<'a> CommitsUpdater<'a> {
                         self.ds.contents_data.lock().unwrap().set(contents_id, & bytes);
                     }
                     self.num_snapshots += 1;
-                    if self.num_snapshots % 1000 == 0 {
+                    if self.num_snapshots % 100 == 0 {
                         self.update_status("snapshots");
                     }
                 }

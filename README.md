@@ -5,8 +5,6 @@
 
 # TODO
 
-- add updater ui responsiveness
 - add snapshots analysis
-- add github metadata
 - add simple csv exporter
 
