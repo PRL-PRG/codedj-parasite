@@ -32,46 +32,50 @@ impl<'a, 'b> RepoUpdater<'a, 'b> {
 
     /** Single worker thread implementation. 
      */
-    pub (crate) fn worker(& self, q : & ProjectQueue, task : & Task) {
-        let t = helpers::now();
-        task.update().set_message("getting project from queue...");
-        let (id, version) = q.deque();
-        task.update().set_name(& format!("{}", id));
-        let result = std::panic::catch_unwind(||{ 
-            return self.update_project(id, version, task);
-        });
-        match result {
-            Ok(Ok(true)) => {
-                self.ds.project_last_updates.lock().unwrap().set(id, & UpdateLog::Ok{
-                    time : t,
-                    version : Datastore::VERSION
-                });
-                task.update().done();
-            },
-            Ok(Ok(false)) => {
-                self.ds.project_last_updates.lock().unwrap().set(id, & UpdateLog::NoChange{
-                    time : t,
-                    version : Datastore::VERSION
-                });
-                task.update().done();
-            },
-            Ok(Err(cause)) => {
-                self.ds.project_last_updates.lock().unwrap().set(id, & UpdateLog::Error{
-                    time : t,
-                    version : Datastore::VERSION,
-                    error : format!("{:?}", cause)
-                });
-                task.update().error(& format!("{:?}", cause));
-            },
-            Err(cause) => {
-                self.ds.project_last_updates.lock().unwrap().set(id, & UpdateLog::Error{
-                    time : t,
-                    version : Datastore::VERSION,
-                    error : format!("Panic: {:?}", cause)
-                });
-                task.update().error(& format!("Panic: {:?}", cause));
+    pub (crate) fn worker(& self, u : & Updater, q : & ProjectQueue) {
+        u.tm.thread_start();
+        while u.tm.thread_next() {
+            let t = helpers::now();
+            let (id, version) = q.deque();
+            let task = u.tm.new_task();
+            task.update().set_name(& format!("{}", id));
+            let result = std::panic::catch_unwind(||{ 
+                return self.update_project(id, version, & task);
+            });
+            match result {
+                Ok(Ok(true)) => {
+                    self.ds.project_last_updates.lock().unwrap().set(id, & UpdateLog::Ok{
+                        time : t,
+                        version : Datastore::VERSION
+                    });
+                    task.update().done();
+                },
+                Ok(Ok(false)) => {
+                    self.ds.project_last_updates.lock().unwrap().set(id, & UpdateLog::NoChange{
+                        time : t,
+                        version : Datastore::VERSION
+                    });
+                    task.update().done();
+                },
+                Ok(Err(cause)) => {
+                    self.ds.project_last_updates.lock().unwrap().set(id, & UpdateLog::Error{
+                        time : t,
+                        version : Datastore::VERSION,
+                        error : format!("{:?}", cause)
+                    });
+                    task.update().error(& format!("{:?}", cause));
+                },
+                Err(cause) => {
+                    self.ds.project_last_updates.lock().unwrap().set(id, & UpdateLog::Error{
+                        time : t,
+                        version : Datastore::VERSION,
+                        error : format!("Panic: {:?}", cause)
+                    });
+                    task.update().error(& format!("Panic: {:?}", cause));
+                }
             }
         }
+        u.tm.thread_done();
     }
 
     /** Updates the project and returns the update result. 

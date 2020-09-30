@@ -36,7 +36,7 @@ impl TaskManager {
 
     /** creates new task
      */ 
-    fn new_task(& self) -> Task {
+    pub (crate) fn new_task(& self) -> Task {
         loop {
             let mut x = self.tasks.lock().unwrap();
             let id = x.1;
@@ -142,17 +142,22 @@ impl Updater {
         println!("    projects queueued: {}", project_queue.len());
         println!("    valid time:        {}", project_queue.valid_time());
         let num_workers = 16;
+        print!("\x1b[2J"); // clear screen
+        print!("\x1b[3;r"); // set scroll region
+        print!("\x1b[2;4H"); // set cursor to where it belongs
+        stdout().flush().unwrap();
 
         crossbeam::thread::scope(|s| {
             s.spawn(|_| {
                 self.status_printer();
             });
+            s.spawn(|_| {
+                self.controller();
+            });
             // start the worker threads
             for _ in 0..num_workers {
                 s.spawn(|_| {
-                    self.worker(& |task : & Task|{
-                        repo_updater.worker(& project_queue, task);
-                    });
+                    repo_updater.worker(self, & project_queue);
                 });
             }
         }).unwrap();
@@ -210,21 +215,39 @@ impl Updater {
         }
     }
 
-    /** The worker creates a task, and then calls with the task and a datastore the actuakl worker function. 
-     */
-    fn worker(& self, worker : & dyn Fn(& Task)) {
-        self.tm.thread_start();
-        while self.tm.thread_next() {
-            let task = self.tm.new_task();
-            worker(& task);
+    fn controller(& self) {
+        {
+            // acquire lock for printing and prepare the command area (lines 2 and 3)
+            let _ = self.tm.tasks.lock().unwrap();
+            print!("\x1b[2;H\x1b[0m > \x1b[K\n");
+            print!("\x1b[K\x1b[2;4H");
+            stdout().flush().unwrap();
         }
-        self.tm.thread_done();
+        loop {
+            let mut command = String::new();
+            match std::io::stdin().read_line(& mut command) {
+                Ok(_) => {
+                    match command.as_str() {
+
+                        _ => {
+                            let _ = self.tm.tasks.lock().unwrap();
+                            print!("\x1b[2;H\x1b[0m > \x1b[K\n");
+                            print!(" Unknown command: {}\x1b[K\x1b[2;4H", command);
+                            stdout().flush().unwrap();
+                        }
+                    }
+                },
+                Err(e) => {
+                    let _ = self.tm.tasks.lock().unwrap();
+                    print!("\x1b[2;H\x1b[0m > \x1b[K\n");
+                    print!(" Unexpected error: {:?}\x1b[K\x1b[2;4H", e);
+                    stdout().flush().unwrap();
+                }
+            }
+        }
     }
 
     fn status_printer(& self) {
-        print!("\x1b[2J"); // clear screen
-        print!("\x1b[3;r"); // set scroll region
-        print!("\x1b[2;4H"); // set cursor to where it belongs
         loop {
             let now = helpers::now();
             {
@@ -235,7 +258,7 @@ impl Updater {
                 let ts = self.tm.thread_status.lock().unwrap();
                 print!("\x1b7"); // save cursor
                 print!("\x1b[H\x1b[104;97m");
-                print!("DCD - {}, workers : {}r, {}i, {}p {} {}, datastore : p : {}, c : {}, co: {}\x1b[K\n",
+                print!("DCD - {}, workers : {}r, {}i, {}p {} {}, datastore : p : {}, c : {}, co: {}\x1b[K\x1b[4;H",
                     Updater::pretty_time(now - self.start),
                     ts.running, ts.idle, ts.paused,
                     if ts.pause { " <PAUSE>" } else { "" },
@@ -244,7 +267,6 @@ impl Updater {
                     Updater::pretty_value(self.ds.commits.lock().unwrap().loaded_len()),
                     Updater::pretty_value(self.ds.contents.lock().unwrap().loaded_len()),
                 );
-                println!("\x1b[0m > \n");
                 for (id, task) in tasks.0.iter_mut() {
                     if task.error {
                         task.print();
