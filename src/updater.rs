@@ -22,7 +22,7 @@ struct ThreadStatus {
 pub (crate) struct TaskManager {
     tasks : Mutex<(HashMap<u32, TaskInfo>, u32)>,
     thread_status : Mutex<ThreadStatus>,
-    qcv_pause : Condvar,
+    pub (crate) cv_pause : Condvar,
 }
 
 impl TaskManager {
@@ -30,7 +30,7 @@ impl TaskManager {
         return TaskManager{
             tasks : Mutex::new((HashMap::new(), 0)),
             thread_status : Mutex::new(ThreadStatus{running : 0, idle : 0, paused : 0, pause : false, stop : false}),
-            qcv_pause : Condvar::new(),
+            cv_pause : Condvar::new(),
         };
     }
 
@@ -67,7 +67,7 @@ impl TaskManager {
         while x.pause {
             x.running -= 1;
             x.paused += 1;
-            x = self.qcv_pause.wait(x).unwrap();
+            x = self.cv_pause.wait(x).unwrap();
             x.paused -= 1;
             x.running += 1;
         }
@@ -128,7 +128,7 @@ impl Updater {
         return Updater{
             tmp_folder,
             ds : datastore,
-            gh : Github::new("/dejacode/github-tokens.csv"),
+            gh : Github::new("/mnt/data/github-tokens.csv"),
             start : helpers::now(),
             tm : TaskManager::new(),
         };

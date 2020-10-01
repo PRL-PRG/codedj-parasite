@@ -206,7 +206,7 @@ impl<'a, 'b> RepoUpdater<'a, 'b> {
         RepoUpdater::filter_github_metadata_keys(& mut metadata, true);
         let metadata_str = metadata.to_string();
         // try storing always, if new, no need to check the old value as it must have been different
-        let (contents_id, is_new) = self.ds.store_contents(& metadata_str);
+        let (contents_id, is_new) = self.ds.store_contents(metadata_str.as_bytes());
         let mut metadata_change = is_new;
         if ! metadata_change {
             let old_id = self.ds.projects_metadata.lock().unwrap().get_metadata(id, "github_metadata");
@@ -374,6 +374,17 @@ impl<'a> CommitsUpdater<'a> {
         // look at the new snapshots, determine if they are to be downloaded and download those that we are interested in. 
         for (path, id, hash) in new_snapshots {
             if Updater::want_contents_of(& path) {
+                if self.ds.contents.lock().unwrap().get(& id).is_none() {
+                    if let Ok(blob) = self.repo.find_blob(hash) {
+                        let bytes = ContentsData::from(blob.content());
+                        self.ds.store_contents_for_snapshot_id(id, & bytes);
+                        self.num_snapshots += 1;
+                        if self.num_snapshots % 100 == 0 {
+                            self.update_status("snapshots");
+                        }
+                    }
+                }
+                /*
                 let (contents_id, is_new) = self.ds.contents.lock().unwrap().get_or_create(& id);
                 if let Ok(blob) = self.repo.find_blob(hash) {
                     let bytes = ContentsData::from(blob.content());
@@ -385,6 +396,7 @@ impl<'a> CommitsUpdater<'a> {
                         self.update_status("snapshots");
                     }
                 }
+                */
             }
         }
 
@@ -424,7 +436,6 @@ impl<'a> CommitsUpdater<'a> {
  */
 pub struct ProjectQueue<'a> {
     q : Mutex<BinaryHeap<std::cmp::Reverse<QueuedProject>>>,
-    qcv : Condvar,
     u : &'a Updater,
 }
 
@@ -434,7 +445,6 @@ impl<'a> ProjectQueue<'a> {
     pub fn new(u : & Updater) -> ProjectQueue {
         let result = ProjectQueue{
             q : Mutex::new(BinaryHeap::new()),
-            qcv : Condvar::new(),
             u, 
         };
         {
@@ -456,7 +466,7 @@ impl<'a> ProjectQueue<'a> {
         let mut projects = self.q.lock().unwrap();
         while projects.is_empty() {
             self.u.tm.thread_running_to_idle();
-            projects = self.qcv.wait(projects).unwrap();
+            projects = self.u.tm.cv_pause.wait(projects).unwrap();
             self.u.tm.thread_idle_to_running();
         }
         let x = projects.pop().unwrap().0;
@@ -466,7 +476,7 @@ impl<'a> ProjectQueue<'a> {
     pub fn enqueue(& self, id : u64, time : i64) {
         let mut projects = self.q.lock().unwrap();
         projects.push(std::cmp::Reverse(QueuedProject{id, last_update_time : time, version : Datastore::VERSION }));
-        self.qcv.notify_one();
+        self.u.tm.cv_pause.notify_one();
     }
 
     /** Returns the number of projects in the queue.
