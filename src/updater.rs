@@ -6,95 +6,35 @@ use crate::datastore::*;
 use crate::helpers;
 use crate::repo_updater::*;
 use crate::github::*;
+use crate::records::*;
 
-/** Thread counts and updater exections state.  
- */
-struct ThreadStatus {
-    running: u64, 
-    idle : u64, 
-    paused : u64,
+struct ThreadInfo {
+    running : usize, 
+    idle : usize,
+    paused : usize,
     pause : bool,
     stop : bool,
+    queue : BinaryHeap<std::cmp::Reverse<QueuedProject>>,
 }
 
-/** The task manager. 
- */
-pub (crate) struct TaskManager {
-    tasks : Mutex<(HashMap<u32, TaskInfo>, u32)>,
-    thread_status : Mutex<ThreadStatus>,
-    pub (crate) cv_pause : Condvar,
-}
-
-impl TaskManager {
-    fn new() -> TaskManager {
-        return TaskManager{
-            tasks : Mutex::new((HashMap::new(), 0)),
-            thread_status : Mutex::new(ThreadStatus{running : 0, idle : 0, paused : 0, pause : false, stop : false}),
-            cv_pause : Condvar::new(),
-        };
-    }
-
-    /** creates new task
-     */ 
-    pub (crate) fn new_task(& self) -> Task {
-        loop {
-            let mut x = self.tasks.lock().unwrap();
-            let id = x.1;
-            x.1 += 1;
-            if ! x.0.contains_key(& id) {
-                x.0.insert(id, TaskInfo::new());
-                return Task{
-                    id,
-                    tasks : & self.tasks, 
-                };
-            }
+impl ThreadInfo {
+    fn new() -> ThreadInfo {
+        return ThreadInfo {
+            running : 0, 
+            idle : 0,
+            paused : 0,
+            pause : false, 
+            stop : false,
+            queue : BinaryHeap::new(),
         }
     }
 
-    /** Informs the updater that a thread has started. 
-     */
-    pub (crate) fn thread_start(& self) {
-        let mut x = self.thread_status.lock().unwrap();
-        x.running += 1;
-    }
-
-    /** Should be executed by each thread before new work item is requested. 
-     
-        Returns true if the thread should continue, false if it should stop immediately. If the thread should pause, pauses the thread in the function. 
-     */
-    pub (crate) fn thread_next(& self) -> bool {
-        let mut x = self.thread_status.lock().unwrap();
-        while x.pause {
-            x.running -= 1;
-            x.paused += 1;
-            x = self.cv_pause.wait(x).unwrap();
-            x.paused -= 1;
-            x.running += 1;
+    pub (crate) fn valid_time(& self) -> i64 {
+        if self.queue.is_empty() {
+            return 0;
+        } else {
+            return self.queue.peek().unwrap().0.last_update_time;
         }
-        return ! x.stop;
-    }
-
-    /** Informs the updater that a thread is idle. 
-     */
-    pub (crate) fn thread_running_to_idle(& self) {
-        let mut x = self.thread_status.lock().unwrap();
-        x.running -= 1;
-        x.idle += 1;
-    }
-
-    /** Informs the updater that a thread is in working state again. 
-     */
-    pub (crate) fn thread_idle_to_running(& self) {
-        let mut x = self.thread_status.lock().unwrap();
-        x.idle -= 1;
-        x.running += 1;
-    }
-
-    /** Informs the updater that a thread has finished its execution. 
-     */
-    pub (crate) fn thread_done(& self) {
-        let mut x = self.thread_status.lock().unwrap();
-        x.running -= 1;
     }
 
 }
@@ -106,9 +46,14 @@ impl TaskManager {
 pub struct Updater {
     pub (crate) tmp_folder : String,
     pub (crate) ds : Datastore,
-    gh : Github, 
+    pub (crate) gh : Github, 
     start : i64,
-    pub (crate) tm : TaskManager,
+    // condition variable used to synchronize threads
+    cv_threads : Condvar,
+    // mutex for the threads synchronization
+    threads : Mutex<ThreadInfo>,
+    // task information, ordered by start time, equal on task name
+    tasks : Mutex<HashMap<String, TaskInfo>>,
 }
 
 impl Updater {
@@ -130,17 +75,14 @@ impl Updater {
             ds : datastore,
             gh : Github::new("/mnt/data/github-tokens.csv"),
             start : helpers::now(),
-            tm : TaskManager::new(),
+            cv_threads : Condvar::new(),
+            threads : Mutex::new(ThreadInfo::new()),
+            tasks : Mutex::new(HashMap::new()),
         };
     }
 
     pub fn run(& mut self) {
-        println!("Initializing repo updater...");
-        let repo_updater = RepoUpdater::new(& self.ds, & self.gh);
-        println!("Creating projects queue...");
-        let project_queue = ProjectQueue::new(self);
-        println!("    projects queueued: {}", project_queue.len());
-        println!("    valid time:        {}", project_queue.valid_time());
+        self.fill_queue();
         let num_workers = 16;
         print!("\x1b[2J"); // clear screen
         print!("\x1b[3;r"); // set scroll region
@@ -157,11 +99,138 @@ impl Updater {
             // start the worker threads
             for _ in 0..num_workers {
                 s.spawn(|_| {
-                    repo_updater.worker(self, & project_queue);
+                    self.incremental_update_worker();
                 });
             }
         }).unwrap();
 
+        print!("\x1b[2J"); // clear screen
+        print!("\x1b[r"); // reset scroll region
+        print!("\x1b[H\x1b[0m"); // reset cursor and color
+        println!("DCD Downloader done.");
+    }
+
+    fn incremental_update_worker(& self) {
+        self.thread_start();
+        let ru = RepoUpdater::new(& self.ds, & self.gh);
+        while self.thread_next() {
+            if let Some((id, version)) = self.deque() {
+                let t = helpers::now();
+                let task = self.new_task(format!("{}", id));
+                let result = std::panic::catch_unwind(||{ 
+                    return ru.update_project(id, version, & task);
+                });
+                match result {
+                    Ok(Ok(true)) => {
+                        self.ds.project_last_updates.lock().unwrap().set(id, & UpdateLog::Ok{
+                            time : t,
+                            version : Datastore::VERSION
+                        });
+                        task.update().done();
+                    },
+                    Ok(Ok(false)) => {
+                        self.ds.project_last_updates.lock().unwrap().set(id, & UpdateLog::NoChange{
+                            time : t,
+                            version : Datastore::VERSION
+                        });
+                        task.update().done();
+                    },
+                    Ok(Err(cause)) => {
+                        self.ds.project_last_updates.lock().unwrap().set(id, & UpdateLog::Error{
+                            time : t,
+                            version : Datastore::VERSION,
+                            error : format!("{:?}", cause)
+                        });
+                        task.update().error(& format!("{:?}", cause));
+                    },
+                    Err(cause) => {
+                        self.ds.project_last_updates.lock().unwrap().set(id, & UpdateLog::Error{
+                            time : t,
+                            version : Datastore::VERSION,
+                            error : format!("Panic: {:?}", cause)
+                        });
+                        task.update().error(& format!("Panic: {:?}", cause));
+                    }
+                }
+            }
+        }
+        self.thread_stop();
+    }
+
+    /** Helper function for non task oriented threads to determine whether they should stop. 
+     
+        A thread stop when the global stop command has been issued and when there are no task oriented threads left (running, idle, or paused). 
+     */
+    pub fn thread_should_exit(& self) -> bool {
+        let threads = self.threads.lock().unwrap();
+        return threads.stop && (threads.running + threads.idle + threads.paused == 0);
+    }
+
+    pub (crate) fn thread_start(& self) {
+        let mut x = self.threads.lock().unwrap();
+        x.running += 1;
+    }
+
+    pub (crate) fn thread_stop(& self) {
+        let mut x = self.threads.lock().unwrap();
+        x.running -= 1;
+    }
+
+    pub (crate) fn thread_next(& self) -> bool {
+        let mut x = self.threads.lock().unwrap();
+        while x.pause {
+            x.running -= 1;
+            x.paused += 1;
+            x = self.cv_threads.wait(x).unwrap();
+            x.paused -= 1;
+            x.running += 1;
+        }
+        return ! x.stop;
+    }
+
+    fn fill_queue(& self) {
+        println!("Initializing projects queue...");
+        let mut threads = self.threads.lock().unwrap();
+        for (id, last_update) in self.ds.project_last_updates.lock().unwrap().latest_iter() {
+            if last_update.is_ok() {
+                threads.queue.push(std::cmp::Reverse(QueuedProject{
+                    id, 
+                    last_update_time : last_update.time(),
+                    version : last_update.version()
+                }));
+            }
+        }
+        println!("    projects queueued: {}", threads.queue.len());
+    }
+
+    pub (crate) fn deque(& self) -> Option<(u64, u16)> {
+        let mut threads = self.threads.lock().unwrap();
+        while threads.queue.is_empty() {
+            threads.running -= 1;
+            threads.idle += 1;
+            threads = self.cv_threads.wait(threads).unwrap();
+            threads.idle -= 1;
+            threads.running += 1;
+            if threads.pause || threads.stop {
+                return None;
+            }
+        }
+        let x = threads.queue.pop().unwrap().0;
+        return Some((x.id, x.version));
+    }
+
+    pub (crate) fn enqueue(& self, id : u64, last_update_time : i64) {
+        let mut threads = self.threads.lock().unwrap();
+        threads.queue.push(std::cmp::Reverse(QueuedProject{id, last_update_time, version : Datastore::VERSION }));
+        // we have to notify all because paused threads (or otherwise synchronized threads might be blocked on the same cv too)
+        self.cv_threads.notify_all();
+    }
+
+    pub (crate) fn new_task(&self, name : String) -> Task {
+        let mut tasks = self.tasks.lock().unwrap();
+        assert_eq!(tasks.contains_key(&name), false);
+        tasks.insert(name.clone(), TaskInfo::new());
+        return Task{name, tasks : & self.tasks};
     }
 
     /** Determines whether the contents of given file should be archived or not. 
@@ -218,7 +287,7 @@ impl Updater {
     fn controller(& self) {
         {
             // acquire lock for printing and prepare the command area (lines 2 and 3)
-            let _ = self.tm.tasks.lock().unwrap();
+            let _ = self.tasks.lock().unwrap();
             print!("\x1b[2;H\x1b[0m > \x1b[K\n");
             print!("\x1b[K\x1b[2;4H");
             stdout().flush().unwrap();
@@ -227,10 +296,18 @@ impl Updater {
             let mut command = String::new();
             match std::io::stdin().read_line(& mut command) {
                 Ok(_) => {
-                    match command.as_str() {
-
+                    match command.trim() {
+                        "stop" => {
+                            let mut threads = self.threads.lock().unwrap();
+                            threads.stop = true;
+                            print!("\x1b[2;H\x1b[0m -- command interface not available, waiting for threads to stop \x1b[K\n");
+                            print!(" \x1b[K\x1b[2;4H");
+                            self.cv_threads.notify_all();
+                            // exit immediately, there will ne no further input 
+                            return;
+                        },
                         _ => {
-                            let _ = self.tm.tasks.lock().unwrap();
+                            let _ = self.tasks.lock().unwrap();
                             print!("\x1b[2;H\x1b[0m > \x1b[K\n");
                             print!(" Unknown command: {}\x1b[K\x1b[2;4H", command);
                             stdout().flush().unwrap();
@@ -238,7 +315,7 @@ impl Updater {
                     }
                 },
                 Err(e) => {
-                    let _ = self.tm.tasks.lock().unwrap();
+                    let _ = self.tasks.lock().unwrap();
                     print!("\x1b[2;H\x1b[0m > \x1b[K\n");
                     print!(" Unexpected error: {:?}\x1b[K\x1b[2;4H", e);
                     stdout().flush().unwrap();
@@ -248,32 +325,34 @@ impl Updater {
     }
 
     fn status_printer(& self) {
-        loop {
+        while ! self.thread_should_exit() {
             let now = helpers::now();
             {
-                let mut tasks = self.tm.tasks.lock().unwrap();
+                let mut tasks = self.tasks.lock().unwrap();
                 // acquire the lock so that we can print out stuff
                 //let x = self.status.lock().unwrap();
                 // print the global status
-                let ts = self.tm.thread_status.lock().unwrap();
+                let threads = self.threads.lock().unwrap();
                 print!("\x1b7"); // save cursor
                 print!("\x1b[H\x1b[104;97m");
-                print!("DCD - {}, workers : {}r, {}i, {}p {} {}, datastore : p : {}, c : {}, co: {}\x1b[K\x1b[4;H",
+                print!("DCD - {}, queue: {}, valid_time: {}, workers : {}r, {}i, {}p, datastore : p : {}, c : {}, co: {} {} {}\x1b[K\x1b[4;H",
                     Updater::pretty_time(now - self.start),
-                    ts.running, ts.idle, ts.paused,
-                    if ts.pause { " <PAUSE>" } else { "" },
-                    if ts.stop { " <STOP>" } else { "" },
+                    threads.queue.len(),
+                    threads.valid_time(),
+                    threads.running, threads.idle, threads.paused,
                     Updater::pretty_value(self.ds.num_projects()),
                     Updater::pretty_value(self.ds.commits.lock().unwrap().loaded_len()),
                     Updater::pretty_value(self.ds.contents.lock().unwrap().loaded_len()),
+                    if threads.pause { " <PAUSE>" } else { "" },
+                    if threads.stop { " <STOP>" } else { "" },
                 );
-                for (id, task) in tasks.0.iter_mut() {
+                for (name, task) in tasks.iter() {
                     if task.error {
-                        task.print();
+                        task.print(name);
                     }
                 }
                 let mut odd = false;
-                for (id, task) in tasks.0.iter_mut() {
+                for (name, task) in tasks.iter() {
                     if task.end == 0 {
                         odd = ! odd;
                         if odd {
@@ -281,14 +360,17 @@ impl Updater {
                         } else {
                             print!("\x1b[48;2;32;32;32m\x1b[97m");
                         }
-                        task.print();
+                        task.print(name);
                     }
                 }
                 println!("\x1b[0m\x1b[J");
                 // now remove all tasks that are long dead (10s)
-                tasks.0.retain(|&_, x| !x.is_done() || (now  - x.end < 10));
+                tasks.retain(|_,x| !x.is_done() || (now  - x.end < 10));
+                for (_, task) in tasks.iter_mut() {
+                    task.ping += 1;
+                }
                 print!("\x1b8"); // restore cursor
-                stdout().flush();
+                stdout().flush().unwrap();
             }
             std::thread::sleep(std::time::Duration::from_millis(1000));
         }
@@ -335,8 +417,8 @@ impl Updater {
     A task can be updated. 
  */ 
 pub struct Task<'a> {
-    id : u32,
-    tasks : &'a Mutex<(HashMap<u32, TaskInfo>, u32)>,
+    name : String,
+    tasks : &'a Mutex<HashMap<String, TaskInfo>>,
 }
 
 impl<'a> Task<'a> {
@@ -351,7 +433,6 @@ pub struct TaskInfo {
     end : i64,
     ping : i64,
     error : bool, 
-    name : String,
     url : String,
     message : String,
 
@@ -364,16 +445,9 @@ impl TaskInfo {
             end : 0,
             ping : 0,
             error : false,
-            name : "???".to_owned(),
             url : String::new(),
             message : String::from("initializing..."),
         };
-    }
-
-    pub fn set_name(& mut self, name : & str) -> & mut Self {
-        self.name = name.to_owned();
-        self.ping = 0;
-        return self;
     }
 
     pub fn set_url(& mut self, url : & str) -> & mut Self {
@@ -408,7 +482,7 @@ impl TaskInfo {
     }
 
     /** Prints the task. */
-    fn print(& mut self) {
+    fn print(& self, name : & str) {
         // first determine the status
         let mut status = String::new();
         if self.error {
@@ -416,7 +490,6 @@ impl TaskInfo {
         } else if self.is_done() {
             print!("\x1b[90m");
         } else {
-            self.ping += 1;
             if self.ping > 10 {
                 status = format!(" - NOT RESPONDING: {}", Updater::pretty_time(self.ping));
                 print!("\x1b[48;2;255;165;0m");
@@ -424,7 +497,7 @@ impl TaskInfo {
         }
         let end = if self.is_done() { self.end } else { helpers::now() };
         println!("{}: {} - {}{}\x1b[K", 
-            self.name, 
+            name, 
             Updater::pretty_time(end - self.start),
             self.url,
             status
@@ -435,7 +508,7 @@ impl TaskInfo {
 }
 
 pub struct TaskUpdater<'a> {
-    g : MutexGuard<'a, (HashMap<u32, TaskInfo>, u32)>,
+    g : MutexGuard<'a, HashMap<String, TaskInfo>>,
     t : &'a Task<'a>
 }
 
@@ -443,18 +516,52 @@ impl<'a> std::ops::Deref for TaskUpdater<'a> {
     type Target = TaskInfo;
 
     fn deref(&self) -> &Self::Target {
-        return self.g.0.get(& self.t.id).unwrap();
+        return self.g.get(& self.t.name).unwrap();
     }
 }
 
 impl<'a> std::ops::DerefMut for TaskUpdater<'a> {
 
     fn deref_mut(&mut self) -> & mut Self::Target {
-        return self.g.0.get_mut(& self.t.id).unwrap();
+        return self.g.get_mut(& self.t.name).unwrap();
     }
 }
 
 
+
+
+
+
+
+
+/** The queued object record. 
+  
+    The records are ordered by the time of the last update. 
+ */
+#[derive(Eq)]
+struct QueuedProject {
+    id : u64, 
+    last_update_time : i64,
+    version : u16,
+}
+
+impl Ord for QueuedProject {
+    fn cmp(& self, other : & Self) -> std::cmp::Ordering {
+        return self.last_update_time.cmp(& other.last_update_time);
+    }
+}
+
+impl PartialOrd for QueuedProject {
+    fn partial_cmp(& self, other : & Self) -> Option<std::cmp::Ordering> {
+        return Some(self.last_update_time.cmp(& other.last_update_time));
+    }
+}
+
+impl PartialEq for QueuedProject {
+    fn eq(& self, other : & Self) -> bool {
+        return self.last_update_time == other.last_update_time;
+    }
+}
 
 
 

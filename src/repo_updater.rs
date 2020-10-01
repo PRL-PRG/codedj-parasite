@@ -30,59 +30,11 @@ impl<'a, 'b> RepoUpdater<'a, 'b> {
         };
     } 
 
-    /** Single worker thread implementation. 
-     */
-    pub (crate) fn worker(& self, u : & Updater, q : & ProjectQueue) {
-        u.tm.thread_start();
-        while u.tm.thread_next() {
-            let t = helpers::now();
-            let (id, version) = q.deque();
-            let task = u.tm.new_task();
-            task.update().set_name(& format!("{}", id));
-            let result = std::panic::catch_unwind(||{ 
-                return self.update_project(id, version, & task);
-            });
-            match result {
-                Ok(Ok(true)) => {
-                    self.ds.project_last_updates.lock().unwrap().set(id, & UpdateLog::Ok{
-                        time : t,
-                        version : Datastore::VERSION
-                    });
-                    task.update().done();
-                },
-                Ok(Ok(false)) => {
-                    self.ds.project_last_updates.lock().unwrap().set(id, & UpdateLog::NoChange{
-                        time : t,
-                        version : Datastore::VERSION
-                    });
-                    task.update().done();
-                },
-                Ok(Err(cause)) => {
-                    self.ds.project_last_updates.lock().unwrap().set(id, & UpdateLog::Error{
-                        time : t,
-                        version : Datastore::VERSION,
-                        error : format!("{:?}", cause)
-                    });
-                    task.update().error(& format!("{:?}", cause));
-                },
-                Err(cause) => {
-                    self.ds.project_last_updates.lock().unwrap().set(id, & UpdateLog::Error{
-                        time : t,
-                        version : Datastore::VERSION,
-                        error : format!("Panic: {:?}", cause)
-                    });
-                    task.update().error(& format!("Panic: {:?}", cause));
-                }
-            }
-        }
-        u.tm.thread_done();
-    }
-
     /** Updates the project and returns the update result. 
      
         This is either an error (in case of an error, the updater must guarantee that any information already committed to the data store is valid and complete), false if there were no changes since the last time the project was updated, or true if there were any changes. 
      */
-    fn update_project(& self, id : u64, version : u16, task : & Task) -> Result<bool, std::io::Error> {
+    pub fn update_project(& self, id : u64, version : u16, task : & Task) -> Result<bool, std::io::Error> {
         // if the datastore version is different than the last update version, force the update
         let force = version != Datastore::VERSION;
         let mut url = self.ds.get_project_url(id);
@@ -257,8 +209,6 @@ struct CommitsUpdater<'a> {
     num_snapshots : u64,
     num_changes : u64,
     num_diffs : u64,
-    
-
 }
 
 impl<'a> CommitsUpdater<'a> {
@@ -384,19 +334,6 @@ impl<'a> CommitsUpdater<'a> {
                         }
                     }
                 }
-                /*
-                let (contents_id, is_new) = self.ds.contents.lock().unwrap().get_or_create(& id);
-                if let Ok(blob) = self.repo.find_blob(hash) {
-                    let bytes = ContentsData::from(blob.content());
-                    if is_new {
-                        self.ds.contents_data.lock().unwrap().set(contents_id, & bytes);
-                    }
-                    self.num_snapshots += 1;
-                    if self.num_snapshots % 100 == 0 {
-                        self.update_status("snapshots");
-                    }
-                }
-                */
             }
         }
 
@@ -429,103 +366,3 @@ impl<'a> CommitsUpdater<'a> {
         return Ok(());
     }    
 }
-
-
-
-/** Priority queue for the projects based on their update times with the oldest projects having the highest priority. 
- */
-pub struct ProjectQueue<'a> {
-    q : Mutex<BinaryHeap<std::cmp::Reverse<QueuedProject>>>,
-    u : &'a Updater,
-}
-
-impl<'a> ProjectQueue<'a> {
-    /** Creates new projects queue and fills it with projects from given datastore. 
-     */
-    pub fn new(u : & Updater) -> ProjectQueue {
-        let result = ProjectQueue{
-            q : Mutex::new(BinaryHeap::new()),
-            u, 
-        };
-        {
-            let mut q = result.q.lock().unwrap();
-            for (id, last_update) in u.ds.project_last_updates.lock().unwrap().latest_iter() {
-                if last_update.is_ok() {
-                    q.push(std::cmp::Reverse(QueuedProject{
-                        id, 
-                        last_update_time : last_update.time(),
-                        version : last_update.version()
-                    }));
-                }
-            }
-        }
-        return result;
-    }
-
-    pub fn deque(& self) -> (u64, u16) {
-        let mut projects = self.q.lock().unwrap();
-        while projects.is_empty() {
-            self.u.tm.thread_running_to_idle();
-            projects = self.u.tm.cv_pause.wait(projects).unwrap();
-            self.u.tm.thread_idle_to_running();
-        }
-        let x = projects.pop().unwrap().0;
-        return (x.id, x.version);
-    }
-
-    pub fn enqueue(& self, id : u64, time : i64) {
-        let mut projects = self.q.lock().unwrap();
-        projects.push(std::cmp::Reverse(QueuedProject{id, last_update_time : time, version : Datastore::VERSION }));
-        self.u.tm.cv_pause.notify_one();
-    }
-
-    /** Returns the number of projects in the queue.
-     */
-    pub fn len(& self) -> usize {
-        return self.q.lock().unwrap().len();
-    }
-
-    /** Returns the oldest update time. 
-     */
-    pub fn valid_time(& self) -> i64 {
-        let q = self.q.lock().unwrap();
-        if q.is_empty() {
-            return 0;
-        } else {
-            return q.peek().unwrap().0.last_update_time;
-        }
-    }
-}
-
-
-/** The queued object record. 
-  
-    The records are ordered by the time of the last update. 
- */
-#[derive(Eq)]
-struct QueuedProject {
-    id : u64, 
-    last_update_time : i64,
-    version : u16,
-}
-
-impl Ord for QueuedProject {
-    fn cmp(& self, other : & Self) -> std::cmp::Ordering {
-        return self.last_update_time.cmp(& other.last_update_time);
-    }
-}
-
-impl PartialOrd for QueuedProject {
-    fn partial_cmp(& self, other : & Self) -> Option<std::cmp::Ordering> {
-        return Some(self.last_update_time.cmp(& other.last_update_time));
-    }
-}
-
-impl PartialEq for QueuedProject {
-    fn eq(& self, other : & Self) -> bool {
-        return self.last_update_time == other.last_update_time;
-    }
-}
-
-
-
