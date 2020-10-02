@@ -85,10 +85,9 @@ impl Updater {
         self.fill_queue();
         let num_workers = 16;
         print!("\x1b[2J"); // clear screen
-        print!("\x1b[3;r"); // set scroll region
+        print!("\x1b[4;r"); // set scroll region
         print!("\x1b[2;4H"); // set cursor to where it belongs
         stdout().flush().unwrap();
-
         crossbeam::thread::scope(|s| {
             s.spawn(|_| {
                 self.status_printer();
@@ -103,7 +102,6 @@ impl Updater {
                 });
             }
         }).unwrap();
-
         print!("\x1b[2J"); // clear screen
         print!("\x1b[r"); // reset scroll region
         print!("\x1b[H\x1b[0m"); // reset cursor and color
@@ -305,6 +303,16 @@ impl Updater {
                             self.cv_threads.notify_all();
                             // exit immediately, there will ne no further input 
                             return;
+                        },
+                        "pause" => {
+                            let mut threads = self.threads.lock().unwrap();
+                            threads.pause = true;
+                            self.cv_threads.notify_all();
+                        },
+                        "resume" => {
+                            let mut threads = self.threads.lock().unwrap();
+                            threads.pause = false;
+                            self.cv_threads.notify_all();
                         },
                         _ => {
                             let _ = self.tasks.lock().unwrap();

@@ -144,7 +144,7 @@ impl<'a, 'b> RepoUpdater<'a, 'b> {
             return Ok(false);
         }
         task.update().set_message("github metadata");
-        let mut metadata = self.gh.get_repo(& url)?;
+        let mut metadata = self.gh.get_repo(& url, task)?;
         let new_url = format!("{}.git",metadata["html_url"]).to_lowercase();
         let mut changed = false;
         if *url != new_url {
