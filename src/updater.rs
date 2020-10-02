@@ -314,6 +314,12 @@ impl Updater {
                             threads.pause = false;
                             self.cv_threads.notify_all();
                         },
+                        "savepoint" => {
+                            self.ds.savepoint();                            
+                            let mut threads = self.threads.lock().unwrap();
+                            threads.pause = false;
+                            self.cv_threads.notify_all();
+                        }
                         _ => {
                             let _ = self.tasks.lock().unwrap();
                             print!("\x1b[2;H\x1b[0m > \x1b[K\n");

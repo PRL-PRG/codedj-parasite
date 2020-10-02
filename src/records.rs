@@ -244,6 +244,7 @@ impl Savepoint {
     }
 
     pub fn add_entry(& mut self, fname : & str, f : & mut File) {
+        f.flush();
         let old = f.seek(SeekFrom::Current(0)).unwrap();
         let size = f.seek(SeekFrom::End(0)).unwrap();
         f.seek(SeekFrom::Start(old)).unwrap();
