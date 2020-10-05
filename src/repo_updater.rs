@@ -158,7 +158,8 @@ impl<'a, 'b> RepoUpdater<'a, 'b> {
         RepoUpdater::filter_github_metadata_keys(& mut metadata, true);
         let metadata_str = metadata.to_string();
         // try storing always, if new, no need to check the old value as it must have been different
-        let (contents_id, is_new) = self.ds.store_contents(metadata_str.as_bytes());
+        // TODO this is really wasteful - can &[u8] be made the value type of the contents property store?
+        let (contents_id, is_new) = self.ds.store_contents(& Vec::from(metadata_str.as_bytes()));
         let mut metadata_change = is_new;
         if ! metadata_change {
             let old_id = self.ds.projects_metadata.lock().unwrap().get_metadata(id, "github_metadata");

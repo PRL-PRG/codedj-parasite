@@ -192,14 +192,10 @@ fn dcd_update(working_dir : & str, args : & [String]) {
 
 fn dcd_export(working_dir : & str, args : & [String]) {
     let dsview = DatastoreView::new(working_dir, helpers::now());
-    for (id, commit) in dsview.commits() {
-
+    for (id, data) in dsview.contents() {
+        println!("{}:\n\n{}\n\n", id, helpers::to_string(& data));
     }
-
 }
-
-
-
 
 fn help() {
     println!("Usage:");

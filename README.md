@@ -5,6 +5,8 @@
 
 # TODO
 
+- make compressing and decompressing on the serializer level, add iterators to lib
+
 - add snapshots analysis
 - add simple csv exporter
 

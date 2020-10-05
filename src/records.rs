@@ -1,7 +1,9 @@
 use std::fs::*;
+use std::io::prelude::*;
 use std::io::*;
 use std::collections::hash_map::*;
 use byteorder::*;
+use flate2::*;
 
 use crate::*;
 use crate::db::*;
@@ -100,23 +102,27 @@ impl FileWriter<CommitInfo> for CommitInfo {
 
 /** Data about contents of a file. 
  
-    This is just a dumb array of bytes. 
+    This is just a dumb array of bytes. Compressed and decompressed on write/read.
  */
 pub type ContentsData = Vec<u8>;
 
 impl FileWriter<ContentsData> for ContentsData {
     fn read(f : & mut File) -> ContentsData {
         let len = f.read_u64::<LittleEndian>().unwrap() as usize;
-        let mut result = vec![0; len];
-        if f.read(& mut result).unwrap() != len {
-            panic!("Corrupted file");
-        }
+        let mut encoded = vec![0; len];
+        f.read(& mut encoded).unwrap();
+        let mut dec = flate2::read::GzDecoder::new(&encoded[..]);
+        let mut result = Vec::new();
+        dec.read_to_end(& mut result).unwrap();    
         return result;
     }
 
     fn write(f : & mut File, value : & ContentsData) {
-        f.write_u64::<LittleEndian>(value.len() as u64).unwrap();
-        f.write(value).unwrap();
+        let mut enc = flate2::write::GzEncoder::new(Vec::new(), Compression::best());
+        enc.write_all(value).unwrap();
+        let encoded = enc.finish().unwrap();
+        f.write_u64::<LittleEndian>(encoded.len() as u64).unwrap();
+        f.write(& encoded).unwrap();
     }
 }
 
@@ -244,7 +250,7 @@ impl Savepoint {
     }
 
     pub fn add_entry(& mut self, fname : & str, f : & mut File) {
-        f.flush();
+        f.flush().unwrap();
         let old = f.seek(SeekFrom::Current(0)).unwrap();
         let size = f.seek(SeekFrom::End(0)).unwrap();
         f.seek(SeekFrom::Start(old)).unwrap();

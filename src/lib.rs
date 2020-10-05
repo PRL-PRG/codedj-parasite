@@ -74,11 +74,18 @@ impl DatastoreView {
         };
     }
 
-    pub fn commits(& self) -> CommitsIterator {
+    pub fn commits(& self) -> PropertyStoreIterator<Commit> {
         let mut g = self.ds.commits_info.lock().unwrap();
         g.f.seek(SeekFrom::Start(0)).unwrap();
-        return CommitsIterator{g, limit : self.sp.limit_for("commits_info")};
+        return PropertyStoreIterator{g, limit : self.sp.limit_for("commits_info")};
     }
+
+    pub fn contents(& self) -> PropertyStoreIterator<ContentsData> {
+        let mut g = self.ds.contents_data.lock().unwrap();
+        g.f.seek(SeekFrom::Start(0)).unwrap();
+        return PropertyStoreIterator{g, limit : self.sp.limit_for("contents_data")};
+    }
+
 }
 
 /** Iterator into hashed mappings. 
@@ -141,8 +148,29 @@ impl<'a> Iterator for StringMappingIterator<'a> {
     }
 }
 
+pub struct PropertyStoreIterator<'a, T : FileWriter<T>> {
+    g : MutexGuard<'a, PropertyStore<T>>,
+    limit : u64,
+}
 
+impl<'a, T : FileWriter<T>> Iterator for PropertyStoreIterator<'a, T> {
+    type Item = (u64, T);
 
+    fn next(& mut self) -> Option<Self::Item> {
+        let offset = self.g.f.seek(SeekFrom::Current(0)).unwrap();
+        if offset >= self.limit {
+            return None;
+        }
+        if let Ok(id) = self.g.f.read_u64::<LittleEndian>() {
+            let value = T::read(& mut self.g.f);
+            return Some((id, value));
+        } else {
+            return None;
+        }
+    }
+}
+
+/*
 /** Iterator into commits information. 
  */
 pub struct CommitsIterator<'a> {
@@ -166,3 +194,4 @@ impl<'a> Iterator for CommitsIterator<'a> {
         }
     }
 }
+*/

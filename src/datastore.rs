@@ -3,7 +3,6 @@ use std::io::*;
 use std::fs::{File, OpenOptions};
 
 use sha1::{Sha1, Digest};
-use flate2::*;
 
 use crate::db::*;
 
@@ -207,7 +206,7 @@ impl Datastore {
         }
     }
 
-    pub fn store_contents(& self, value : & [u8]) -> (u64, bool) {
+    pub fn store_contents(& self, value : & Vec<u8>) -> (u64, bool) {
         let mut hasher = Sha1::new();
         hasher.update(value);
         let hash = git2::Oid::from_bytes(& hasher.finalize()).unwrap();
@@ -216,13 +215,13 @@ impl Datastore {
         return self.store_contents_for_snapshot_id(snapshot_id, value);
     }
 
-    pub fn store_contents_for_snapshot_id(& self, snapshot_id : u64, value : & [u8]) -> (u64, bool) {
+    pub fn store_contents_for_snapshot_id(& self, snapshot_id : u64, value : & Vec<u8>) -> (u64, bool) {
         let (contents_id, is_new) = self.contents.lock().unwrap().get_or_create(& snapshot_id);
         if is_new {
-            let mut enc = flate2::write::GzEncoder::new(Vec::new(), Compression::best());
-            enc.write_all(value).unwrap();
-            let encoded = enc.finish().unwrap();
-            self.contents_data.lock().unwrap().set(contents_id, & encoded);
+            //let mut enc = flate2::write::GzEncoder::new(Vec::new(), Compression::best());
+            //enc.write_all(value).unwrap();
+            //let encoded = enc.finish().unwrap();
+            self.contents_data.lock().unwrap().set(contents_id, value);
         }
         return (contents_id, is_new);
     }
