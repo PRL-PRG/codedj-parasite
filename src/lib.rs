@@ -1,5 +1,7 @@
+#[allow(dead_code)]
 mod datastore;
 mod records;
+#[allow(dead_code)]
 mod db;
 mod helpers;
 

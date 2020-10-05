@@ -6,10 +6,7 @@ use sha1::{Sha1, Digest};
 
 use crate::db::*;
 
-
 use crate::records::*;
-
-
 
 /** The datastore implementation. 
  
@@ -125,6 +122,7 @@ impl Datastore {
      
         Flushes all held buffers and remembers the actual sizes of files that exist in the database so that any information stored *after* the latest savepoint can be easily rolled back if needed.
      */
+    #[allow(dead_code)]    
     pub fn savepoint(& self) {
         let sp = self.create_savepoint();
         // and save the savepoint
@@ -133,6 +131,7 @@ impl Datastore {
         Savepoint::write(& mut x, & sp);
     }
 
+    #[allow(dead_code)]
     pub fn get_savepoint(& self, time : i64) -> Savepoint {
         let mut x = self.savepoints.lock().unwrap();
         let end = x.seek(SeekFrom::End(0)).unwrap();

@@ -525,6 +525,7 @@ pub struct LinkedPropertyStore<T : FileWriter<T>> {
     why_oh_why : std::marker::PhantomData<T>,
 }
 
+#[allow(dead_code)]
 impl<T: FileWriter<T>> LinkedPropertyStore<T> {
     pub fn new(filename : & str) -> LinkedPropertyStore<T> {
         let f = OpenOptions::new().read(true).write(true).create(true).open(filename).unwrap();

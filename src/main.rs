@@ -1,7 +1,9 @@
 use std::collections::*;
 use dcd::*;
 
+#[allow(dead_code)]
 mod db;
+#[allow(dead_code)]
 mod datastore;
 mod updater;
 mod repo_updater;
@@ -11,8 +13,6 @@ mod github;
 
 use datastore::*;
 use updater::*;
-
-use github::*;
 
 fn main() {
 
@@ -51,7 +51,7 @@ fn main() {
 
 /** Initializes the datastore in current directory.  
  */
-fn dcd_init(working_dir : & str, args : & [String]) {
+fn dcd_init(working_dir : & str, _args : & [String]) {
     // clear and create the working directory
     let wd_path = std::path::Path::new(working_dir);
     if wd_path.exists() {
@@ -78,7 +78,7 @@ fn dcd_add(working_dir : & str, args : & [String]) {
     let ds = Datastore::from(working_dir);
     println!("Loading known project urls...");
     let mut urls = HashSet::<String>::new();
-    for (id, url) in ds.project_urls.lock().unwrap().all_iter() {
+    for (_, url) in ds.project_urls.lock().unwrap().all_iter() {
         urls.insert(url);
     }
     println!("    urls: {}", urls.len());
@@ -184,13 +184,13 @@ fn analyze_csv_row(row : & csv::StringRecord) -> Option<usize> {
  
     Creates the updater and starts the continuous update of the projects. 
  */ 
-fn dcd_update(working_dir : & str, args : & [String]) {
+fn dcd_update(working_dir : & str, _args : & [String]) {
     let mut updater = Updater::new(Datastore::from(working_dir));
     updater.run();
 
 }
 
-fn dcd_export(working_dir : & str, args : & [String]) {
+fn dcd_export(working_dir : & str, _args : & [String]) {
     let dsview = DatastoreView::new(working_dir, helpers::now());
     for (id, data) in dsview.contents() {
         println!("{}:\n\n{}\n\n", id, helpers::to_string(& data));

@@ -126,8 +126,6 @@ impl FileWriter<ContentsData> for ContentsData {
     }
 }
 
-
-
 /** Update Log Entry. 
  */
 pub enum UpdateLog {
@@ -136,6 +134,7 @@ pub enum UpdateLog {
     Error{time : i64, version : u16, error : String}, // = 255
 }
 
+#[allow(dead_code)]
 impl UpdateLog {
     pub fn time(& self) -> i64 {
         match self {
@@ -236,6 +235,7 @@ pub struct Savepoint {
     file_sizes : HashMap<String, u64>
 }
 
+#[allow(dead_code)]
 impl Savepoint {
 
     pub fn new() -> Savepoint {

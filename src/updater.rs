@@ -115,8 +115,10 @@ impl Updater {
             if let Some((id, version)) = self.deque() {
                 let t = helpers::now();
                 let task = self.new_task(format!("{}", id));
+                // because we can't pass updater ref to the catch_unwind closure
+                let tmp_folder = self.tmp_folder.clone();
                 let result = std::panic::catch_unwind(||{ 
-                    return ru.update_project(id, version, & task);
+                    return ru.update_project(& tmp_folder, id, version, & task);
                 });
                 match result {
                     Ok(Ok(true)) => {
@@ -217,6 +219,7 @@ impl Updater {
         return Some((x.id, x.version));
     }
 
+    #[allow(dead_code)]
     pub (crate) fn enqueue(& self, id : u64, last_update_time : i64) {
         let mut threads = self.threads.lock().unwrap();
         threads.queue.push(std::cmp::Reverse(QueuedProject{id, last_update_time, version : Datastore::VERSION }));

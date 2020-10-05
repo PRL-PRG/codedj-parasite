@@ -1,6 +1,4 @@
 use std::collections::*;
-use std::sync::*;
-use crate::*;
 use crate::datastore::*;
 use crate::records::*;
 use crate::helpers::*;
@@ -34,7 +32,7 @@ impl<'a, 'b> RepoUpdater<'a, 'b> {
      
         This is either an error (in case of an error, the updater must guarantee that any information already committed to the data store is valid and complete), false if there were no changes since the last time the project was updated, or true if there were any changes. 
      */
-    pub fn update_project(& self, id : u64, version : u16, task : & Task) -> Result<bool, std::io::Error> {
+    pub fn update_project(& self, tmp_folder: & str, id : u64, version : u16, task : & Task) -> Result<bool, std::io::Error> {
         // if the datastore version is different than the last update version, force the update
         let force = version != Datastore::VERSION;
         let mut url = self.ds.get_project_url(id);
@@ -46,7 +44,7 @@ impl<'a, 'b> RepoUpdater<'a, 'b> {
         // update metadata and project url 
         task.update().set_message("checking metadata...");
         let mut updated = self.update_github_project(id, & mut url, task)?;
-        match self.update_project_contents(id, & url, force, task) {
+        match self.update_project_contents(tmp_folder, id, & url, force, task) {
             Ok(value) => updated = updated || value,
             Err(cause) => {
                 return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("{:?}", cause)));
@@ -58,11 +56,11 @@ impl<'a, 'b> RepoUpdater<'a, 'b> {
     /** Updates the contents of the project. 
      
      */
-    fn update_project_contents(& self, id : u64, url : & str, force : bool, task : & Task) -> Result<bool, git2::Error> {
+    fn update_project_contents(& self, tmp_folder: & str, id : u64, url : & str, force : bool, task : & Task) -> Result<bool, git2::Error> {
         task.update().set_message("analyzing remote heads...");
         let old_heads = self.ds.get_project_heads(id);
         // time to create the repository
-        let repo_path = format!("{}/tmp/{}", self.ds.root(), id);
+        let repo_path = format!("{}/{}", tmp_folder, id);
         let repo = git2::Repository::init_bare(repo_path.clone())?;
         let mut remote = repo.remote("dcd", & url)?;
         remote.connect(git2::Direction::Fetch)?;
