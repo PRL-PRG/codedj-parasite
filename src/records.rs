@@ -8,6 +8,35 @@ use flate2::*;
 use crate::*;
 use crate::db::*;
 
+pub enum ContentsCategory {
+    // special files
+    Generic,
+    Readme, 
+    // languages
+    C,
+    Cpp, // C++ headers can also be in C category
+    CSharp,
+    Clojure,
+    CoffeeScript,
+    Erlang,
+    Go,
+    Haskell,
+    Html,
+    Java,
+    JavaScript,
+    ObjectiveC,
+    Perl,
+    Php,
+    Python,
+    Ruby,
+    Scala,
+    Shell,
+    TypeScript,
+    // others
+    JSON,
+    GithubMetadata
+}
+
 /** Project heads
  
     For each project we store the latest project heads so that these can be compared against projects already used. 

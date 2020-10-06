@@ -238,50 +238,52 @@ impl Updater {
      
         By default, we archive source code files. 
      */
-    pub fn want_contents_of(path : & str) -> bool {
+    pub fn want_contents_of(path : & str) -> Option<ContentsCategory> {
         let parts = path.split(".").collect::<Vec<& str>>();
         match parts[parts.len() - 1] {
             // generic files
-            "README" => true,
+            "README" => Some(ContentsCategory::Readme),
             // C
-            "c" => true,
-            // C++
-            "cpp" | "h" | "cc" | "cxx" | "hpp" | "C" => true,
+            "c" | "h" => Some(ContentsCategory::C),
+            // C++ 
+            "cpp" | "cc" | "cxx" | "hpp" | "C" => Some(ContentsCategory::Cpp),
             // C#
-            "cs" => true,
-            // Objective-C
-            "m" | "mm" | "M" => true,
+            "cs" => Some(ContentsCategory::CSharp),
             // Clojure
-            "clj" | "cljs" | "cljc" | "edn" => true,
+            "clj" | "cljs" | "cljc" | "edn" => Some(ContentsCategory::Clojure),
             // CoffeeScript
-            "coffee" | "litcoffee" => true,
+            "coffee" | "litcoffee" => Some(ContentsCategory::CoffeeScript),
             // Erlang
-            "erl" | "hrl" => true,
+            "erl" | "hrl" => Some(ContentsCategory::Erlang),
             // Go
-            "go" => true,
+            "go" => Some(ContentsCategory::Go),
             // Haskell
-            "hs" | "lhs" => true,
+            "hs" | "lhs" => Some(ContentsCategory::Haskell),
             // HTML
-            "html" | "htm" => true,
+            "html" | "htm" => Some(ContentsCategory::Html),
             // Java
-            "java" => true,
+            "java" => Some(ContentsCategory::Java),
             // JavaScript
-            "js" | "mjs" => true,
+            "js" | "mjs" => Some(ContentsCategory::JavaScript),
+            // Objective-C
+            "m" | "mm" | "M" => Some(ContentsCategory::ObjectiveC),
             // Perl
-            "plx"| "pl" | "pm" | "xs" | "t" | "pod" => true,
+            "plx"| "pl" | "pm" | "xs" | "t" | "pod" => Some(ContentsCategory::Perl),
             // PHP
-            "php" | "phtml" | "php3" | "php4" | "php5" | "php7" | "phps" | "php-s" | "pht" | "phar" => true,            
+            "php" | "phtml" | "php3" | "php4" | "php5" | "php7" | "phps" | "php-s" | "pht" | "phar" => Some(ContentsCategory::Php),            
             // Python
-            "py" | "pyi" | "pyc" | "pyd" | "pyo" | "pyw" | "pyz" => true,
+            "py" | "pyi" | "pyc" | "pyd" | "pyo" | "pyw" | "pyz" => Some(ContentsCategory::Python),
             // Ruby
-            "rb" => true,
+            "rb" => Some(ContentsCategory::Ruby),
             // Scala
-            "scala" | "sc" => true,
+            "scala" | "sc" => Some(ContentsCategory::Scala),
             // Shell
-            "sh" => true,
+            "sh" => Some(ContentsCategory::Shell),
             // TypeScript
-            "ts" | "tsx" => true,
-            _ => false
+            "ts" | "tsx" => Some(ContentsCategory::TypeScript),
+            // JSON
+            "json" => Some(ContentsCategory::JSON),
+            _ => None
         }
     }
 

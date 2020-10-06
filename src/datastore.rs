@@ -41,8 +41,6 @@ pub struct Datastore {
     /** Record of file sizes for each savepoint so that the database can be viewed at certain dates. 
      */ 
     savepoints : Mutex<File>,
-
-
 }
 
 impl Datastore {

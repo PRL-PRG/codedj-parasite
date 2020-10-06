@@ -322,7 +322,7 @@ impl<'a> CommitsUpdater<'a> {
         }
         // look at the new snapshots, determine if they are to be downloaded and download those that we are interested in. 
         for (path, id, hash) in new_snapshots {
-            if Updater::want_contents_of(& path) {
+            if let Some(category_) = Updater::want_contents_of(& path) {
                 if self.ds.contents.lock().unwrap().get(& id).is_none() {
                     if let Ok(blob) = self.repo.find_blob(hash) {
                         let bytes = ContentsData::from(blob.content());
