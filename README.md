@@ -7,6 +7,10 @@
 
 # TODO
 
+- add blobs next to contents and special blob category for them as well
+- store github metadata in blobs instead
+- verify that splitted contents work well
+
 - add snapshots analysis
 - add simple csv exporter
 

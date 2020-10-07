@@ -4,17 +4,23 @@ use std::io::*;
 use std::collections::hash_map::*;
 use byteorder::*;
 use flate2::*;
+use num::*;
+use num_derive::*;
 
 use crate::*;
 use crate::db::*;
 
+
+#[derive(Copy,Clone,Debug,FromPrimitive, std::cmp::PartialEq, std::cmp::Eq, std::hash::Hash)]
 pub enum ContentsCategory {
-    // special files
+    // aggregates
+    SmallFiles, // tiny files below MAX_SMALL_FILE_SIZE bytes
     Generic,
+    // special purpose files
     Readme, 
     // languages
     C,
-    Cpp, // C++ headers can also be in C category
+    Cpp, // C++ headers can also be in C category (.h)
     CSharp,
     Clojure,
     CoffeeScript,
@@ -34,7 +40,110 @@ pub enum ContentsCategory {
     TypeScript,
     // others
     JSON,
-    GithubMetadata
+    GithubMetadata,
+}
+
+impl ContentsCategory {
+
+    pub const MAX_SMALL_FILE_SIZE : usize = 100;
+
+    /** Determines the category of a snapshot given its file path. 
+     */
+    pub fn of(path : & str) -> Option<ContentsCategory> {
+        let parts = path.split(".").collect::<Vec<& str>>();
+        match parts[parts.len() - 1] {
+            // generic files
+            "README" => Some(ContentsCategory::Readme),
+            // C
+            "c" | "h" => Some(ContentsCategory::C),
+            // C++ 
+            "cpp" | "cc" | "cxx" | "hpp" | "C" => Some(ContentsCategory::Cpp),
+            // C#
+            "cs" => Some(ContentsCategory::CSharp),
+            // Clojure
+            "clj" | "cljs" | "cljc" | "edn" => Some(ContentsCategory::Clojure),
+            // CoffeeScript
+            "coffee" | "litcoffee" => Some(ContentsCategory::CoffeeScript),
+            // Erlang
+            "erl" | "hrl" => Some(ContentsCategory::Erlang),
+            // Go
+            "go" => Some(ContentsCategory::Go),
+            // Haskell
+            "hs" | "lhs" => Some(ContentsCategory::Haskell),
+            // HTML
+            "html" | "htm" => Some(ContentsCategory::Html),
+            // Java
+            "java" => Some(ContentsCategory::Java),
+            // JavaScript
+            "js" | "mjs" => Some(ContentsCategory::JavaScript),
+            // Objective-C
+            "m" | "mm" | "M" => Some(ContentsCategory::ObjectiveC),
+            // Perl
+            "plx"| "pl" | "pm" | "xs" | "t" | "pod" => Some(ContentsCategory::Perl),
+            // PHP
+            "php" | "phtml" | "php3" | "php4" | "php5" | "php7" | "phps" | "php-s" | "pht" | "phar" => Some(ContentsCategory::Php),            
+            // Python
+            "py" | "pyi" | "pyc" | "pyd" | "pyo" | "pyw" | "pyz" => Some(ContentsCategory::Python),
+            // Ruby
+            "rb" => Some(ContentsCategory::Ruby),
+            // Scala
+            "scala" | "sc" => Some(ContentsCategory::Scala),
+            // Shell
+            "sh" => Some(ContentsCategory::Shell),
+            // TypeScript
+            "ts" | "tsx" => Some(ContentsCategory::TypeScript),
+            // JSON
+            "json" => Some(ContentsCategory::JSON),
+            _ => None
+        }
+    }
+
+    /** Converts the category to a contents id prefix. 
+     */
+    pub fn to_id_prefix(& self) -> u64 {
+        return (*self as u64) << 48;
+    }
+
+    pub fn from_id(id : u64) -> Option<ContentsCategory> {
+        let id_prefix = (id >> 48) & 0xffff;
+        return num::FromPrimitive::from_u64(id_prefix);
+    }
+
+    /** Adjusts the contents category with information about the file size. 
+     
+        May change the file category or even return none if the file is deemed not to be stored. 
+     */
+    pub fn adjust_with_size(& self, size: usize) -> Option<ContentsCategory> {
+        if size <= ContentsCategory::MAX_SMALL_FILE_SIZE {
+            return Some(ContentsCategory::SmallFiles); 
+        } else {
+            return Some(*self);
+        }
+    }
+}
+
+impl IDSplitter<ContentsCategory> for ContentsCategory {
+    fn split_id(id : u64) -> (ContentsCategory, u64) {
+        let category = ContentsCategory::from_id(id);
+        let adjusted_id = id & 0xffffffffffff;
+        return (category.unwrap(), adjusted_id);
+    }
+
+    fn merge_id(split_id : u64, split : & ContentsCategory) -> u64 {
+        return split_id + split.to_id_prefix();
+    }
+
+    fn for_all_splits(f : & mut dyn FnMut(ContentsCategory)) {
+        let mut cat_id = 0;
+        while let Some(cat) = num::FromPrimitive::from_u64(cat_id) {
+            f(cat);
+            cat_id = cat_id + 1;
+        }
+    }
+
+    fn name(& self) -> String {
+        return format!("{:?}", self);
+    }
 }
 
 /** Project heads

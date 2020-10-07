@@ -7,6 +7,7 @@ mod db;
 mod datastore;
 mod updater;
 mod repo_updater;
+#[allow(dead_code)]
 mod records;
 mod helpers;
 mod github;
@@ -192,9 +193,11 @@ fn dcd_update(working_dir : & str, _args : & [String]) {
 
 fn dcd_export(working_dir : & str, _args : & [String]) {
     let dsview = DatastoreView::new(working_dir, helpers::now());
+    /*
     for (id, data) in dsview.contents() {
         println!("{}:\n\n{}\n\n", id, helpers::to_string(& data));
     }
+    */
 }
 
 fn help() {

@@ -1,9 +1,6 @@
 /** The database support.
 
     Provides serialization and deserialization of various structures used by the downloader and extra infrastructure for their efficiency, such as indexes and mappings. 
-
-
-
  */
 use std::fs::{File, OpenOptions};
 use std::io::*;
@@ -27,6 +24,20 @@ pub trait FileWriterStaticSize<T> {
 pub trait FileWriter<T> {
     fn read(f : & mut File) -> T;
     fn write(f : & mut File, value : & T);
+}
+
+/** Trait which implements ID splitting for having multiple contents files. 
+ */
+pub trait IDSplitter<T> {
+    /** Takes the id and splits it into the split category and internal category id. 
+     */
+    fn split_id(id : u64) -> (T, u64);
+
+    fn merge_id(split_id : u64, split : & T) -> u64;
+
+    fn for_all_splits(f : & mut dyn FnMut(T));
+
+    fn name(& self) -> String;
 }
 
 /** Serialization for unsigned and unsigned 64 bit integers. 
@@ -292,6 +303,50 @@ impl<T : FileWriter<T> + FileWriterStaticSize<T>> DirectIndexedWriter<T> {
     }
 }
 
+/* A split indexed writer. 
+
+   The split-indexer writer works identical to the indexer writer, but splits the ids based on the metric implemented by the IDSplitter information provided for its given split type. 
+ */
+pub struct SplitIndexedWriter<T : FileWriter<T>, W : std::cmp::Eq + std::hash::Hash + IDSplitter<W>> {
+    stores : HashMap<W, IndexedWriter<T>>,
+}
+
+impl<T : FileWriter<T>, W : std::cmp::Eq + std::hash::Hash + IDSplitter<W>> SplitIndexedWriter<T, W> {
+
+    /** Creates the split indexed writer in given folder. 
+     
+        Opens files for *all* categories. 
+     */
+    pub fn new(folder : & str) -> SplitIndexedWriter<T,W>{
+        let mut result = SplitIndexedWriter{
+            stores : HashMap::new(),
+        };
+        W::for_all_splits(& mut |split : W|{
+            let name = split.name();
+            result.stores.insert(split, IndexedWriter::<T>::new(& format!("{}.{}", folder, & name)));
+        });
+        return result;
+    }
+
+    pub fn len(& self, split : W) -> usize {
+        return self.stores.get(& split).unwrap().len();
+    }
+
+    pub fn get(& mut self, id : u64) -> Option<T> {
+        let (split , adjusted_id) = W::split_id(id);
+        return self.stores.get_mut(& split).unwrap().get(adjusted_id);
+    }
+
+    pub fn add(& mut self, id : u64, value : & T) {
+        let (split, adjusted_id) = W::split_id(id);
+        return self.stores.get_mut(& split).unwrap().add(adjusted_id, value);
+    }
+
+    // TODO iterator 
+
+}
+
+
 pub struct DirectIndexedWriterIterator<'a, T : FileWriter<T> + FileWriterStaticSize<T>> {
     writer : &'a mut  DirectIndexedWriter<T>,
     id : u64
@@ -421,6 +476,87 @@ impl<T : FileWriter<T> + FileWriterStaticSize<T> + std::cmp::Eq + std::hash::Has
         return self.writer.get(id).unwrap();
     }
 
+}
+
+pub struct SplitDirectMapping<T : FileWriter<T> + FileWriterStaticSize<T> + std::cmp::Eq + std::hash::Hash + std::clone::Clone, W : std::cmp::Eq + std::hash::Hash + IDSplitter<W>> {
+    // the centralized mapping
+    mapping : HashMap<T, u64>,
+    // the splitted reverse mappings
+    writers : HashMap<W, DirectIndexedWriter<T>>
+}
+
+impl<T : FileWriter<T> + FileWriterStaticSize<T> + std::cmp::Eq + std::hash::Hash + std::clone::Clone, W : std::cmp::Eq + std::hash::Hash + IDSplitter<W>> SplitDirectMapping<T, W> {
+
+    /** Creates the split indexed writer in given folder. 
+     
+        Opens files for *all* categories. 
+     */
+    pub fn new(folder : & str) -> SplitDirectMapping<T,W>{
+        let mut result = SplitDirectMapping{
+            mapping : HashMap::new(),
+            writers : HashMap::new(),
+        };
+        W::for_all_splits(& mut |split : W|{
+            let name = split.name();
+            result.writers.insert(split, DirectIndexedWriter::<T>::new(& format!("{}.{}", folder, & name)));
+        });
+        return result;
+    }
+
+    /** Fill reads all splits and loads them into the hashmap, adjusting for their ids. 
+    
+     */
+    pub fn fill(& mut self) {
+        self.mapping.clear();
+        for (split, writer) in self.writers.iter_mut() {
+            for (id, value) in writer.iter() {
+                self.mapping.insert(value, W::merge_id(id, split));
+            }
+        }
+    }
+
+    pub fn len(& self) -> usize {
+        let mut result = 0;
+        for (_, writer) in self.writers.iter() {
+            result += writer.len();
+        }
+        return result;
+    }
+
+    pub fn loaded_len(& self) -> usize {
+        return self.mapping.len();
+    }
+
+
+    pub fn get(& self, key : & T) -> Option<u64> {
+        if let Some(id) = self.mapping.get(key) {
+            return Some(*id);
+        } else {
+            return None;
+        }
+    }
+
+    /** Gets the id for given key if it exists, or create one if not.
+     
+        If the id is to be created, the desired split category must be provided. 
+     */
+    pub fn get_or_create(& mut self, key: & T, split : & W) -> (u64, bool) {
+        if let Some(id) = self.get(key) {
+            return (id, false);
+        } else {
+            let ref mut writer = self.writers.get_mut(& split).unwrap();
+            let mut id = writer.size;
+            writer.add(id, key);
+            id = W::merge_id(id, split);
+            self.mapping.insert(key.clone(), id);
+            return (id, true);
+        }
+    }
+
+    pub fn get_value(& mut self, id : u64) -> T {
+        let (split , adjusted_id) = W::split_id(id);
+        return self.writers.get_mut(& split).unwrap().get(adjusted_id).unwrap();
+    }
 }
 
 pub struct PropertyStore<T : FileWriter<T>> {
@@ -662,4 +798,3 @@ impl MetadataReader for LinkedPropertyStore<Metadata> {
         return None;
     }
 }
-

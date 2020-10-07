@@ -157,7 +157,7 @@ impl<'a, 'b> RepoUpdater<'a, 'b> {
         let metadata_str = metadata.to_string();
         // try storing always, if new, no need to check the old value as it must have been different
         // TODO this is really wasteful - can &[u8] be made the value type of the contents property store?
-        let (contents_id, is_new) = self.ds.store_contents(& Vec::from(metadata_str.as_bytes()));
+        let (contents_id, is_new) = self.ds.store_contents(& Vec::from(metadata_str.as_bytes()), ContentsCategory::GithubMetadata);
         let mut metadata_change = is_new;
         if ! metadata_change {
             let old_id = self.ds.projects_metadata.lock().unwrap().get_metadata(id, "github_metadata");
@@ -322,14 +322,16 @@ impl<'a> CommitsUpdater<'a> {
         }
         // look at the new snapshots, determine if they are to be downloaded and download those that we are interested in. 
         for (path, id, hash) in new_snapshots {
-            if let Some(category_) = Updater::want_contents_of(& path) {
+            if let Some(category) = ContentsCategory::of(& path) {
                 if self.ds.contents.lock().unwrap().get(& id).is_none() {
                     if let Ok(blob) = self.repo.find_blob(hash) {
                         let bytes = ContentsData::from(blob.content());
-                        self.ds.store_contents_for_snapshot_id(id, & bytes);
-                        self.num_snapshots += 1;
-                        if self.num_snapshots % 100 == 0 {
-                            self.update_status("snapshots");
+                        if let Some(adjusted_category) = category.adjust_with_size(bytes.len()) {
+                            self.ds.store_contents_for_hash_id(id, & bytes, adjusted_category);
+                            self.num_snapshots += 1;
+                            if self.num_snapshots % 100 == 0 {
+                                self.update_status("snapshots");
+                            }
                         }
                     }
                 }

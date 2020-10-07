@@ -1,5 +1,6 @@
 #[allow(dead_code)]
 mod datastore;
+#[allow(dead_code)]
 mod records;
 #[allow(dead_code)]
 mod db;
@@ -20,7 +21,26 @@ type Commit = records::CommitInfo;
 
 /** View into the datastore at a particular time. 
  
-    The datastore view is created with 
+    - projects 
+    - project updates
+    - project heads
+    - project metadata
+    
+    - commit hashes
+    - commit info
+    - commits metadata
+
+    - users
+    - users_metadata
+
+    - paths
+    - paths metadata
+
+    - hashes (hash to id)
+    - contents (hash id to contents id)
+    - contents data
+    - contents metadata
+
  */
 pub struct DatastoreView {
     ds : Datastore,
@@ -82,11 +102,13 @@ impl DatastoreView {
         return PropertyStoreIterator{g, limit : self.sp.limit_for("commits_info")};
     }
 
+    /*
     pub fn contents(& self) -> PropertyStoreIterator<ContentsData> {
         let mut g = self.ds.contents_data.lock().unwrap();
         g.f.seek(SeekFrom::Start(0)).unwrap();
         return PropertyStoreIterator{g, limit : self.sp.limit_for("contents_data")};
     }
+    */
 
 }
 

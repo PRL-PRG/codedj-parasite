@@ -32,11 +32,22 @@ pub struct Datastore {
     pub (crate) users_metadata : Mutex<LinkedPropertyStore<Metadata>>,
     pub (crate) paths : Mutex<Mapping<String>>,
     pub (crate) paths_metadata : Mutex<LinkedPropertyStore<Metadata>>,
+
+    /** A mapping from a SHA-1 hash to its id. 
+
+        The hashes are used as unique identifiers of file contents, some of which may be downloader and available in the contents section of the datastore. Note that only file contents hashes are stored here (i.e. commits have their own hash mapping)
+     */
     pub (crate) hashes : Mutex<DirectMapping<git2::Oid>>,
 
-    pub (crate) contents : Mutex<DirectMapping<u64>>,
-    pub (crate) contents_data : Mutex<PropertyStore<ContentsData>>,
+    /** Stored file contents.
+     
+        First we need mapping from hash ids to contents, so we need a split direct mapping. 
+     */
+    pub (crate) contents : Mutex<SplitDirectMapping<u64, ContentsCategory>>,
+    pub (crate) contents_data : Mutex<SplitIndexedWriter<ContentsData, ContentsCategory>>,
     pub (crate) contents_metadata : Mutex<LinkedPropertyStore<Metadata>>,
+
+    // TODO github metadata and others should go to their own contents-like properties. 
 
     /** Record of file sizes for each savepoint so that the database can be viewed at certain dates. 
      */ 
@@ -70,19 +81,19 @@ impl Datastore {
             paths_metadata : Mutex::new(LinkedPropertyStore::new(& format!("{}/paths-metadata.dat", root))),
             hashes : Mutex::new(DirectMapping::new(& format!("{}/hashes.dat", root))),
 
-            contents : Mutex::new(DirectMapping::new(& format!("{}/contents.dat", root))),
-            contents_data : Mutex::new(PropertyStore::new(& format!("{}/contents-data.dat", root))),
+            contents : Mutex::new(SplitDirectMapping::new(& format!("{}/contents.dat", root))),
+            contents_data : Mutex::new(SplitIndexedWriter::new(& format!("{}/contents-data.dat", root))),
             contents_metadata : Mutex::new(LinkedPropertyStore::new(& format!("{}/contents-metadata.dat", root))),
 
             savepoints : Mutex::new(OpenOptions::new().read(true).write(true).create(true).open(& format!("{}/savepoints.dat", root)).unwrap()),
         };
         println!("Datastore loaded from {}:", root);
-        println!("    projects: {}", result.project_urls.lock().unwrap().indices_len());
-        println!("    commits:  {}", result.commits.lock().unwrap().len());
-        println!("    users:    {}", result.users.lock().unwrap().len());
-        println!("    paths:    {}", result.paths.lock().unwrap().len());
-        println!("    hashes:   {}", result.hashes.lock().unwrap().len());
-        println!("    contents: {}", result.contents.lock().unwrap().len());
+        println!("    projects:  {}", result.project_urls.lock().unwrap().indices_len());
+        println!("    commits:   {}", result.commits.lock().unwrap().len());
+        println!("    users:     {}", result.users.lock().unwrap().len());
+        println!("    paths:     {}", result.paths.lock().unwrap().len());
+        println!("    hashes:    {}", result.hashes.lock().unwrap().len());
+        println!("    contents:  {}", result.contents.lock().unwrap().len());
         return result;
     }
 
@@ -105,15 +116,15 @@ impl Datastore {
     pub fn fill_mappings(& mut self) {
         println!("Filling datastore mappings...");
         self.commits.lock().unwrap().fill();
-        println!("    commits:  {}", self.commits.lock().unwrap().loaded_len());
+        println!("    commits:   {}", self.commits.lock().unwrap().loaded_len());
         self.users.lock().unwrap ().fill();
-        println!("    users:    {}", self.users.lock().unwrap().loaded_len());
+        println!("    users:     {}", self.users.lock().unwrap().loaded_len());
         self.paths.lock().unwrap().fill();
-        println!("    paths:    {}", self.paths.lock().unwrap().loaded_len());
+        println!("    paths:     {}", self.paths.lock().unwrap().loaded_len());
         self.hashes.lock().unwrap().fill();
-        println!("    hashes:   {}", self.hashes.lock().unwrap().loaded_len());
+        println!("    hashes:    {}", self.hashes.lock().unwrap().loaded_len());
         self.contents.lock().unwrap().fill();
-        println!("    contents: {}", self.contents.lock().unwrap().loaded_len());
+        println!("    contents:  {}", self.contents.lock().unwrap().loaded_len());
     }
 
     /** Creates a savepoint. 
@@ -162,8 +173,10 @@ impl Datastore {
         sp.add_entry("paths", & mut self.paths.lock().unwrap().writer.f);
         sp.add_entry("paths_metadata", & mut self.paths_metadata.lock().unwrap().f);
         sp.add_entry("hashes", & mut self.hashes.lock().unwrap().writer.f);
-        sp.add_entry("contents", & mut self.contents.lock().unwrap().writer.f);
-        sp.add_entry("contents_data", & mut self.contents_data.lock().unwrap().f);
+        // TODO add savepoint for contents
+        //sp.add_entry("contents", & mut self.contents.lock().unwrap().writer.f);
+        // TODO add savepoint for contents_data
+        //sp.add_entry("contents_data", & mut self.contents_data.lock().unwrap().f);
         sp.add_entry("contents_metadata", & mut self.contents_metadata.lock().unwrap().f);
         return sp;
     }
@@ -203,24 +216,25 @@ impl Datastore {
         }
     }
 
-    pub fn store_contents(& self, value : & Vec<u8>) -> (u64, bool) {
+    pub (crate) fn store_contents(& self, value : & Vec<u8>, category : ContentsCategory) -> (u64, bool) {
         let mut hasher = Sha1::new();
         hasher.update(value);
         let hash = git2::Oid::from_bytes(& hasher.finalize()).unwrap();
         // first create snapshot and then create contents
-        let (snapshot_id, _) = self.hashes.lock().unwrap().get_or_create(& hash); 
-        return self.store_contents_for_snapshot_id(snapshot_id, value);
+        let (hash_id, _) = self.hashes.lock().unwrap().get_or_create(& hash); 
+        return self.store_contents_for_hash_id(hash_id, value, category);
     }
 
-    pub fn store_contents_for_snapshot_id(& self, snapshot_id : u64, value : & Vec<u8>) -> (u64, bool) {
-        let (contents_id, is_new) = self.contents.lock().unwrap().get_or_create(& snapshot_id);
+    pub (crate) fn store_contents_for_hash_id(& self, snapshot_id : u64, value : & Vec<u8>, category : ContentsCategory) -> (u64, bool) {
+        let (contents_id, is_new) = self.contents.lock().unwrap().get_or_create(& snapshot_id, & category);
         if is_new {
             //let mut enc = flate2::write::GzEncoder::new(Vec::new(), Compression::best());
             //enc.write_all(value).unwrap();
             //let encoded = enc.finish().unwrap();
-            self.contents_data.lock().unwrap().set(contents_id, value);
+            self.contents_data.lock().unwrap().add(contents_id, value);
         }
         return (contents_id, is_new);
     }
+
 
 }

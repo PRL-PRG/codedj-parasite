@@ -234,59 +234,6 @@ impl Updater {
         return Task{name, tasks : & self.tasks};
     }
 
-    /** Determines whether the contents of given file should be archived or not. 
-     
-        By default, we archive source code files. 
-     */
-    pub fn want_contents_of(path : & str) -> Option<ContentsCategory> {
-        let parts = path.split(".").collect::<Vec<& str>>();
-        match parts[parts.len() - 1] {
-            // generic files
-            "README" => Some(ContentsCategory::Readme),
-            // C
-            "c" | "h" => Some(ContentsCategory::C),
-            // C++ 
-            "cpp" | "cc" | "cxx" | "hpp" | "C" => Some(ContentsCategory::Cpp),
-            // C#
-            "cs" => Some(ContentsCategory::CSharp),
-            // Clojure
-            "clj" | "cljs" | "cljc" | "edn" => Some(ContentsCategory::Clojure),
-            // CoffeeScript
-            "coffee" | "litcoffee" => Some(ContentsCategory::CoffeeScript),
-            // Erlang
-            "erl" | "hrl" => Some(ContentsCategory::Erlang),
-            // Go
-            "go" => Some(ContentsCategory::Go),
-            // Haskell
-            "hs" | "lhs" => Some(ContentsCategory::Haskell),
-            // HTML
-            "html" | "htm" => Some(ContentsCategory::Html),
-            // Java
-            "java" => Some(ContentsCategory::Java),
-            // JavaScript
-            "js" | "mjs" => Some(ContentsCategory::JavaScript),
-            // Objective-C
-            "m" | "mm" | "M" => Some(ContentsCategory::ObjectiveC),
-            // Perl
-            "plx"| "pl" | "pm" | "xs" | "t" | "pod" => Some(ContentsCategory::Perl),
-            // PHP
-            "php" | "phtml" | "php3" | "php4" | "php5" | "php7" | "phps" | "php-s" | "pht" | "phar" => Some(ContentsCategory::Php),            
-            // Python
-            "py" | "pyi" | "pyc" | "pyd" | "pyo" | "pyw" | "pyz" => Some(ContentsCategory::Python),
-            // Ruby
-            "rb" => Some(ContentsCategory::Ruby),
-            // Scala
-            "scala" | "sc" => Some(ContentsCategory::Scala),
-            // Shell
-            "sh" => Some(ContentsCategory::Shell),
-            // TypeScript
-            "ts" | "tsx" => Some(ContentsCategory::TypeScript),
-            // JSON
-            "json" => Some(ContentsCategory::JSON),
-            _ => None
-        }
-    }
-
     fn controller(& self) {
         {
             // acquire lock for printing and prepare the command area (lines 2 and 3)
