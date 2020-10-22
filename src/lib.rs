@@ -17,7 +17,7 @@ use db::*;
 use datastore::*;
 use records::*;
 
-type Commit = records::CommitInfo;
+pub type Commit = records::CommitInfo;
 
 /** View into the datastore at a particular time. 
  
