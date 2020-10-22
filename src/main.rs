@@ -12,17 +12,45 @@ mod records;
 mod helpers;
 mod github;
 
+#[allow(dead_code)]
+mod db3;
+#[allow(dead_code)]
+mod records3;
+#[allow(dead_code)]
+mod datastore3;
+#[allow(dead_code)]
+mod updater3;
+
 use datastore::*;
 use updater::*;
 
 fn main() {
+    println!("Dejacode Downloader mark III");
+    let mut ds = datastore3::Datastore::new("/home/peta/ds3test");
+    /*
+    let mut x = db3::Store::<records3::Hash>::new("foo", "bar");
+    let mut iter = db3::SplitIterator{
+        iter : x.iter(),
+        prefix : records3::StoreKind::Clojure,
+    };*/
 
-    //let gh = Github::new("/dejacode/github-tokens.csv");
-    //let metadata = gh.get_repo("https://github.com/skyphp/pgbackup.git").unwrap();
-    //let new_url = format!("{}.git",metadata["html_url"]);
-    //println!("{}", new_url);
 
-    //return;
+
+    /*
+    let args : Vec<String> = std::env::args().collect();
+    let mut arg_i = 1;
+    // determine the working directory, which is either current directory, or can be specified with -o at first position
+    let mut working_directory = String::from(std::env::current_dir().unwrap().to_str().unwrap());
+    if arg_i < args.len() && args[arg_i].starts_with("-=o") {
+        working_directory = args[arg_i][3..].to_string();
+        arg_i += 1;
+    }
+    // see if the command position is specified and if the command is known, if not, enter the updater's GUI by default
+    // TODO
+    */
+    
+    
+    
 
 
     println!("DejaCode Downloader mark II");

@@ -6,6 +6,16 @@ mod records;
 mod db;
 mod helpers;
 
+#[allow(dead_code)]
+mod db3;
+#[allow(dead_code)]
+mod records3;
+#[allow(dead_code)]
+mod datastore3;
+#[allow(dead_code)]
+mod updater3;
+
+
 
 // v2 from here:
 

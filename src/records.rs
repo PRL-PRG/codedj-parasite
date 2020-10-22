@@ -11,6 +11,125 @@ use crate::*;
 use crate::db::*;
 
 
+/** Project description. 
+ 
+    Each project has its type and unique string identifier. This is to save memory by not storing any common prefixes or suffixes of the clone urls that projects of the same kind would inevitable have. The following project kinds are supported:
+
+    ProjectKind::Git : the id is the full git url to clone the project. Only https is supported. 
+    
+    ProjectKind::Github : the id is the username and repo name.
+ */
+#[derive(Clone,Debug, std::cmp::PartialEq, std::cmp::Eq, std::hash::Hash)]
+pub struct Project {
+    kind : ProjectKind, 
+    id : String,
+}
+
+#[repr(u8)]
+#[derive(Clone, Debug, std::cmp::PartialEq, std::cmp::Eq, std::hash::Hash)]
+pub enum ProjectKind {
+    Git,
+    Github,
+}
+
+impl Project {
+    pub const GIT : u8 = 0;
+    pub const GITHUB : u8 = 1;
+
+    pub fn url(& self) -> String {
+        match self.kind {
+            ProjectKind::Git => return self.id.clone(),
+            ProjectKind::Github => return format!("https://github.com/{}.git", self.id.clone()),
+        }
+    }
+}
+
+/** Datastore kinds. 
+ 
+    Up to 1024 datastore kinds are supported. This limitation exists because the datastore kind id is part of the unique identifiers
+ */
+#[repr(u16)]
+#[derive(Clone, Debug, FromPrimitive, std::cmp::PartialEq, std::cmp::Eq, std::hash::Hash)]
+pub enum DatastoreKind {
+    SmallProjects,
+    C,
+    Cpp,
+    CSharp,
+    Clojure,
+    CoffeeScript,
+    Erlang,
+    Go,
+    Haskell,
+    Html,
+    Java,
+    JavaScript,
+    ObjectiveC,
+    Perl,
+    Php,
+    Python,
+    Ruby,
+    Scala,
+    Shell,
+    TypeScript,
+}
+
+/** Contents kinds. 
+ 
+    These are identical for all datastores. Up to 1024 contents kinds are supported. 
+ */
+#[repr(u16)]
+#[derive(Clone, Debug, FromPrimitive, std::cmp::PartialEq, std::cmp::Eq, std::hash::Hash)]
+pub enum ContentsKind {
+    SmallFiles,
+    Generic,
+    C,
+    Cpp, // C++ headers can also be in C category (.h)
+    CSharp,
+    Clojure,
+    CoffeeScript,
+    Erlang,
+    Go,
+    Haskell,
+    Html,
+    Java,
+    JavaScript,
+    ObjectiveC,
+    Perl,
+    Php,
+    Python,
+    Ruby,
+    Scala,
+    Shell,
+    TypeScript,
+    JSON,
+}
+
+/** Identifier. 
+ 
+    The identifier consists of the datastore id and the identifier itself. 
+ */
+struct Id {
+    id : u64,
+}
+
+impl Id {
+    pub fn new(ds : DatastoreKind, id : u64) -> Id {
+        return Id{id : ((ds as u64) << 54) + id };
+    }
+
+    pub fn datastore(& self) -> DatastoreKind {
+        let id_prefix = (self.id >> 54) & 0xffff;
+        return num::FromPrimitive::from_u64(id_prefix).unwrap();
+
+    }
+}
+
+
+
+
+
+// OLD
+
 #[derive(Copy,Clone,Debug,FromPrimitive, std::cmp::PartialEq, std::cmp::Eq, std::hash::Hash)]
 pub enum ContentsCategory {
     // aggregates

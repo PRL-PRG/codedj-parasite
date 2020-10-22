@@ -5,74 +5,15 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "(gdb) dcd-ghtorrent",
-            "type": "lldb",
-            "request": "launch",
-            "program": "${workspaceFolder}/target/debug/dcd-ghtorrent",
-            "args": ["/dejavuii/dejacode/peta-tiny", "/dejavuii/dejacode/ghtorrent/dump-tiny", "--new"],
-            "cwd": "${workspaceFolder}",
-        },
-        {
             "name": "(gdb) dcd",
             "type": "lldb",
             "request": "launch",
             "program": "${workspaceFolder}/target/debug/dcd",
-            "args": [ "-o=/home/peta/dcd2", "update", "https://github.com/terminalpp/terminalpp.git" ],
+            "args": [],
             "cwd": "${workspaceFolder}",
             "env" : {
                 "RUST_BACKTRACE" : "1"
             }
-        },
-        {
-            "name": "(gdb) dcd-reader",
-            "type": "lldb",
-            "request": "launch",
-            "program": "${workspaceFolder}/target/debug/dcd-reader",
-            "args": ["/dejavuii/dejacode/peta-tiny"],
-            "cwd": "${workspaceFolder}",
-        },
-        {
-            "name": "(gdb) dcd-importer",
-            "type": "lldb",
-            "request": "launch",
-            "program": "${workspaceFolder}/target/debug/dcd-importer",
-            //"args": ["/dejavuii/dejacode/toplas", "/dejavuii/dejacode/new_sha_toplas_2014.csv", "1414800000"],
-            //"args": ["/dejavuii/dejacode/toplas", "/dejavuii/dejacode/new_sha_toplas.csv",],
-            "args": ["/dejavuii/dejacode/merging/peta-tiny-2", "/dejavuii/dejacode/tinytest.csv",],            
-            "cwd": "${workspaceFolder}",
-        },
-        {
-            "name": "(gdb) dcd-repair",
-            "type": "lldb",
-            "request": "launch",
-            "program": "${workspaceFolder}/target/debug/dcd-repair",
-            "args": ["/dejavuii/dejacode/merging/peta-tiny"],
-            "cwd": "${workspaceFolder}",
-        },
-        {
-            "name": "(gdb) dcd-issues",
-            "type": "lldb",
-            "request": "launch",
-            "program": "${workspaceFolder}/target/debug/dcd-issues",
-            "args": ["/dejavuii/dejacode/merging/peta-tiny", "/dejavuii/dejacode/ghtorrent/dump"],
-            "cwd": "${workspaceFolder}",
-        },
-        {
-            "name": "(gdb) dcd-merge",
-            "type": "lldb",
-            "request": "launch",
-            "program": "${workspaceFolder}/target/debug/dcd-merge",
-            //"args": ["/dejavuii/dejacode/peta-tiny", "/dejavuii/dejacode/peta-small"],
-            "args": ["/dejavuii/dejacode/merging/toplas", "/dejavuii/dejacode/merging/dcd-1000"],
-            "cwd": "${workspaceFolder}",
-        }
-        {
-            "name": "(gdb) dcd-test",
-            "type": "lldb",
-            "request": "launch",
-            "program": "${workspaceFolder}/target/debug/dcd-test",
-            "args": [],
-            "cwd": "${workspaceFolder}",
         }
     ]
 }
