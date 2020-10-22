@@ -34,6 +34,18 @@ impl DatastoreView {
         return DatastoreView{ds, sp};
     }
 
+    pub fn project_urls(& self) -> PropertyStoreIterator<String> {
+        let mut g = self.ds.project_urls.lock().unwrap();
+        g.f.seek(SeekFrom::Start(0)).unwrap();
+        return PropertyStoreIterator{g, limit : self.sp.limit_for("project_urls")};
+    }
+
+    pub fn project_heads(& self) -> PropertyStoreIterator<Heads> {
+        let mut g = self.ds.project_heads.lock().unwrap();
+        g.f.seek(SeekFrom::Start(0)).unwrap();
+        return PropertyStoreIterator{g, limit : self.sp.limit_for("project_heads")};
+    }
+
     pub fn commit_hashes(& self) -> HashMappingIterator {
         let mut g = self.ds.commits.lock().unwrap();
         g.writer.f.seek(SeekFrom::Start(0)).unwrap();
