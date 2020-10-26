@@ -46,6 +46,12 @@ impl DatastoreView {
         return PropertyStoreIterator{g, limit : self.sp.limit_for("project_heads")};
     }
 
+    pub fn projects_metadata(& self) -> LinkedPropertyStoreIterator<Metadata> {
+        let mut g = self.ds.projects_metadata.lock().unwrap();
+        g.f.seek(SeekFrom::Start(0)).unwrap();
+        return LinkedPropertyStoreIterator{g, limit : self.sp.limit_for("projects_metadata")};
+    }
+
     pub fn commit_hashes(& self) -> HashMappingIterator {
         let mut g = self.ds.commits.lock().unwrap();
         g.writer.f.seek(SeekFrom::Start(0)).unwrap();
@@ -177,6 +183,30 @@ impl<'a, T : FileWriter<T>> Iterator for PropertyStoreIterator<'a, T> {
         }
         if let Ok(id) = self.g.f.read_u64::<LittleEndian>() {
             let value = T::read(& mut self.g.f);
+            return Some((id, value));
+        } else {
+            return None;
+        }
+    }
+}
+
+pub struct LinkedPropertyStoreIterator<'a, T : FileWriter<T>> {
+    g : MutexGuard<'a, LinkedPropertyStore<T>>,
+    limit : u64,
+}
+
+impl<'a, T : FileWriter<T>> Iterator for LinkedPropertyStoreIterator<'a, T> {
+    type Item = (u64, T);
+
+    fn next(& mut self) -> Option<Self::Item> {
+        let offset = self.g.f.seek(SeekFrom::Current(0)).unwrap();
+        if offset >= self.limit {
+            return None;
+        }
+        if let Ok(id) = self.g.f.read_u64::<LittleEndian>() {
+            let value = T::read(& mut self.g.f);
+            // read and skip the previous record offset
+            self.g.f.read_u64::<LittleEndian>().unwrap();
             return Some((id, value));
         } else {
             return None;
