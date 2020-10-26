@@ -1,25 +1,52 @@
 use std::collections::*;
-use dcd::*;
 
+
+mod helpers;
 #[allow(dead_code)]
 mod db;
 #[allow(dead_code)]
 mod datastore;
-mod updater;
-mod repo_updater;
 #[allow(dead_code)]
 mod records;
-mod helpers;
-mod github;
+#[allow(dead_code)]
+mod updater;
+//mod repo_updater;
+//mod github;
 
-#[allow(dead_code)]
-mod db3;
-#[allow(dead_code)]
-mod records3;
-#[allow(dead_code)]
-mod datastore3;
-#[allow(dead_code)]
-mod updater3;
+use datastore::*;
+use updater::*;
+
+/** The main program.
+ 
+    Really simple. 
+ */
+fn main() {
+    println!("Dejacode Downloader v3 (datastore version {}", Datastore::VERSION);
+    let mut datastore_root = String::from(std::env::current_dir().unwrap().to_str().unwrap());
+    let mut command = "run".to_owned();
+    let args : Vec<String> = std::env::args().collect();
+    let mut arg_i = 1;
+    while arg_i < args.len() {
+        let arg = & args[arg_i];
+        if arg == "-ds" || arg == "--datastore" {
+            datastore_root = args.get(arg_i + 1).expect("Datastore root path missing").to_owned();
+            arg_i += 2;
+        } else {
+            command = args[arg_i].to_owned();
+            arg_i += 1;
+        }
+    }
+    println!("    datastore root: {}", datastore_root);
+    println!("    command: {}", command);
+    let ds = Datastore::new(& datastore_root);
+    let u = Updater::new(ds);
+    u.run(command);
+    println!("DCD terminated normally. Good bye!");
+}
+
+
+
+/*
 
 use datastore::*;
 use updater::*;
@@ -233,3 +260,5 @@ fn help() {
 
     std::process::exit(-1);
 }
+
+*/
