@@ -36,3 +36,37 @@ pub fn to_string(bytes : & [u8]) -> String {
         }
     }
 }
+
+pub fn pretty_time(mut seconds : i64) -> String {
+    let d = seconds / (24 * 3600);
+    seconds = seconds % (24 * 3600);
+    let h = seconds / 3600;
+    seconds = seconds % 3600;
+    let m = seconds / 60;
+    seconds = seconds % 60;
+    if d > 0 {
+        return format!("{}d {}h {}m {}s", d, h, m, seconds);
+    } else if h > 0 {
+        return format!("{}h {}m {}s", h, m, seconds);
+    } else if m > 0 {
+        return format!("{}m {}s", m, seconds);
+    } else {
+        return format!("{}s", seconds);
+    }
+}
+
+pub fn pretty_value(mut value : usize) -> String {
+    if value < 1000 {
+        return format!("{}", value);
+    }
+    value = value / 1000;
+    if value < 1000 {
+        return format!("{}K", value);
+    }
+    value = value / 1000;
+    if value < 1000 {
+        return format!("{}M", value);
+    }
+    value = value / 1000;
+    return format!("{}B", value);
+}
