@@ -7,6 +7,12 @@ use crate::datastore::*;
 use crate::records::*;
 use crate::helpers;
 
+use crate::task_add_projects::*;
+use crate::task_update_repo::*;
+
+
+pub type Tx = crossbeam_channel::Sender<TaskMessage>;
+
 /** The updater. 
 
     
@@ -16,15 +22,17 @@ pub (crate) struct Updater {
 
     /** The datastore on which the updater operates. 
      */
-    ds : Datastore,
+    pub (crate) ds : Datastore,
 
     /** Incremental updater
      */
     num_workers : u64, 
-    iupdater : Mutex<IncrementalUpdater>,
+    pool : Mutex<Pool>,
     cv_workers : Condvar,
 
-
+    /** List of all urls of projects in the datastore so that new projects can be checked against duplicates. 
+     */
+    pub (crate) project_urls : Mutex<HashSet<Project>>,
 
 
     /** Mutex to guard console output.
@@ -33,6 +41,9 @@ pub (crate) struct Updater {
 }
 
 impl Updater {
+
+    pub const NEVER : i64 = 0;
+
     /** Updater is initialized with an existing datastore. 
      */
     pub fn new(ds : Datastore) -> Updater {
@@ -40,8 +51,10 @@ impl Updater {
             ds, 
 
             num_workers : 16,
-            iupdater : Mutex::new(IncrementalUpdater::new()),
+            pool : Mutex::new(Pool::new()),
             cv_workers : Condvar::new(),
+
+            project_urls : Mutex::new(HashSet::new()),
 
             cout_lock : Mutex::new(()),
         }
@@ -70,7 +83,7 @@ impl Updater {
             // start the worker threads
             for _ in 0.. self.num_workers {
                 s.spawn(|_| {
-                    self.incremental_update_worker(tx.clone());
+                    self.worker(tx.clone());
                 });
             }
         }).unwrap();
@@ -83,23 +96,44 @@ impl Updater {
      
         
      */
-    fn incremental_update_worker(& self, tx : crossbeam_channel::Sender<TaskMessage>) {
-        self.iupdater.lock().unwrap().running_workers += 1;
+    fn worker(& self, tx : crossbeam_channel::Sender<TaskMessage>) {
+        self.pool.lock().unwrap().running_workers += 1;
         while let Some(task) = self.get_next_task() {
+            let task_name = task.name();
+            tx.send(TaskMessage::Start{name : task_name.to_owned()});
             let result = std::panic::catch_unwind(|| {
-                // TODO be smarter here, actually get the project, determine its kind, and so on. 
-                //return self.update_project(task);
+                match task {
+                    Task::UpdateRepo{last_update_time : _, id : _, version : _ } => {
+                        return task_update_repo(self, & task_name, task, &tx);
+                    }
+                    // TODO update task and so on
+                    Task::AddProjects{source} => return task_add_projects(self, & task_name, source, & tx),
+                    _ => {
+                        return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Unknown task: {:?}", task)));
+                    }
+                }
             });
+            match result {
+                Ok(Ok(())) => {
+                    tx.send(TaskMessage::Done{ name : task_name }).unwrap();
+                },
+                Ok(Err(cause)) => {
+                    tx.send(TaskMessage::Error{ name : task_name, cause : format!("{:?}", cause) }).unwrap();
+                },
+                Err(cause) => {
+                    tx.send(TaskMessage::Error{ name : task_name, cause : format!("PANIC: {:?}", cause) }).unwrap();
+                }
+            }
         }
-        self.iupdater.lock().unwrap().running_workers -= 1;
+        self.pool.lock().unwrap().running_workers -= 1;
     }
 
     /** Returns the next project to be updated. 
      
         Returns None if the updater should stop and blocks if there are no avilable projects, or the updater should pause. 
      */
-    fn get_next_task(& self) -> Option<QueuedProject> {
-        let mut state = self.iupdater.lock().unwrap();
+    fn get_next_task(& self) -> Option<Task> {
+        let mut state = self.pool.lock().unwrap();
         loop {
             if state.state == State::Stopped {
                 return None;
@@ -122,12 +156,23 @@ impl Updater {
         return state.queue.pop();
     }
 
+    pub fn schedule_task(& self, task : Task) {
+        let mut pool = self.pool.lock().unwrap();
+        pool.queue.push(task);
+        self.cv_workers.notify_one();
+    }
+
+    /** Schedules the update of the given project. 
+     */
+    pub fn schedule_project_update(& self, id : u64, last_update_time : i64) {
+    }
+
     /** Returns true if the non-worker thread should stop immediately, false otherwise. 
      
         Non worker threads are required to stop immediately after al worker threads are done. 
      */
-    fn should_stop(& self) -> bool {
-        let state = self.iupdater.lock().unwrap();
+    pub fn should_stop(& self) -> bool {
+        let state = self.pool.lock().unwrap();
         return state.is_stopped();
     }
 
@@ -137,7 +182,7 @@ impl Updater {
      */
     /*
     fn can_continue(& self) -> bool {
-        let mut state = self.iupdater.lock().unwrap();
+        let mut state = self.pool.lock().unwrap();
         while state.state != State::Running {
             if state.state == State::Stopped {
                 return false;
@@ -153,32 +198,38 @@ impl Updater {
     /** Prints the status of the update process. 
      */
     fn reporter(& self, rx : crossbeam_channel::Receiver<TaskMessage>) {
-        let mut info = ReporterInfo::new();
+        let mut rinfo = ReporterInfo::new();
         while ! self.should_stop() {
             // see how many messages are there and process them, otherwise we can just keep processing messages without ever printing anything 
             let mut msgs = rx.len();
             while msgs > 0 {
                 match rx.recv() {
                     Ok(TaskMessage::Start{name}) => {
-                        assert!(info.tasks.contains_key(& name) == false, "Task already exists");
-                        info.tasks.insert(name, TaskInfo::new());
+                        assert!(rinfo.tasks.contains_key(& name) == false, "Task already exists");
+                        rinfo.tasks.insert(name, TaskInfo::new());
                     },
                     Ok(TaskMessage::Done{name}) => {
-                        assert!(info.tasks.contains_key(& name) == true, "Task does not exist");
-                        info.tasks.remove(& name);
-                        info.tick_tasks_done += 1;
+                        assert!(rinfo.tasks.contains_key(& name) == true, "Task does not exist");
+                        //rinfo.tasks.remove(& name);
+                        rinfo.tick_tasks_done += 1;
                     },
                     Ok(TaskMessage::Error{name, cause}) => {
-                        assert!(info.tasks.contains_key(& name) == true, "Task does not exist");
-                        info.errors.push_back((info.tasks.remove(& name).unwrap(), cause));
-                        info.tick_tasks_error += 1;
+                        assert!(rinfo.tasks.contains_key(& name) == true, "Task does not exist");
+                        rinfo.errors.push_back((rinfo.tasks.remove(& name).unwrap(), cause));
+                        rinfo.tick_tasks_error += 1;
                     },
                     Ok(TaskMessage::Progress{name, progress, max}) => {
-                        assert!(info.tasks.contains_key(& name) == true, "Task does not exist");
-                        let task = info.tasks.get_mut(& name).unwrap();    
+                        assert!(rinfo.tasks.contains_key(& name) == true, "Task does not exist");
+                        let task = rinfo.tasks.get_mut(& name).unwrap();    
                         task.ping = 0;
                         task.progress = progress;
                         task.progress_max = max;
+                    },
+                    Ok(TaskMessage::Info{name, info}) => {
+                        assert!(rinfo.tasks.contains_key(& name) == true, "Task does not exist");
+                        let task = rinfo.tasks.get_mut(& name).unwrap();    
+                        task.ping = 0;
+                        task.info = info;
                     },
                     _ => {
                         panic!("Unknown message or channel error");
@@ -188,13 +239,17 @@ impl Updater {
                 msgs -= 1;
             }
             // now that the messages have been processed, redraw the status information
-            self.status(& info);
+            self.status(& rinfo);
             // retire errored tasks that are too old
-            info.tick();
+            rinfo.tick();
 
             // sleep a second or whatever is needed
             std::thread::sleep(std::time::Duration::from_millis(1000));
         }
+    }
+
+    fn num_projects(& self) -> usize {
+        return self.ds.projects.lock().unwrap().len();
     }
 
     fn status(& self, info : & ReporterInfo) {
@@ -205,7 +260,7 @@ impl Updater {
         // the header 
         let mut queue_size = 0;
         {
-            let threads = self.iupdater.lock().unwrap();
+            let threads = self.pool.lock().unwrap();
             println!("{} DCD v3 (datastore version {}), uptime [ {} ], threads [ {}r, {}i, {}p ], status: [ {} ] \x1b[K",
                 info.get_tick_symbol(), 
                 Datastore::VERSION, 
@@ -215,7 +270,10 @@ impl Updater {
             queue_size = threads.queue.len();
         }
         // datastore size header
-        println!("  Datastore: \x1b[K");
+        println!("  Datastore: [{}p], up [ {} ]\x1b[K",
+            helpers::pretty_value(self.ds.num_projects()),
+            if self.ds.project_urls_loaded() { "purl" } else { "" }
+        );
         // server health
         println!("  Health: \x1b[K");
         // tasks summary
@@ -226,6 +284,11 @@ impl Updater {
             helpers::pretty_value(queue_size)
         );
         // tasks detail
+        for (name, task) in info.tasks.iter() {
+            task.print(name);
+        }
+        // TODO finished and errors
+
         // TODO
         print!("\x1b[m"); // reset attributes
         print!("\x1b8"); // restore cursor
@@ -243,7 +306,7 @@ impl Updater {
         loop {
             // the controller breaks immediately after issuing the stop command so that it does not enter into the waiting prompt
             {
-                let threads = self.iupdater.lock().unwrap();
+                let threads = self.pool.lock().unwrap();
                 if threads.state == State::Stopped {
                     break;
                 }
@@ -270,24 +333,35 @@ impl Updater {
     }
 
     fn process_command(& self, command : String) {
-        match command.trim() {
+        let cmd : Vec<&str> = command.trim().split(" ").collect();
+        match cmd[0] {
             "pause" => {
-                let mut threads = self.iupdater.lock().unwrap();
+                let mut threads = self.pool.lock().unwrap();
                 threads.state = State::Paused;
                 self.cv_workers.notify_all();
                 self.display_prompt("Pausing threads...");
             },
             "stop" => {
-                let mut threads = self.iupdater.lock().unwrap();
+                let mut threads = self.pool.lock().unwrap();
                 threads.state = State::Stopped;
                 self.cv_workers.notify_all();
                 self.display_prompt("Stopping threads...");
             },
             "run" => {
-                let mut threads = self.iupdater.lock().unwrap();
+                let mut threads = self.pool.lock().unwrap();
                 threads.state = State::Running;
                 self.cv_workers.notify_all();
                 self.display_prompt("Resuming worker threads...");
+            }, 
+            /* Adds given project url, or projects from given csv file. 
+             */
+            "add" => {
+                if (cmd.len() != 2) {
+                    self.display_prompt("ERROR: Specify single project url or csv file to load the projects from");
+                } else {
+                    self.display_prompt("Adding projects to datastore, see task progress...");
+                    self.schedule_task(Task::AddProjects{ source : cmd[1].to_owned() });
+                }
             }
             /* Kill immediately aborts the entire process. 
                
@@ -306,6 +380,27 @@ impl Updater {
         }
     }
 
+    /** Loads the project urls. 
+     */
+    pub (crate) fn load_project_urls(& self, task_name : & str, tx : & Tx) {
+        let mut urls = self.project_urls.lock().unwrap();
+        if urls.is_empty() {
+            for (_, p) in self.ds.projects.lock().unwrap().iter_all() {
+                if urls.len() % 1000 == 0 {
+                    tx.send(TaskMessage::Info{
+                        name : task_name.to_owned(),
+                        info : format!("loading datastore project urls ({}) ", helpers::pretty_value(urls.len()))
+                    }).unwrap();
+                }
+                urls.insert(p);
+            }
+        }
+    } 
+
+    pub (crate) fn drop_project_urls(& self) {
+        self.project_urls.lock().unwrap().clear();
+    }
+
     /*
     fn update_project(& self, _task : QueuedProject) -> Result<(), std::io::Error> {
         unimplemented!();
@@ -319,45 +414,54 @@ impl Updater {
 impl std::panic::RefUnwindSafe for Updater { }
 
 
-/** The queued object record. 
-  
-    Holds the information about the project to be updated. This consists of the project id, the last time the project was updated and the version of dcd used to update the project. Project records are ordered by their increasing last update time. 
- */
-#[derive(Eq)]
-struct QueuedProject {
-    id : u64, 
-    last_update_time : i64,
-    version : u16,
+#[derive(Eq, PartialEq, Debug)] 
+pub enum Task {
+    UpdateRepo{last_update_time : i64, id : u64, version : u16},
+    AddProjects{source : String}
 }
 
-impl Ord for QueuedProject {
+impl Task {
+    pub fn priority(& self) -> i64 {
+        match self {
+            Task::UpdateRepo{last_update_time, id : _, version : _} => *last_update_time, 
+            _ => -1,
+        }
+    }
+
+    pub fn name(& self) -> String {
+        match self {
+            Task::UpdateRepo{last_update_time : _, id, version : _} => format!("{}", id),
+            Task::AddProjects{source : _ } => "add".to_owned(), 
+        }
+    }
+}
+
+impl Ord for Task {
     fn cmp(& self, other : & Self) -> std::cmp::Ordering {
-        return self.last_update_time.cmp(& other.last_update_time).reverse();
+        return self.priority().cmp(& other.priority()).reverse();
     }
 }
 
-impl PartialOrd for QueuedProject {
+impl PartialOrd for Task {
     fn partial_cmp(& self, other : & Self) -> Option<std::cmp::Ordering> {
-        return Some(self.last_update_time.cmp(& other.last_update_time));
+        return Some(self.priority().cmp(& other.priority()));
     }
 }
 
-impl PartialEq for QueuedProject {
-    fn eq(& self, other : & Self) -> bool {
-        return self.last_update_time == other.last_update_time;
-    }
-}
+
+
+
 
 /** Main structure for the incremental updater part of the downloader. 
  
     Grouped together because of how mutexes work in Rust. 
  */
-struct IncrementalUpdater {
+struct Pool {
     state : State,
     running_workers : u64, 
     idle_workers : u64,
     paused_workers : u64,
-    queue : BinaryHeap<QueuedProject>,
+    queue : BinaryHeap<Task>,
 }
 
 #[derive(Eq, PartialEq)]
@@ -367,9 +471,9 @@ enum State {
     Stopped,
 }
 
-impl IncrementalUpdater {
-    fn new() -> IncrementalUpdater {
-        return IncrementalUpdater {
+impl Pool {
+    fn new() -> Pool {
+        return Pool {
             state : State::Paused,
             running_workers : 0,
             idle_workers : 0,
@@ -411,20 +515,22 @@ impl IncrementalUpdater {
 
 /** Messages that communicate to the updater changes about tasks. 
  */
-enum TaskMessage {
+pub enum TaskMessage {
     Start{name : String},
     Done{name : String},
     Error{name : String, cause : String},
-    Progress{name : String, progress : u64, max : u64 },
+    Progress{name : String, progress : usize, max : usize },
+    Info{name : String, info : String },
 }
 
 /** Task info as stored on the updater's end. 
  */
 struct TaskInfo {
     start_time : i64,
-    progress : u64, 
-    progress_max : u64, 
+    progress : usize, 
+    progress_max : usize, 
     ping : u64, 
+    info : String,
 }
 
 impl TaskInfo {
@@ -432,9 +538,25 @@ impl TaskInfo {
         return TaskInfo{
             start_time : helpers::now(),
             progress : 0, 
-            progress_max : 100,
+            progress_max : 0,
             ping : 0,
+            info : String::new(),
         };
+    }
+
+    /** Prints the task information. 
+     */
+    pub fn print(& self, name : & str) {
+        println!(" {}: elapsed [ {} ], progress [ {}% ({}/{}) ]\x1b[K",
+            name,
+            helpers::pretty_time(helpers::now() - self.start_time),
+            helpers::pct(self.progress, self.progress_max),
+            self.progress,
+            self.progress_max
+        );
+        if ! self.info.is_empty() {
+            println!("    {}\x1b[K", self.info)
+        }
     }
 }
 

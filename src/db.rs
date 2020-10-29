@@ -56,6 +56,44 @@ impl Indexable for u64 {
     const EMPTY : u64 = std::u64::MAX;
 }
 
+impl Serializable for u32 {
+    fn serialize(f : & mut File, value : & u32) {
+        f.write_u32::<LittleEndian>(*value).unwrap();
+    }
+    fn deserialize(f : & mut File) -> u32 {
+        return f.read_u32::<LittleEndian>().unwrap();
+    }
+}
+
+impl FixedSizeSerializable for u32 {
+    const SIZE : u64 = 4;
+}
+
+impl Serializable for u16 {
+    fn serialize(f : & mut File, value : & u16) {
+        f.write_u16::<LittleEndian>(*value).unwrap();
+    }
+    fn deserialize(f : & mut File) -> u16 {
+        return f.read_u16::<LittleEndian>().unwrap();
+    }
+}
+
+impl FixedSizeSerializable for u16 {
+    const SIZE : u64 = 2;
+}
+impl Serializable for u8 {
+    fn serialize(f : & mut File, value : & u8) {
+        f.write_u8(*value).unwrap();
+    }
+    fn deserialize(f : & mut File) -> u8 {
+        return f.read_u8().unwrap();
+    }
+}
+
+impl FixedSizeSerializable for u8 {
+    const SIZE : u64 = 1;
+}
+
 /** Strings are serializable too, very handy:)
  */
 impl Serializable for String {

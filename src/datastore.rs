@@ -1,3 +1,4 @@
+use std::collections::*;
 use std::sync::*;
 use std::io::*;
 use std::path::Path;
@@ -6,7 +7,6 @@ use sha1::{Sha1, Digest};
 
 use crate::db::*;
 use crate::records::*;
-
 
 /** The global datastore. 
  
@@ -43,10 +43,11 @@ pub struct Datastore {
         We need to keep indices to project metadata, changes and updates (and therefore the backing stores as well for better code reuse) in the global datastore, otherwise we'd pay for *big* holes in the per substore indices. 
         
      */
-    projects : Mutex<Store<Project>>,
+    pub (crate) projects : Mutex<Store<Project>>,
     project_updates : Mutex<SplitStore<ProjectUpdateStatus, StoreKind>>,
     project_heads : Mutex<SplitStore<ProjectHeads, StoreKind>>,
     project_metadata : Mutex<SplitLinkedStore<Metadata, StoreKind>>,
+    project_urls : Mutex<HashSet<Project>>,
 
     /** The substores. 
      
@@ -87,6 +88,8 @@ impl Datastore {
             project_updates : Mutex::new(SplitStore::new(project_updates_path.to_str().unwrap(), "project-updates")),
             project_heads : Mutex::new(SplitStore::new(project_heads_path.to_str().unwrap(), "project-heads")),
             project_metadata : Mutex::new(SplitLinkedStore::new(project_metadata_path.to_str().unwrap(), "project-metadata")),
+            project_urls : Mutex::new(HashSet::new()),
+
             substores : Vec::new(),
         };
         // initialize the substores
@@ -96,11 +99,73 @@ impl Datastore {
                 store_kind
             ));
         }
-
         return ds;
-
     }
 
+    // projects ---------------------------------------------------------------------------------------------------------
+
+    pub fn num_projects(& self) -> usize {
+        return self.projects.lock().unwrap().len();
+    }
+
+    /** Returns the information about given project. 
+     */
+    pub fn get_project(& self, id : u64) -> Option<Project> {
+        return self.projects.lock().unwrap().get(id);
+    }
+
+    pub fn get_project_last_update(& self, id : u64) -> Option<ProjectUpdateStatus> {
+        /*
+        if let Some(project) = self.get_project(id) {
+            if project.store_kind().is_valid() {
+                return self.project_updates.lock().unwrap().get()
+            } else {
+                return None;
+            }
+        }
+        */
+        unimplemented!();
+    }
+
+    pub (crate) fn project_urls_loaded(& self) -> bool {
+        if self.project_urls.lock().unwrap().len() > 0 {
+            return true;
+        }
+        return self.projects.lock().unwrap().len() == 0;
+    }
+
+    pub (crate) fn load_project_urls(& self, mut reporter : impl FnMut(usize)) {
+        let mut urls = self.project_urls.lock().unwrap();
+        if urls.is_empty() {
+            for (_, p) in self.projects.lock().unwrap().iter_all() {
+                if urls.len() % 1000 == 0 {
+                    reporter(urls.len());
+                }
+                urls.insert(p);
+            }
+        }
+    }
+
+    pub (crate) fn drop_project_urls(& self) {
+        self.project_urls.lock().unwrap().clear();
+    }
+
+    /** Attempts to add a project to the datastore. 
+     
+        If the project does not exist, adds the project and returns its id. If the project already exists in the known urls, returns None. 
+     */
+    pub (crate) fn add_project(& self, project : & Project) -> Option<u64> {
+        let mut urls = self.project_urls.lock().unwrap();
+        let mut projects = self.projects.lock().unwrap();
+        assert!(projects.len() == 0 || urls.len() != 0, "Load project urls first");
+        if urls.insert(project.clone()) {
+            let id = projects.len() as u64;
+            projects.set(id, project);
+            return Some(id);
+        } else {
+            return None;
+        }
+    }
 
     /** Returns the SHA-1 hash of given contents. 
      */

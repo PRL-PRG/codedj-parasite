@@ -10,6 +10,8 @@ mod datastore;
 mod records;
 #[allow(dead_code)]
 mod updater;
+mod task_add_projects;
+mod task_update_repo;
 //mod repo_updater;
 //mod github;
 

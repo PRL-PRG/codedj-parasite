@@ -5,7 +5,6 @@ use std::collections::*;
 use byteorder::*;
 use flate2::*;
 use git2;
-use num::*;
 use num_derive::*;
 
 use crate::db::*;
@@ -39,6 +38,17 @@ pub enum StoreKind {
     TypeScript,
 
     Sentinel // sentinel to denote number of store kinds
+}
+
+impl StoreKind {
+    /** Returns true if the store kind is a valid store value. 
+     */
+    pub fn is_valid(& self) -> bool {
+        match self {
+            StoreKind::Sentinel => return false,
+            _ => return true
+        };
+    }
 }
 
 impl SplitKind for StoreKind {
@@ -80,41 +90,80 @@ impl FixedSizeSerializable for StoreKind {
     ProjectKind::Github : the id is the username and repo name.
  */
 #[derive(Clone,Debug, std::cmp::PartialEq, std::cmp::Eq, std::hash::Hash)]
-pub struct Project {
-    kind : ProjectKind, 
-    id : String,
-    store_kind : StoreKind,
-}
-
-#[repr(u8)]
-#[derive(Clone, Debug, std::cmp::PartialEq, std::cmp::Eq, std::hash::Hash)]
-pub enum ProjectKind {
-    Git,
-    Github,
+pub enum Project{
+    Git{url : String, store_kind : StoreKind},
+    GitHub{user_and_repo : String, store_kind : StoreKind },
 }
 
 impl Project {
-    pub const GIT : u8 = 0;
-    pub const GITHUB : u8 = 1;
 
-    pub fn url(& self) -> String {
-        match self.kind {
-            ProjectKind::Git => return self.id.clone(),
-            ProjectKind::Github => return format!("https://github.com/{}.git", self.id.clone()),
+    pub fn clone_url(& self) -> String {
+        match self {
+            Project::Git{url, store_kind : _} => {
+                return format!("https://{}.git", url);
+            },
+            Project::GitHub{user_and_repo, store_kind : _} => {
+                return format!("https://github.com/{}.git", user_and_repo);                
+            }
+        }
+    }
+
+    pub fn from_url(url : & str) -> Option<Project> {
+        if url.starts_with("https://github.com") {
+            if url.ends_with(".git") {
+                return Some(Project::GitHub{ user_and_repo : url[18..(url.len() - 4)].to_owned(), store_kind : StoreKind::Sentinel });
+            } else {
+                return Some(Project::GitHub{ user_and_repo : url[18..].to_owned(), store_kind : StoreKind::Sentinel });
+            }
+        } else if url.starts_with("https://api.github.com/repos/") {
+            return Some(Project::GitHub{ user_and_repo : url[29..].to_owned(), store_kind : StoreKind::Sentinel });
+        } else if url.ends_with(".git") && url.starts_with("https://") {
+            return Some(Project::Git{ url : url[8..(url.len() - 4)].to_owned(), store_kind : StoreKind::Sentinel });
+        } else {
+            return None;
+        }
+    }
+
+    /** Returns the store kind associated with the project.
+     */
+    pub fn store_kind(& self) -> StoreKind {
+        match self {
+            Project::Git{url : _, store_kind} => return *store_kind,
+            Project::GitHub{user_and_repo : _, store_kind } => return *store_kind,
         }
     }
 }
 
 impl Serializable for Project {
     fn serialize(f : & mut File, value : & Project) {
-        //f.write(value.as_bytes()).unwrap();
+        match value {
+            Project::Git{url, store_kind } => {
+                u8::serialize(f, & 0);
+                StoreKind::serialize(f, store_kind);
+                String::serialize(f, url);
+            }
+            Project::GitHub{user_and_repo, store_kind } => {
+                u8::serialize(f, & 1);
+                StoreKind::serialize(f, store_kind);
+                String::serialize(f, user_and_repo);
+            }
+        }
     }
 
     fn deserialize(f : & mut File) -> Project {
-        unimplemented!();
-        //let mut buffer = vec![0; 20];
-        //f.read(& mut buffer).unwrap();
-        //return git2::Oid::from_bytes(& buffer).unwrap();
+        match u8::deserialize(f) {
+            0 => {
+                let store_kind = StoreKind::deserialize(f);
+                let url = String::deserialize(f);
+                return Project::Git{ url, store_kind };
+            },
+            1 => {
+                let store_kind = StoreKind::deserialize(f);
+                let user_and_repo = String::deserialize(f);
+                return Project::GitHub{ user_and_repo, store_kind };
+            },
+            _ => panic!("Unknown project kind"),
+        }
     }
 }
 

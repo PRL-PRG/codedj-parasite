@@ -1,6 +1,14 @@
 use std::time::SystemTime;
 use std::str;
 
+pub fn pct(value : usize, max : usize) -> String {
+    if max == 0 {
+        return "??".to_owned();
+    } else {
+        return format!("{}", value * 100 / max);
+    }
+}
+
 /** Returns current time in milliseconds.
  */
 pub fn now() -> i64 {

@@ -8,6 +8,9 @@ mod records;
 mod datastore;
 #[allow(dead_code)]
 mod updater;
+#[allow(dead_code)]
+mod task_add_projects;
+mod task_update_repo;
 
 // v3 from here
 
