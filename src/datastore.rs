@@ -38,15 +38,25 @@ pub struct Datastore {
 
     /** Projects. 
 
-        The datastore keeps a global map of projects known to it. Each provides information about its kind (Git, GitHub, etc.), means of getting its data from external sources (as of now only git clone url is supported, but more is possible in the future) and the substore in which the actual data for the project are stored. Any of this information can be changed at any time, in which case new record is created.
+        The datastore keeps a global map of projects known to it. Each provides information about its kind (Git, GitHub, etc.) and means of getting its data from external sources (as of now only git clone url is supported, but more is possible in the future).
 
-        We need to keep indices to project metadata, changes and updates (and therefore the backing stores as well for better code reuse) in the global datastore, otherwise we'd pay for *big* holes in the per substore indices. 
-        
+        The datastore also keeps information about the projects in the global level as project ids are global. This is possible because a project can be at any given time part of only *one* substore. Storing the project information globally means that we don't pay for huge gaps between project ids in substores, but iterating over projects from given substore is slightly more complicated.
+
+        The following information is kept per project:
+
+        - which substore it belongs to (this can change over time)
+        - the linked history of its updates with precise timestamps and update results
+        - heads of all branches in the project
+        - project metadata
      */
     pub (crate) projects : Mutex<Store<Project>>,
-    project_updates : Mutex<SplitStore<ProjectUpdateStatus, StoreKind>>,
-    project_heads : Mutex<SplitStore<ProjectHeads, StoreKind>>,
-    project_metadata : Mutex<SplitLinkedStore<Metadata, StoreKind>>,
+    project_substores : Mutex<Store<StoreKind>>,
+    project_updates : Mutex<LinkedStore<ProjectUpdateStatus>>,
+    project_heads : Mutex<Store<ProjectHeads>>,
+    project_metadata : Mutex<LinkedStore<Metadata>>,
+
+    /** Current and past urls for known projects so that when new projects are added we can check for ambiguity.
+     */
     project_urls : Mutex<HashSet<Project>>,
 
     /** The substores. 
@@ -71,23 +81,18 @@ impl Datastore {
     pub fn new(root : & str) -> Datastore {
         // make sure the paths exist
         let root_path = std::path::Path::new(root);
-        let project_updates_path = root_path.join("project-updates");
-        let project_heads_path = root_path.join("project-heads");
-        let project_metadata_path = root_path.join("project-metadata");
         if ! root_path.exists() {
             std::fs::create_dir_all(& root_path).unwrap();
-            std::fs::create_dir_all(& project_updates_path).unwrap();
-            std::fs::create_dir_all(& project_heads_path).unwrap();
-            std::fs::create_dir_all(& project_metadata_path).unwrap();
         }
         println!("* Loading datastore in {}", root);
         // create the datastore
         let mut ds = Datastore{
             root : root.to_owned(),
             projects : Mutex::new(Store::new(root, "projects")),
-            project_updates : Mutex::new(SplitStore::new(project_updates_path.to_str().unwrap(), "project-updates")),
-            project_heads : Mutex::new(SplitStore::new(project_heads_path.to_str().unwrap(), "project-heads")),
-            project_metadata : Mutex::new(SplitLinkedStore::new(project_metadata_path.to_str().unwrap(), "project-metadata")),
+            project_substores : Mutex::new(Store::new(root, "project-substores")),
+            project_updates : Mutex::new(LinkedStore::new(root, "project-updates")),
+            project_heads : Mutex::new(Store::new(root, "project-heads")),
+            project_metadata : Mutex::new(LinkedStore::new(root, "project-metadata")),
             project_urls : Mutex::new(HashSet::new()),
 
             substores : Vec::new(),

@@ -91,18 +91,18 @@ impl FixedSizeSerializable for StoreKind {
  */
 #[derive(Clone,Debug, std::cmp::PartialEq, std::cmp::Eq, std::hash::Hash)]
 pub enum Project{
-    Git{url : String, store_kind : StoreKind},
-    GitHub{user_and_repo : String, store_kind : StoreKind },
+    Git{url : String},
+    GitHub{user_and_repo : String},
 }
 
 impl Project {
 
     pub fn clone_url(& self) -> String {
         match self {
-            Project::Git{url, store_kind : _} => {
+            Project::Git{url} => {
                 return format!("https://{}.git", url);
             },
-            Project::GitHub{user_and_repo, store_kind : _} => {
+            Project::GitHub{user_and_repo} => {
                 return format!("https://github.com/{}.git", user_and_repo);                
             }
         }
@@ -111,25 +111,16 @@ impl Project {
     pub fn from_url(url : & str) -> Option<Project> {
         if url.starts_with("https://github.com") {
             if url.ends_with(".git") {
-                return Some(Project::GitHub{ user_and_repo : url[18..(url.len() - 4)].to_owned(), store_kind : StoreKind::Sentinel });
+                return Some(Project::GitHub{ user_and_repo : url[18..(url.len() - 4)].to_owned() });
             } else {
-                return Some(Project::GitHub{ user_and_repo : url[18..].to_owned(), store_kind : StoreKind::Sentinel });
+                return Some(Project::GitHub{ user_and_repo : url[18..].to_owned() });
             }
         } else if url.starts_with("https://api.github.com/repos/") {
-            return Some(Project::GitHub{ user_and_repo : url[29..].to_owned(), store_kind : StoreKind::Sentinel });
+            return Some(Project::GitHub{ user_and_repo : url[29..].to_owned() });
         } else if url.ends_with(".git") && url.starts_with("https://") {
-            return Some(Project::Git{ url : url[8..(url.len() - 4)].to_owned(), store_kind : StoreKind::Sentinel });
+            return Some(Project::Git{ url : url[8..(url.len() - 4)].to_owned() });
         } else {
             return None;
-        }
-    }
-
-    /** Returns the store kind associated with the project.
-     */
-    pub fn store_kind(& self) -> StoreKind {
-        match self {
-            Project::Git{url : _, store_kind} => return *store_kind,
-            Project::GitHub{user_and_repo : _, store_kind } => return *store_kind,
         }
     }
 }
@@ -137,14 +128,12 @@ impl Project {
 impl Serializable for Project {
     fn serialize(f : & mut File, value : & Project) {
         match value {
-            Project::Git{url, store_kind } => {
+            Project::Git{url} => {
                 u8::serialize(f, & 0);
-                StoreKind::serialize(f, store_kind);
                 String::serialize(f, url);
             }
-            Project::GitHub{user_and_repo, store_kind } => {
+            Project::GitHub{user_and_repo } => {
                 u8::serialize(f, & 1);
-                StoreKind::serialize(f, store_kind);
                 String::serialize(f, user_and_repo);
             }
         }
@@ -153,14 +142,12 @@ impl Serializable for Project {
     fn deserialize(f : & mut File) -> Project {
         match u8::deserialize(f) {
             0 => {
-                let store_kind = StoreKind::deserialize(f);
                 let url = String::deserialize(f);
-                return Project::Git{ url, store_kind };
+                return Project::Git{ url };
             },
             1 => {
-                let store_kind = StoreKind::deserialize(f);
                 let user_and_repo = String::deserialize(f);
-                return Project::GitHub{ user_and_repo, store_kind };
+                return Project::GitHub{ user_and_repo };
             },
             _ => panic!("Unknown project kind"),
         }
