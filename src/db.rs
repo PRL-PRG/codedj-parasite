@@ -56,6 +56,19 @@ impl Indexable for u64 {
     const EMPTY : u64 = std::u64::MAX;
 }
 
+impl Serializable for i64 {
+    fn serialize(f : & mut File, value : & i64) {
+        f.write_i64::<LittleEndian>(*value).unwrap();
+    }
+    fn deserialize(f : & mut File) -> i64 {
+        return f.read_i64::<LittleEndian>().unwrap();
+    }
+}
+
+impl FixedSizeSerializable for i64 {
+    const SIZE : u64 = 8;
+}
+
 impl Serializable for u32 {
     fn serialize(f : & mut File, value : & u32) {
         f.write_u32::<LittleEndian>(*value).unwrap();
@@ -81,6 +94,7 @@ impl Serializable for u16 {
 impl FixedSizeSerializable for u16 {
     const SIZE : u64 = 2;
 }
+
 impl Serializable for u8 {
     fn serialize(f : & mut File, value : & u8) {
         f.write_u8(*value).unwrap();
@@ -193,27 +207,6 @@ impl<'a, T : Indexable> Iterator for IndexerIterator<'a, T> {
         }
     }
 }
-/*
-pub trait StoreTrait {
-    type Value;
-    type Iterator;
-    fn get_x(& mut self, id : u64) -> Option<Self::Value>;
-    fn iter_x(& mut self) -> Self::Iterator;
-}
-
-impl<'a, T: Serializable> StoreTrait for &'a mut Store<T> {
-    type Value = T;
-    type Iterator = StoreIter<'a, T>;
-
-    fn get_x(& mut self, id : u64) -> Option<Self::Value> {
-        return self.get(id);
-    }
-    fn iter_x(& mut self) -> Self::Iterator {
-        return StoreIter::new(& mut self.f, & mut self.indexer);
-    }
-}
-
-*/
 
 /** Store implementation. 
  
@@ -222,8 +215,8 @@ impl<'a, T: Serializable> StoreTrait for &'a mut Store<T> {
     TODO add savepoint
  */
 pub struct Store<T : Serializable> {
-    indexer : Indexer,
-    f : File,
+    pub (crate) indexer : Indexer,
+    pub (crate) f : File,
     why_oh_why : std::marker::PhantomData<T>,
 }
 
@@ -238,6 +231,12 @@ impl<T: Serializable> Store<T> {
         };
         println!("    {}: indices {}, size {}", name, result.indexer.len(), result.f.seek(SeekFrom::End(0)).unwrap());
         return result;
+    }
+
+    /** Returns true if there is a valid record for sgiven id. 
+     */
+    pub fn has(& mut self, id : u64) -> bool {
+        return self.indexer.get(id).is_some();
     }
 
     /** Gets the value for given id. 
@@ -354,8 +353,8 @@ impl<'a, T : Serializable> Iterator for StoreIterAll<'a, T> {
     TODO add savepoint
  */
 pub struct LinkedStore<T : Serializable> {
-    indexer : Indexer,
-    f : File,
+    pub (crate) indexer : Indexer,
+    pub (crate) f : File,
     why_oh_why : std::marker::PhantomData<T>,
 }
 
@@ -549,7 +548,13 @@ impl<T : FixedSizeSerializable + Eq + Hash + Clone> Mapping<T> {
     /** Loads the mapping into from disk to the hashmap. 
      */
     pub fn load(& mut self) {
-        unimplemented!();
+        // we have to create the iterator ourselves here otherwise rust would complain of double mutable borrow
+        self.f.seek(SeekFrom::Start(0)).unwrap();
+        let iter = MappingIter{f : & mut self.f, index : 0, size : self.size, why_oh_why : std::marker::PhantomData{} };
+        self.mapping.clear();
+        for (id, value) in iter {
+            self.mapping.insert(value, id);
+        }
     }
 
     /** Clears the loaded mapping and shrinks the hashmap to free up as much memory as possible. 
@@ -614,23 +619,25 @@ impl<T : FixedSizeSerializable + Eq + Hash + Clone> Mapping<T> {
 
     pub fn iter(& mut self) -> MappingIter<T> {
         self.f.seek(SeekFrom::Start(0)).unwrap();
-        return MappingIter{mapping : self, index : 0};
+        return MappingIter{f : & mut self.f, index : 0, size : self.size, why_oh_why : std::marker::PhantomData{} };
     }
 }
 
 pub struct MappingIter<'a, T : FixedSizeSerializable + Eq + Hash + Clone> {
-    mapping : &'a mut Mapping<T>,
-    index : u64
+    f : &'a mut File,
+    index : u64,
+    size : u64,
+    why_oh_why : std::marker::PhantomData<T>
 }
 
 impl<'a, T : FixedSizeSerializable + Eq + Hash + Clone> Iterator for MappingIter<'a, T> {
     type Item = (u64, T);
 
     fn next(& mut self) -> Option<(u64, T)> {
-        if self.index == self.mapping.size {
+        if self.index == self.size {
             return None;
         } else {
-            let value = T::deserialize(& mut self.mapping.f);
+            let value = T::deserialize(self.f);
             let id = self.index;
             self.index += 1;
             return Some((id, value));
@@ -640,33 +647,62 @@ impl<'a, T : FixedSizeSerializable + Eq + Hash + Clone> Iterator for MappingIter
 
 /** Mapping from values to ids where the values require indexing. 
  */
-struct IndirectMapping<T> {
-    indexer : Indexer,
-    f : File,
+pub struct IndirectMapping<T : Serializable + Eq + Hash + Clone> {
+    store : Store<T>,
     mapping : HashMap<T, u64>
 }
 
-impl<T> IndirectMapping<T> {
+impl<T : Serializable + Eq + Hash + Clone> IndirectMapping<T> {
 
     pub fn new(_root : & str, _name : & str) -> IndirectMapping<T> {
         unimplemented!();
     }
 
-    pub fn get(& mut self, _value : & T) -> Option<u64> {
-        unimplemented!();
+    pub fn load(& mut self) {
+        self.mapping.clear();
+        for (id, value) in self.store.iter() {
+            self.mapping.insert(value, id);
+        }
     }
 
-    pub fn get_or_create(& mut self, _value : & T) -> (u64, bool) {
-        unimplemented!();
-
+    pub fn clear(& mut self) {
+        self.mapping.clear();
+        self.mapping.shrink_to_fit();
     }
 
-    pub fn get_value(& mut self, _id : u64) -> Option<T> {
-        unimplemented!();
+    pub fn get(& mut self, value : & T) -> Option<u64> {
+        match self.mapping.get(value) {
+            Some(id) => Some(*id),
+            None => None
+        }
+    }
+
+    pub fn get_or_create(& mut self, value : & T) -> (u64, bool) {
+        match self.mapping.get(value) {
+            Some(id) => (*id, false),
+            None => {
+                let next_id = self.mapping.len() as u64;
+                self.store.set(next_id, value);
+                self.mapping.insert(value.to_owned(), next_id);
+                return (next_id, true);
+            }
+        }
+    }
+
+    pub fn get_value(& mut self, id : u64) -> Option<T> {
+        return self.store.get(id);
     }
 
     pub fn len(& self) -> usize {
-        unimplemented!();
+        return self.store.len();
+    }
+
+    pub fn mapping_len(& self) -> usize {
+        return self.mapping.len();
+    }
+
+    pub fn iter(& mut self) -> StoreIter<T> {
+        return self.store.iter();
     }
 
 }

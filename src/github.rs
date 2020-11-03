@@ -25,15 +25,13 @@ impl Github {
 
     /** Gets the repository information for given repository. 
      */
-    pub fn get_repo(& self, repo_url : & str, task : & Task) -> Result<json::JsonValue, std::io::Error> {
-        // construct the url for the request, remove https://github.com/
-        let url = & repo_url[19..(repo_url.len()-4)];
-        return self.request(& format!("https://api.github.com/repos/{}", url), task);
+    pub fn get_repo(& self, user_and_repo : & str, task : & TaskStatus) -> Result<json::JsonValue, std::io::Error> {
+        return self.request(& format!("https://api.github.com/repos/{}", user_and_repo), task);
     }
 
     /** Performs a github request of the specified url and returns the result string.  
      */
-    fn request(& self, url : & str, task : & Task) -> Result<json::JsonValue, std::io::Error> {
+    fn request(& self, url : & str, task : & TaskStatus) -> Result<json::JsonValue, std::io::Error> {
         let mut attempts = 0;
         let max_attempts = self.tokens.lock().unwrap().len();
         loop {
@@ -72,7 +70,7 @@ impl Github {
                 if rhdr.contains("X-RateLimit-Remaining: 0") {
                     // move to next token
                     self.tokens.lock().unwrap().next_token(token.1);
-                    task.update().set_message("moving to next Github API token");
+                    task.info("moving to next Github API token");
                 } else {
                     return Err(std::io::Error::new(std::io::ErrorKind::Other, rhdr.split("\n").next().unwrap()));
                 }
@@ -82,7 +80,7 @@ impl Github {
             attempts += 1;
             // if we have too many attempts, it likely means that the tokens are all used up, wait 10 minutes is primitive and should work alright...
             if attempts == max_attempts {
-                task.update().set_message("all Github API tokens exhausted, sleeping for 10 minutes");
+                task.info("all Github API tokens exhausted, sleeping for 10 minutes");
                 std::thread::sleep(std::time::Duration::from_millis(1000 * 60 * 10));
                 attempts = 0;
             }

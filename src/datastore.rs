@@ -7,6 +7,7 @@ use sha1::{Sha1, Digest};
 
 use crate::db::*;
 use crate::records::*;
+use crate::helpers;
 
 /** The global datastore. 
  
@@ -48,6 +49,7 @@ pub struct Datastore {
         - the linked history of its updates with precise timestamps and update results
         - heads of all branches in the project
         - project metadata
+
      */
     pub (crate) projects : Mutex<Store<Project>>,
     project_substores : Mutex<Store<StoreKind>>,
@@ -107,6 +109,20 @@ impl Datastore {
         return ds;
     }
 
+    /** Returns the root folder of the datastore. 
+     */
+    pub fn root_folder(&self) -> & str {
+        return & self.root;
+    }
+
+    // substores --------------------------------------------------------------------------------------------------------
+
+    /** Returns the appropriate substore.
+     */
+    pub (crate) fn substore(& self, substore : StoreKind) -> & Substore {
+        return self.substores.get(substore.to_number() as usize).unwrap();
+    }
+
     // projects ---------------------------------------------------------------------------------------------------------
 
     pub fn num_projects(& self) -> usize {
@@ -119,17 +135,73 @@ impl Datastore {
         return self.projects.lock().unwrap().get(id);
     }
 
+    /** Updates the information about given project. 
+     
+        Updates the project info and adds the appropriate update record. 
+     */
+    pub (crate) fn update_project(& self, id : u64, project : & Project) {
+        let old_offset;
+        {
+            let mut projects = self.projects.lock().unwrap();
+            old_offset = projects.indexer.get(id).unwrap();
+            self.projects.lock().unwrap().set(id, project);
+        }
+        self.project_updates.lock().unwrap().set(id, & ProjectUpdateStatus::Rename{
+            time : helpers::now(),
+            version : Self::VERSION,
+            old_offset
+        });
+    }
+
     pub fn get_project_last_update(& self, id : u64) -> Option<ProjectUpdateStatus> {
-        /*
-        if let Some(project) = self.get_project(id) {
-            if project.store_kind().is_valid() {
-                return self.project_updates.lock().unwrap().get()
-            } else {
-                return None;
+        return self.project_updates.lock().unwrap().get(id);
+    }
+
+    pub fn get_project_substore(& self, id : u64) -> StoreKind {
+        return self.project_substores.lock().unwrap().get(id).or(Some(StoreKind::Unspecified)).unwrap();
+    }
+
+    /** Returns the latest project heads for given project. 
+     */
+    pub fn get_project_heads(& self, id : u64) -> Option<ProjectHeads> {
+        return self.project_heads.lock().unwrap().get(id);
+    }
+
+    /** Updates the project heads to given value. 
+     */
+    pub (crate) fn update_project_heads(& self, id : u64, heads : & ProjectHeads) {
+        self.project_heads.lock().unwrap().set(id, heads);
+    }
+
+    /** Returns metadata value for given key and project, if one exists. 
+     */
+    pub fn get_project_metadata(& self, id : u64, key : & str) -> Option<String> {
+        let mut metadata = self.project_metadata.lock().unwrap();
+        for kv in metadata.iter_id(id) {
+            if kv.key == key {
+                return Some(kv.value);
             }
         }
-        */
-        unimplemented!();
+        return None;
+    }
+
+    /** Updates metadata value for given key if the last stored value differs. 
+     
+        Returns true if the value was updated, false otherwise.
+     */
+    pub (crate) fn update_project_metadata_if_differ(& self, id : u64, key : String, value : String) -> bool {
+        let mut metadata = self.project_metadata.lock().unwrap();
+        for kv in metadata.iter_id(id) {
+            if kv.key == key {
+                if kv.value == value {
+                    return false;
+                } else {
+                    break;
+                }
+            }
+        }
+        metadata.set(id, & Metadata{key, value });
+        return true;
     }
 
     pub (crate) fn project_urls_loaded(& self) -> bool {
@@ -192,9 +264,14 @@ pub (crate) struct Substore {
      */
     prefix : StoreKind,
 
+    /** Determines whether the substore's mappings are loaded in memory and therefore new items can be added to it. 
+     */
+    loaded : atomic::AtomicBool,
+
     /** Commits stored in the dataset. 
      */
     commits : Mutex<Mapping<Hash>>,
+    commits_info : Mutex<Store<CommitInfo>>,
     commits_metadata : Mutex<LinkedStore<Metadata>>,
 
     /** File hashes and their contents. 
@@ -214,6 +291,13 @@ pub (crate) struct Substore {
     paths : Mutex<Mapping<Hash>>,
     path_strings : Mutex<Store<String>>,
 
+    /** Users.
+     
+        Users are mapped by their email. 
+     */
+    users : Mutex<IndirectMapping<String>>,
+    users_metadata : Mutex<LinkedStore<Metadata>>,
+
 }
 
 impl Substore {
@@ -228,9 +312,11 @@ impl Substore {
         println!("** Loading substore {:?}", kind);
         return Substore{
             root : root.to_owned(),
-            prefix : kind, 
+            prefix : kind,
+            loaded : atomic::AtomicBool::new(false), 
 
             commits : Mutex::new(Mapping::new(root, "commits")),
+            commits_info : Mutex::new(Store::new(root, "commits-info")),
             commits_metadata : Mutex::new(LinkedStore::new(root, "commits-metadata")),
 
             hashes : Mutex::new(Mapping::new(root, "hashes")),
@@ -240,6 +326,9 @@ impl Substore {
             paths : Mutex::new(Mapping::new(root, "paths")),
             path_strings : Mutex::new(Store::new(root, "path-strings")),
 
+            users : Mutex::new(IndirectMapping::new(root, "users")),
+            users_metadata : Mutex::new(LinkedStore::new(root, "users-metadata")),
+
         };
     }
 
@@ -247,12 +336,39 @@ impl Substore {
         self.commits.lock().unwrap().load();
         self.hashes.lock().unwrap().load();
         self.paths.lock().unwrap().load();
+        self.users.lock().unwrap().load();
+        self.loaded.store(true, atomic::Ordering::SeqCst);
     }
 
     pub (crate) fn clear(& self) {
+        self.loaded.store(false, atomic::Ordering::SeqCst);
         self.commits.lock().unwrap().clear();
         self.hashes.lock().unwrap().clear();
         self.paths.lock().unwrap().clear();
+        self.users.lock().unwrap().clear();
+    }
+
+    pub (crate) fn is_loaded(& self) -> bool {
+        return self.loaded.load(atomic::Ordering::SeqCst);
+    }
+
+    /** Returns and id of given commit. 
+     
+        The secord returned value determines whether the commit is new,  or already known.
+     */
+    pub (crate) fn get_or_create_commit_id(& self, hash : & Hash) -> (u64, bool) {
+        return self.commits.lock().unwrap().get_or_create(hash);
+    }
+
+    pub (crate) fn add_commit_info_if_missing(& self, id : u64, commit_info : & CommitInfo) {
+        let mut cinfo = self.commits_info.lock().unwrap();
+        if ! cinfo.has(id) {
+            cinfo.set(id, commit_info);
+        }
+    }
+
+    pub (crate) fn get_or_create_user_id(& self, email : & String) -> (u64, bool) {
+        return self.users.lock().unwrap().get_or_create(email);
     }
 
     /** Returns an id of given path. 
@@ -267,4 +383,25 @@ impl Substore {
         }
         return (id, is_new);
     }
+
+    pub (crate) fn convert_hashes_to_ids(& self, hashes : & Vec<Hash>) -> Vec<(u64, bool)> {
+        let mut mapping = self.hashes.lock().unwrap();
+        return hashes.iter().map(|hash| {
+            return mapping.get_or_create(hash);
+        }).collect();
+    }
+
+    pub (crate) fn convert_paths_to_ids(& self, paths : & Vec<String>) -> Vec<(u64, bool)> {
+        let mut mapping = self.paths.lock().unwrap();
+        let mut path_strings = self.path_strings.lock().unwrap();
+        return paths.iter().map(|path| {
+            let hash = Datastore::hash_of(path.as_bytes());
+            let (id, is_new) = mapping.get_or_create(& hash);
+            if is_new {
+                path_strings.set(id, path);
+            }
+            return (id, is_new);
+        }).collect();
+    }
+
 }

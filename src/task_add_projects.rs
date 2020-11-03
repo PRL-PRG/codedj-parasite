@@ -36,7 +36,7 @@ fn add_project(updater : & Updater, url : & str, added : & mut usize, existing :
         Some(project) => {
             match updater.ds.add_project(& project) {
                 Some(id) => {
-                    updater.schedule_project_update(id, Updater::NEVER);
+                    updater.schedule(Task::UpdateRepo{ id, last_update_time : Updater::NEVER });
                     *added += 1;
                 },
                 _ => {

@@ -37,24 +37,24 @@ pub enum StoreKind {
     Shell,
     TypeScript,
 
-    Sentinel // sentinel to denote number of store kinds
+    Unspecified // sentinel to denote number of store kinds
 }
 
 impl StoreKind {
     /** Returns true if the store kind is a valid store value. 
      */
-    pub fn is_valid(& self) -> bool {
+    pub fn is_specified(& self) -> bool {
         match self {
-            StoreKind::Sentinel => return false,
+            StoreKind::Unspecified => return false,
             _ => return true
         };
     }
 }
 
 impl SplitKind for StoreKind {
-    const COUNT : u64 = StoreKind::Sentinel as u64;
+    const COUNT : u64 = StoreKind::Unspecified as u64;
 
-    const EMPTY : StoreKind = StoreKind::Sentinel;
+    const EMPTY : StoreKind = StoreKind::Unspecified;
 
     fn to_number(& self) -> u64 {
         return *self as u64;
@@ -154,38 +154,132 @@ impl Serializable for Project {
     }
 }
 
+/** Project update status. 
+ 
+    Every time a repository is updated, an update status message is added to the projects update status so that the history of updates and repository lifetime can be reconstructed:
+
+    # NoChange
+
+    # Ok
+
+    # Rename
+
+    Issued when project url change is detected by the updater. Although project kind change is not expected during the rename, it may change as well. The `old_offset` argument is the old offset in the projects table that contains the old identification of the project.  
+
+    # Tombstone
+
+    # Error
+ */
 pub enum ProjectUpdateStatus {
     NoChange{time : i64, version : u16}, // 0
     Ok{time : i64, version : u16},  // 1
+    /** Project url changes. Although project kind change is not expected when issuing project renames, it is technically possible. 
+     */
+    Rename{time : i64, version : u16, old_offset : u64}, // 2
     Tombstone{time : i64, version : u16, new_kind : StoreKind }, // 254
     Error{time : i64, version : u16, error : String }, // 255
 }
 
+impl ProjectUpdateStatus {
+    pub fn version(& self) -> u16 {
+        match self {
+            ProjectUpdateStatus::NoChange{time : _, version } => return *version,
+            ProjectUpdateStatus::Ok{time : _, version} => return *version,
+            ProjectUpdateStatus::Rename{time : _, version, old_offset: _} => return *version,
+            ProjectUpdateStatus::Tombstone{time : _, version, new_kind : _ } => return *version,
+            ProjectUpdateStatus::Error{time : _, version, error: _ } => return *version,
+        }
+    }
+}
+
 impl Serializable for ProjectUpdateStatus {
     fn serialize(f : & mut File, value : & ProjectUpdateStatus) {
-        unimplemented!();
+        match value {
+            ProjectUpdateStatus::NoChange{time , version } => {
+                u8::serialize(f, & 0);
+                i64::serialize(f, time);
+                u16::serialize(f, version);
+            },
+            ProjectUpdateStatus::Ok{time , version} =>  {
+                u8::serialize(f, & 1);
+                i64::serialize(f, time);
+                u16::serialize(f, version);
+            },
+            ProjectUpdateStatus::Rename{time , version, old_offset} =>  {
+                u8::serialize(f, & 2);
+                i64::serialize(f, time);
+                u16::serialize(f, version);
+                u64::serialize(f, old_offset);
+            },
+            ProjectUpdateStatus::Tombstone{time , version, new_kind } =>  {
+                u8::serialize(f, & 254);
+                i64::serialize(f, time);
+                u16::serialize(f, version);
+                StoreKind::serialize(f, new_kind);
+            },
+            ProjectUpdateStatus::Error{time , version, error } =>  {
+                u8::serialize(f, & 255);
+                i64::serialize(f, time);
+                u16::serialize(f, version);
+                String::serialize(f, error);
+            },
+        }
     }
 
     fn deserialize(f : & mut File) -> ProjectUpdateStatus {
-        unimplemented!();
+        let kind = u8::deserialize(f);
+        let time = i64::deserialize(f);
+        let version = u16::deserialize(f);
+        match kind {
+            0 => {
+                return ProjectUpdateStatus::NoChange{time, version};
+            },
+            1 => {
+                return ProjectUpdateStatus::Ok{time, version};
+            },
+            2 => {
+                return ProjectUpdateStatus::Rename{time, version, old_offset : u64::deserialize(f)};
+            },
+            254 => {
+                return ProjectUpdateStatus::Tombstone{time, version, new_kind : StoreKind::deserialize(f)};
+            },
+            255 => {
+                return ProjectUpdateStatus::Error{time, version, error : String::deserialize(f)};
+            },
+            _ => panic!("Unknown project update status kind"),
+        }
     }
-
 }
-
 
 /** Head references at any given repository update.
  
     The references are hashmap from branch names to the ids of the latest commits as of the time of cloning the project (fetching its heads to be precise). 
+    
+    For practical reasons, the heads keep both the id of the latest commit's hash as well as the hash itself. This is important so that the updater can compare the string hashes against the possibly new commits in new heads without having to consult the substore, while everyone else can use the commit ids directly.
  */
-pub type ProjectHeads = HashMap<String, u64>;
+pub type ProjectHeads = HashMap<String, (u64, Hash)>;
 
 impl Serializable for ProjectHeads {
     fn serialize(f : & mut File, value : & ProjectHeads) {
-        unimplemented!();
+        u32::serialize(f, & (value.len() as u32));
+        for (name, (id, hash)) in value {
+            String::serialize(f, name);
+            u64::serialize(f, id);
+            Hash::serialize(f, hash);
+        }
     }
 
     fn deserialize(f : & mut File) -> ProjectHeads {
-        unimplemented!();
+        let mut records = u32::deserialize(f);
+        let mut result = ProjectHeads::new();
+        while records > 0 {
+            let name = String::deserialize(f);
+            let id = u64::deserialize(f);
+            let hash = Hash::deserialize(f);
+            result.insert(name, (id, hash));
+            records -= 1;
+        }
+        return result;
     }
 }
 
@@ -323,6 +417,10 @@ pub struct Metadata {
     pub value : String
 }
 
+impl Metadata {
+    pub const GITHUB_METADATA : &'static str = "github_metadata";
+}
+
 impl Serializable for Metadata {
     fn serialize(f : & mut File, value : & Metadata) {
         String::serialize(f, & value.key);
@@ -337,6 +435,69 @@ impl Serializable for Metadata {
     }
 }
 
+pub struct CommitInfo {
+    pub committer : u64,
+    pub committer_time : i64,
+    pub author : u64,
+    pub author_time : i64,
+    pub parents : Vec<u64>,
+    pub changes : HashMap<u64,u64>,
+    pub message : String,
+}
+
+impl CommitInfo {
+    pub fn new() -> CommitInfo {
+        return CommitInfo{
+            committer : 0,
+            committer_time : 0,
+            author : 0,
+            author_time : 0,
+            parents : Vec::new(),
+            changes : HashMap::new(),
+            message : String::new(),
+        };
+    }
+}
+
+impl Serializable for CommitInfo {
+    fn serialize(f : & mut File, value : & CommitInfo) {
+        u64::serialize(f, & value.committer);
+        i64::serialize(f, & value.committer_time);
+        u64::serialize(f, & value.author);
+        i64::serialize(f, & value.author_time);
+        u16::serialize(f, & (value.parents.len() as u16));
+        for parent in value.parents.iter() {
+            u64::serialize(f, parent);
+        }
+        u32::serialize(f, & (value.changes.len() as u32));
+        for (path, hash) in value.changes.iter() {
+            u64::serialize(f, path);
+            u64::serialize(f, hash);
+        }
+        String::serialize(f, & value.message);
+    }
+
+    fn deserialize(f : & mut File) -> CommitInfo {
+        let mut result = CommitInfo::new();
+        result.committer = u64::deserialize(f);
+        result.committer_time = i64::deserialize(f);
+        result.author = u64::deserialize(f);
+        result.author_time = i64::deserialize(f);
+        let mut num_parents = u16::deserialize(f);
+        while num_parents > 0 {
+            result.parents.push(u64::deserialize(f));
+            num_parents -= 1;
+        }
+        let mut num_changes = u32::deserialize(f);
+        while num_changes > 0 {
+            let path = u64::deserialize(f);
+            let hash = u64::deserialize(f);
+            result.changes.insert(path, hash);
+        }
+        result.message = String::deserialize(f);
+        return result;
+    }
+}
 
 
 

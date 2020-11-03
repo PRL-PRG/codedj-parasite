@@ -1,10 +1,10 @@
 use std::collections::*;
 use std::sync::*;
 use std::io::{Write, stdout};
-use std::any::*;
 
 use crate::datastore::*;
 use crate::records::*;
+use crate::github::*;
 use crate::helpers;
 
 use crate::task_add_projects::*;
@@ -12,6 +12,33 @@ use crate::task_update_repo::*;
 
 
 pub type Tx = crossbeam_channel::Sender<TaskMessage>;
+
+/** Convenience struct that brings together the tx end of a channel, task name and task itself and exposes the sending of task messages via a simple api. 
+ */
+pub struct TaskStatus<'a> {
+    pub tx : &'a Tx,
+    pub name : String,
+    pub task : Task,
+}
+
+impl<'a> TaskStatus<'a> {
+    pub fn new(tx : &'a Tx, task : Task) -> TaskStatus {
+        return TaskStatus {
+            tx : tx, 
+            name : task.name(),
+            task : task
+        };
+    }
+
+    pub fn info<S: Into<String>>(& self, info : S) {
+        self.tx.send(TaskMessage::Info{name : self.name.to_owned(), info : info.into() }).unwrap();
+    }
+
+    pub fn progress(& self, progress : usize, max : usize) {
+        self.tx.send(TaskMessage::Progress{name : self.name.to_owned(), progress, max}).unwrap();
+    }
+}
+
 
 /** The updater. 
 
@@ -23,6 +50,8 @@ pub (crate) struct Updater {
     /** The datastore on which the updater operates. 
      */
     pub (crate) ds : Datastore,
+
+    pub (crate) github : Github,
 
     /** Incremental updater
      */
@@ -49,6 +78,8 @@ impl Updater {
     pub fn new(ds : Datastore) -> Updater {
         return Updater {
             ds, 
+            // TODO do not hardcode!!!!!!!!    
+            github : Github::new("/mnt/data/github-tokens.csv"),
 
             num_workers : 16,
             pool : Mutex::new(Pool::new()),
@@ -100,17 +131,14 @@ impl Updater {
         self.pool.lock().unwrap().running_workers += 1;
         while let Some(task) = self.get_next_task() {
             let task_name = task.name();
-            tx.send(TaskMessage::Start{name : task_name.to_owned()});
+            tx.send(TaskMessage::Start{name : task_name.to_owned()}).unwrap();
             let result = std::panic::catch_unwind(|| {
                 match task {
-                    Task::UpdateRepo{last_update_time : _, id : _, version : _ } => {
-                        return task_update_repo(self, & task_name, task, &tx);
+                    Task::UpdateRepo{last_update_time : _, id : _ } => {
+                        return task_update_repo(self, TaskStatus::new(& tx, task));
                     }
                     // TODO update task and so on
                     Task::AddProjects{source} => return task_add_projects(self, & task_name, source, & tx),
-                    _ => {
-                        return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Unknown task: {:?}", task)));
-                    }
                 }
             });
             match result {
@@ -156,15 +184,10 @@ impl Updater {
         return state.queue.pop();
     }
 
-    pub fn schedule_task(& self, task : Task) {
+    pub fn schedule(& self, task : Task) {
         let mut pool = self.pool.lock().unwrap();
         pool.queue.push(task);
         self.cv_workers.notify_one();
-    }
-
-    /** Schedules the update of the given project. 
-     */
-    pub fn schedule_project_update(& self, id : u64, last_update_time : i64) {
     }
 
     /** Returns true if the non-worker thread should stop immediately, false otherwise. 
@@ -176,24 +199,6 @@ impl Updater {
         return state.is_stopped();
     }
 
-    /* Returns true if the thread should continue, blocks if the updater is being paused and returns false if the updater should stop immediately. 
-     
-        This function is to be used periodically by workers that are not part of the incremental downloader as it provides the stop/pause/running check outside of the scope of 
-     */
-    /*
-    fn can_continue(& self) -> bool {
-        let mut state = self.pool.lock().unwrap();
-        while state.state != State::Running {
-            if state.state == State::Stopped {
-                return false;
-            }
-            state.paused_workers += 1;
-            state = self.cv_workers.wait(state).unwrap();
-            state.paused_workers -= 1;
-        }
-        return true;
-    }
-    */
 
     /** Prints the status of the update process. 
      */
@@ -258,7 +263,7 @@ impl Updater {
         print!("\x1b[H"); // set cursor to top left corner
         print!("\x1b[104;97m"); // set white on blue background
         // the header 
-        let mut queue_size = 0;
+        let queue_size;
         {
             let threads = self.pool.lock().unwrap();
             println!("{} DCD v3 (datastore version {}), uptime [ {} ], threads [ {}r, {}i, {}p ], status: [ {} ] \x1b[K",
@@ -356,11 +361,11 @@ impl Updater {
             /* Adds given project url, or projects from given csv file. 
              */
             "add" => {
-                if (cmd.len() != 2) {
+                if cmd.len() != 2 {
                     self.display_prompt("ERROR: Specify single project url or csv file to load the projects from");
                 } else {
                     self.display_prompt("Adding projects to datastore, see task progress...");
-                    self.schedule_task(Task::AddProjects{ source : cmd[1].to_owned() });
+                    self.schedule(Task::AddProjects{ source : cmd[1].to_owned() });
                 }
             }
             /* Kill immediately aborts the entire process. 
@@ -401,6 +406,7 @@ impl Updater {
         self.project_urls.lock().unwrap().clear();
     }
 
+
     /*
     fn update_project(& self, _task : QueuedProject) -> Result<(), std::io::Error> {
         unimplemented!();
@@ -416,21 +422,21 @@ impl std::panic::RefUnwindSafe for Updater { }
 
 #[derive(Eq, PartialEq, Debug)] 
 pub enum Task {
-    UpdateRepo{last_update_time : i64, id : u64, version : u16},
+    UpdateRepo{id : u64, last_update_time : i64},
     AddProjects{source : String}
 }
 
 impl Task {
     pub fn priority(& self) -> i64 {
         match self {
-            Task::UpdateRepo{last_update_time, id : _, version : _} => *last_update_time, 
+            Task::UpdateRepo{last_update_time, id : _} => *last_update_time, 
             _ => -1,
         }
     }
 
     pub fn name(& self) -> String {
         match self {
-            Task::UpdateRepo{last_update_time : _, id, version : _} => format!("{}", id),
+            Task::UpdateRepo{id, last_update_time : _} => format!("{}", id),
             Task::AddProjects{source : _ } => "add".to_owned(), 
         }
     }

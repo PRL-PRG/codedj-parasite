@@ -11,6 +11,7 @@ mod updater;
 #[allow(dead_code)]
 mod task_add_projects;
 mod task_update_repo;
+mod github;
 
 // v3 from here
 
