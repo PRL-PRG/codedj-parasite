@@ -1,13 +1,12 @@
 use std::collections::*;
 use std::sync::*;
-use std::io::*;
 use std::path::Path;
-use std::fs::{File, OpenOptions};
 use sha1::{Sha1, Digest};
 
 use crate::db::*;
 use crate::records::*;
 use crate::helpers;
+use crate::updater;
 
 /** The global datastore. 
  
@@ -123,6 +122,10 @@ impl Datastore {
         return self.substores.get(substore.to_number() as usize).unwrap();
     }
 
+    pub (crate) fn substores_iter<'a>(&'a self) -> std::slice::Iter<'a, Substore> {
+        return self.substores.iter();
+    }
+
     // projects ---------------------------------------------------------------------------------------------------------
 
     pub fn num_projects(& self) -> usize {
@@ -211,6 +214,19 @@ impl Datastore {
         return self.projects.lock().unwrap().len() == 0;
     }
 
+    /** Memory report for the project urls. 
+     
+        Returns empty string if the project urls are not loaded, otherwise returns their shortname (`purl`) and and the number of projects loaded. 
+     */
+    pub (crate) fn project_urls_memory_report(& self) -> String {
+        let loaded_projects = self.project_urls.lock().unwrap().len();
+        if loaded_projects == 0 {
+            return String::new();
+        } else {
+            return format!("purl:{}", helpers::pretty_value(loaded_projects));
+        }
+    }
+
     pub (crate) fn load_project_urls(& self, mut reporter : impl FnMut(usize)) {
         let mut urls = self.project_urls.lock().unwrap();
         if urls.is_empty() {
@@ -266,7 +282,7 @@ pub (crate) struct Substore {
 
     /** Determines whether the substore's mappings are loaded in memory and therefore new items can be added to it. 
      */
-    loaded : atomic::AtomicBool,
+    loaded : Mutex<bool>,
 
     /** Commits stored in the dataset. 
      */
@@ -310,10 +326,10 @@ impl Substore {
         // and create the store
         let root = root_path.to_str().unwrap();
         println!("** Loading substore {:?}", kind);
-        return Substore{
+        let result = Substore{
             root : root.to_owned(),
             prefix : kind,
-            loaded : atomic::AtomicBool::new(false), 
+            loaded : Mutex::new(false), 
 
             commits : Mutex::new(Mapping::new(root, "commits")),
             commits_info : Mutex::new(Store::new(root, "commits-info")),
@@ -330,26 +346,64 @@ impl Substore {
             users_metadata : Mutex::new(LinkedStore::new(root, "users-metadata")),
 
         };
+        // add sentinels (0 index values) for commits, hashes, paths and users
+        result.get_or_create_commit_id(& Hash::zero());
+        result.get_or_create_hash_id(& Hash::zero());
+        result.get_or_create_path_id(& "".to_owned());
+        result.get_or_create_user_id(& "".to_owned());
+        return result;
     }
 
-    pub (crate) fn load(& self) {
+    pub (crate) fn load(& self, task : updater::TaskStatus) {
+        task.info("Acquiring substore lock...");
+        task.progress(0, 4);
+        let mut x = self.loaded.lock().unwrap();
+        task.info("Loading...");
         self.commits.lock().unwrap().load();
+        task.progress(1, 4);
         self.hashes.lock().unwrap().load();
+        task.progress(2, 4);
         self.paths.lock().unwrap().load();
+        task.progress(3, 4);
         self.users.lock().unwrap().load();
-        self.loaded.store(true, atomic::Ordering::SeqCst);
+        task.progress(4, 4);
+        *x = true;
     }
 
-    pub (crate) fn clear(& self) {
-        self.loaded.store(false, atomic::Ordering::SeqCst);
+    pub (crate) fn clear(& self, task : updater::TaskStatus) {
+        task.info("Acquiring substore lock...");
+        task.progress(0, 4);
+        let mut x = self.loaded.lock().unwrap();
+        task.info("Clearing...");
         self.commits.lock().unwrap().clear();
+        task.progress(1, 4);
         self.hashes.lock().unwrap().clear();
+        task.progress(2, 4);
         self.paths.lock().unwrap().clear();
+        task.progress(3, 4);
         self.users.lock().unwrap().clear();
+        task.progress(4, 4);
+        *x = false;
     }
 
     pub (crate) fn is_loaded(& self) -> bool {
-        return self.loaded.load(atomic::Ordering::SeqCst);
+        return *self.loaded.lock().unwrap();
+    }
+
+    /** Returns the memory report for the substore. 
+     
+        This is either an empty string if the substore is not loaded, or the name of the substore and the total number of mappings in memory the substore holds. 
+     */
+    pub (crate) fn memory_report(& self) -> String {
+        if self.is_loaded() {
+            let commits = self.commits.lock().unwrap().mapping_len();
+            let hashes = self.hashes.lock().unwrap().mapping_len();
+            let paths = self.paths.lock().unwrap().mapping_len();
+            let users = self.users.lock().unwrap().mapping_len();
+            return format!("{:?}:{}", self.prefix, commits + hashes + paths + users);
+        } else {
+            return String::new();
+        }
     }
 
     /** Returns and id of given commit. 
@@ -367,8 +421,23 @@ impl Substore {
         }
     }
 
-    pub (crate) fn get_or_create_user_id(& self, email : & String) -> (u64, bool) {
-        return self.users.lock().unwrap().get_or_create(email);
+    pub (crate) fn get_or_create_hash_id(& self, hash : & Hash) -> (u64, bool) {
+        return self.hashes.lock().unwrap().get_or_create(hash);
+    }
+
+    pub (crate) fn convert_hashes_to_ids(& self, hashes : & Vec<Hash>) -> Vec<(u64, bool)> {
+        let mut mapping = self.hashes.lock().unwrap();
+        return hashes.iter().map(|hash| {
+            return mapping.get_or_create(hash);
+        }).collect();
+    }
+
+    /** Stores contents for given id. 
+     
+        Note that once stored, the kind of the id is not supposed to change. 
+     */
+    pub (crate) fn add_file_contents(& self, id : u64, kind : ContentsKind, contents : & Vec<u8>) {
+        self.contents.lock().unwrap().set(id, kind, contents);
     }
 
     /** Returns an id of given path. 
@@ -384,13 +453,6 @@ impl Substore {
         return (id, is_new);
     }
 
-    pub (crate) fn convert_hashes_to_ids(& self, hashes : & Vec<Hash>) -> Vec<(u64, bool)> {
-        let mut mapping = self.hashes.lock().unwrap();
-        return hashes.iter().map(|hash| {
-            return mapping.get_or_create(hash);
-        }).collect();
-    }
-
     pub (crate) fn convert_paths_to_ids(& self, paths : & Vec<String>) -> Vec<(u64, bool)> {
         let mut mapping = self.paths.lock().unwrap();
         let mut path_strings = self.path_strings.lock().unwrap();
@@ -402,6 +464,10 @@ impl Substore {
             }
             return (id, is_new);
         }).collect();
+    }
+
+    pub (crate) fn get_or_create_user_id(& self, email : & String) -> (u64, bool) {
+        return self.users.lock().unwrap().get_or_create(email);
     }
 
 }

@@ -1,6 +1,5 @@
-use std::fs::{File, OpenOptions};
+use std::fs::*;
 use std::io::*;
-use std::hash::*;
 use std::collections::*;
 use byteorder::*;
 use flate2::*;
@@ -48,6 +47,36 @@ impl StoreKind {
             StoreKind::Unspecified => return false,
             _ => return true
         };
+    }
+
+    /** Gets the store kind based on the string given. 
+     
+        Supports both long and short names. Is case insensitive.
+     */
+    pub fn from_string(name : & str) -> Option<StoreKind> {
+        match name.to_lowercase().as_str() {
+            "small" => Some(StoreKind::SmallProjects),
+            "c" => Some(StoreKind::C),
+            "cpp" => Some(StoreKind::Cpp),
+            "csharp" | "cs" => Some(StoreKind::CSharp),
+            "clojure" => Some(StoreKind::Clojure),
+            "coffeescript" => Some(StoreKind::CoffeeScript),
+            "erlang" => Some(StoreKind::Erlang),
+            "go" => Some(StoreKind::Go),
+            "haskell" => Some(StoreKind::Haskell),
+            "html" => Some(StoreKind::Html),
+            "java" => Some(StoreKind::Java),
+            "javascript" | "js" => Some(StoreKind::JavaScript),
+            "objectivec" | "objc" => Some(StoreKind::ObjectiveC),
+            "perl" => Some(StoreKind::Perl),
+            "php" => Some(StoreKind::Php), 
+            "python" => Some(StoreKind::Python),
+            "ruby" => Some(StoreKind::Ruby),
+            "scala" => Some(StoreKind::Scala),
+            "shell" => Some(StoreKind::Shell),
+            "typescript" | "ts" => Some(StoreKind::TypeScript),
+            _ => None
+        }
     }
 }
 
@@ -341,16 +370,86 @@ pub enum ContentsKind {
     Html,
     Java,
     JavaScript,
+    JSON,
     ObjectiveC,
     Perl,
     Php,
     Python,
+    Readme,
     Ruby,
     Scala,
     Shell,
     TypeScript,
 
     Sentinel // sentinel to denote number of content kinds
+}
+
+impl ContentsKind {
+
+    pub const MAX_SMALL_FILE_SIZE : usize = 100;
+
+    /** Determines a contents kind based on the path of the file.
+     */
+    pub fn from_path(path : & str) -> Option<ContentsKind> {
+        let parts = path.split(".").collect::<Vec<& str>>();
+        match parts[parts.len() - 1] {
+            // generic files
+            "README" => Some(ContentsKind::Readme),
+            // C
+            "c" | "h" => Some(ContentsKind::C),
+            // C++ 
+            "cpp" | "cc" | "cxx" | "hpp" | "C" => Some(ContentsKind::Cpp),
+            // C#
+            "cs" => Some(ContentsKind::CSharp),
+            // Clojure
+            "clj" | "cljs" | "cljc" | "edn" => Some(ContentsKind::Clojure),
+            // CoffeeScript
+            "coffee" | "litcoffee" => Some(ContentsKind::CoffeeScript),
+            // Erlang
+            "erl" | "hrl" => Some(ContentsKind::Erlang),
+            // Go
+            "go" => Some(ContentsKind::Go),
+            // Haskell
+            "hs" | "lhs" => Some(ContentsKind::Haskell),
+            // HTML
+            "html" | "htm" => Some(ContentsKind::Html),
+            // Java
+            "java" => Some(ContentsKind::Java),
+            // JavaScript
+            "js" | "mjs" => Some(ContentsKind::JavaScript),
+            // Objective-C
+            "m" | "mm" | "M" => Some(ContentsKind::ObjectiveC),
+            // Perl
+            "plx"| "pl" | "pm" | "xs" | "t" | "pod" => Some(ContentsKind::Perl),
+            // PHP
+            "php" | "phtml" | "php3" | "php4" | "php5" | "php7" | "phps" | "php-s" | "pht" | "phar" => Some(ContentsKind::Php),            
+            // Python
+            "py" | "pyi" | "pyc" | "pyd" | "pyo" | "pyw" | "pyz" => Some(ContentsKind::Python),
+            // Ruby
+            "rb" => Some(ContentsKind::Ruby),
+            // Scala
+            "scala" | "sc" => Some(ContentsKind::Scala),
+            // Shell
+            "sh" => Some(ContentsKind::Shell),
+            // TypeScript
+            "ts" | "tsx" => Some(ContentsKind::TypeScript),
+            // JSON
+            "json" => Some(ContentsKind::JSON),
+            _ => None
+        }
+    }
+
+    /** Determines the contents kind from the actual contents of the file. 
+     
+        For now, we only check if the file is really small, otherwise we keep the category as determined by its path.
+     */
+    pub fn from_contents(contents : & [u8], from_path : ContentsKind) -> Option<ContentsKind> {
+        if contents.len() < ContentsKind::MAX_SMALL_FILE_SIZE {
+            return Some(ContentsKind::SmallFiles);
+        } else {
+            return Some(from_path);
+        }
+    }
 }
 
 impl SplitKind for ContentsKind {
@@ -493,6 +592,7 @@ impl Serializable for CommitInfo {
             let path = u64::deserialize(f);
             let hash = u64::deserialize(f);
             result.changes.insert(path, hash);
+            num_changes -= 1;
         }
         result.message = String::deserialize(f);
         return result;

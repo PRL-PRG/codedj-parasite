@@ -1,6 +1,3 @@
-use std::collections::*;
-
-use crate::datastore::*;
 use crate::updater::*;
 use crate::records::*;
 use crate::helpers;
@@ -9,25 +6,19 @@ use crate::helpers;
  
     To do this we must check the project urls for which the datastore needs to load all urls it knows. If the hashmap is not populated, it is loaded first. Then projects from the source can be added. 
  */
-pub (crate) fn task_add_projects(updater : & Updater, task_name : & str, source : String,  tx : & Tx) -> Result<(), std::io::Error> {
+pub (crate) fn task_add_projects(updater : & Updater, source : String,  task : TaskStatus) -> Result<(), std::io::Error> {
     updater.ds.load_project_urls(| progress | {
-        tx.send(TaskMessage::Info{
-            name : task_name.to_owned(),
-            info : format!("loading datastore project urls ({}) ", helpers::pretty_value(progress))
-        }).unwrap();
+        task.info(format!("loading datastore project urls ({}) ", helpers::pretty_value(progress)));
     });
     let mut added = 0;
     let mut existing = 0;
     let mut invalid = 0;
     if source.ends_with(".csv") {
-        add_projects_from_csv(updater, source, task_name, tx, & mut added, & mut existing, & mut invalid)?;
+        add_projects_from_csv(updater, source, & task, & mut added, & mut existing, & mut invalid)?;
     } else {
         add_project(updater, & source, & mut added, & mut existing, & mut invalid);
     }
-    tx.send(TaskMessage::Info{
-        name : task_name.to_owned(),
-        info : format!("Finished: {} added, {} existing, {} invalid", added, existing, invalid)
-    }).unwrap();
+    task.info(format!("Finished: {} added, {} existing, {} invalid", added, existing, invalid));
     return Ok(());
 }
 
@@ -48,7 +39,7 @@ fn add_project(updater : & Updater, url : & str, added : & mut usize, existing :
     }
 } 
 
-fn add_projects_from_csv(updater : & Updater, source : String, task_name : & str, tx : & Tx, added : & mut usize, existing : & mut usize, invalid : & mut usize) -> Result<(), std::io::Error>{
+fn add_projects_from_csv(updater : & Updater, source : String, task : & TaskStatus, added : & mut usize, existing : & mut usize, invalid : & mut usize) -> Result<(), std::io::Error>{
     let mut reader = csv::ReaderBuilder::new()
         .has_headers(true)
         .double_quote(false)
@@ -72,10 +63,7 @@ fn add_projects_from_csv(updater : & Updater, source : String, task_name : & str
         }
         add_project(updater, & record[col_id], added, existing, invalid);
         if (*added + *existing + *invalid) % 1000 == 0 {
-            tx.send(TaskMessage::Info{
-                name : task_name.to_owned(),
-                info : format!("{} added, {} existing, {} invalid, using column {}", added, existing, invalid, col_id)
-            }).unwrap();
+            task.info(format!("{} added, {} existing, {} invalid, using column {}", added, existing, invalid, col_id));
         }
     }
     return Ok(());

@@ -22,11 +22,16 @@ pub (crate) fn task_update_repo(updater : & Updater, task : TaskStatus) -> Resul
         // validate the url and project metadata
         ru.check_metadata()?;
         // update the project contents
-        // TODO the check
-        ru.update_repository();
+        match ru.update_repository() {
+            Err(e) => 
+                return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("{:?}", e))),
+            _ => 
+                return Ok(()),
+        }
+    } else {
+        // the task is being skipped
+        return Ok(());
     }
-
-    return Ok(());
 }
 
 /** A convenience struct because I do not want to drag everything as function arguments.
@@ -46,6 +51,7 @@ struct RepoUpdater<'a> {
     users : HashMap<String, u64>,
     paths : HashMap<String, u64>,
     q : Vec<(Hash, u64)>,
+    snapshots : usize,
 }
 
 impl<'a> RepoUpdater<'a> {
@@ -69,6 +75,7 @@ impl<'a> RepoUpdater<'a> {
                 users : HashMap::new(),
                 paths : HashMap::new(),
                 q : Vec::new(),
+                snapshots : 0,
             };
         } else {
             panic!("Invalid task kind");
@@ -157,12 +164,14 @@ impl<'a> RepoUpdater<'a> {
             self.clone_repository(& mut remote, & heads_to_fetch)?;
             // TODO determine the substore for the project / update when necessary and either terminate the update, or continue
             let substore = self.ds.substore(StoreKind::Unspecified);
-            let mut i = 1;
+            let mut i = 0;
+            self.task.progress(i, heads_to_fetch.len());
             for head in heads_to_fetch.iter() {
                 self.task.info(format!("analyzing branch {} ({} of {})", head, i, heads_to_fetch.len()));
                 let (id, hash) = remote_heads.get_mut(head).unwrap();
                 *id = self.analyze_branch(& repo, *hash, substore)?;
                 i += 1;
+                self.task.progress(i, heads_to_fetch.len());
             }
         }
         // if either the heads to fetch were not empty (i.e. there was a content to download), or there was no content, but the number of heads is different (some heads were deleted), store the updated heads
@@ -266,6 +275,8 @@ impl<'a> RepoUpdater<'a> {
             commit_info.changes = self.get_commit_changes(repo, & commit, substore)?;
             // store the commit info
             substore.add_commit_info_if_missing(id, & commit_info);
+            // update the information
+            self.update_task();
         }
         return Ok(head_id);
     }
@@ -316,14 +327,18 @@ impl<'a> RepoUpdater<'a> {
         // time to convert paths to hashes
         let result = self.convert_and_register_changes(changes, substore);
         // now let's look over the changes and see if there is any file that we should snapshot
-        for (path_id, hash_id, path, hash, is_new_hash) in result.iter() {
-            // TODO TODO TODO TODO
-            // TODO TODO TODO TODO
-            // TODO TODO TODO TODO
-            // TODO TODO TODO TODO
-            // TODO TODO TODO TODO
-            // TODO TODO TODO TODO
-            // TODO TODO TODO TODO
+        for (_path_id, hash_id, path, hash, is_new_hash) in result.iter() {
+            if *is_new_hash {
+                if let Some(path_kind) = ContentsKind::from_path(path) {
+                    if let Ok(blob) = repo.find_blob(*hash) {
+                        let contents = blob.content();
+                        if let Some(kind) = ContentsKind::from_contents(contents, path_kind) {
+                            substore.add_file_contents(*hash_id, kind, & Vec::from(contents));
+                            self.snapshots += 1;
+                        }
+                    } 
+                }
+            }
         }
         // finally get only the things we need for changes and return
         return Ok(result.into_iter().map(|(path_id, hash_id, _, _, _)| (path_id, hash_id)).collect());
@@ -363,6 +378,12 @@ impl<'a> RepoUpdater<'a> {
             return (path_id, hash_id, path, hash, is_new_hash);
         }).collect();
     } 
+
+    /** Updates the task information. 
+     */
+    fn update_task(& self) {
+        unimplemented!();
+    }
 
 }
 

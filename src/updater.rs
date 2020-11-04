@@ -81,7 +81,8 @@ impl Updater {
             // TODO do not hardcode!!!!!!!!    
             github : Github::new("/mnt/data/github-tokens.csv"),
 
-            num_workers : 16,
+            // TODO do not hardcode!!!!!!!!
+            num_workers : 1,
             pool : Mutex::new(Pool::new()),
             cv_workers : Condvar::new(),
 
@@ -137,8 +138,17 @@ impl Updater {
                     Task::UpdateRepo{last_update_time : _, id : _ } => {
                         return task_update_repo(self, TaskStatus::new(& tx, task));
                     }
-                    // TODO update task and so on
-                    Task::AddProjects{source} => return task_add_projects(self, & task_name, source, & tx),
+                    Task::AddProjects{ref source} => {
+                        return task_add_projects(self, source.to_owned(), TaskStatus::new(& tx, task));
+                    },
+                    Task::LoadSubstore{store} => {
+                        self.ds.substore(store).load(TaskStatus::new(& tx, task));
+                        return Ok(());
+                    }, 
+                    Task::DropSubstore{store} => {
+                        self.ds.substore(store).clear(TaskStatus::new(& tx, task));
+                        return Ok(());
+                    },
                 }
             });
             match result {
@@ -274,10 +284,17 @@ impl Updater {
                 threads.status());
             queue_size = threads.queue.len();
         }
-        // datastore size header
+        // datastore header
+        let mut loaded = self.ds.project_urls_memory_report();
+        for substore in self.ds.substores_iter()  {
+            let x = substore.memory_report();
+            if ! x.is_empty() {
+                loaded = format!("{} {}", loaded, x);
+            }
+        }
         println!("  Datastore: [{}p], up [ {} ]\x1b[K",
             helpers::pretty_value(self.ds.num_projects()),
-            if self.ds.project_urls_loaded() { "purl" } else { "" }
+            loaded
         );
         // server health
         println!("  Health: \x1b[K");
@@ -299,6 +316,7 @@ impl Updater {
         print!("\x1b8"); // restore cursor
         stdout().flush().unwrap();
     }
+
 
     /** The user interface and controller. 
      */
@@ -337,6 +355,10 @@ impl Updater {
         stdout().flush().unwrap();
     }
 
+    fn display_error<T: Into<String>>(& self, error : T) {
+        self.display_prompt(& format!("ERROR: {}", error.into()));
+    }
+
     fn process_command(& self, command : String) {
         let cmd : Vec<&str> = command.trim().split(" ").collect();
         match cmd[0] {
@@ -358,11 +380,47 @@ impl Updater {
                 self.cv_workers.notify_all();
                 self.display_prompt("Resuming worker threads...");
             }, 
+            /* Loads given substore from memory. 
+             */
+            "load" => {
+                if cmd.len() != 2 {
+                    self.display_error("No store to load specified");
+                } else if let Some(kind) = StoreKind::from_string(cmd[1]) {
+                    if self.ds.substore(kind).is_loaded() {
+                        self.display_error(format!("Store {:?} already loaded", kind));
+                    } else {
+                        self.schedule(Task::LoadSubstore{store : kind});
+                        self.display_prompt("Loading substore, see task progress...");
+                    }
+                } else {
+                    self.display_error(format!("Unknown store kind {}", cmd[1]));
+                }
+            },
+            /* Drops given substore from memory. 
+        
+               To use this command, the threads must be paused. 
+             */
+            "drop" => {
+                if cmd.len() != 2 {
+                    self.display_error("No store to drop specified");
+                } else if let Some(kind) = StoreKind::from_string(cmd[1]) {
+                    if ! self.ds.substore(kind).is_loaded() {
+                        self.display_error(format!("Store {:?} not loaded", kind));
+                    } else if ! self.pool.lock().unwrap().is_paused() {
+                        self.display_error("dcd must be paused before dropping stores");
+                    } else {
+                        self.schedule(Task::DropSubstore{store : kind});
+                        self.display_prompt("Dropping substore, see task progress...");
+                    }
+                } else {
+                    self.display_error(format!("Unknown store kind {}", cmd[1]));
+                }
+            }
             /* Adds given project url, or projects from given csv file. 
              */
             "add" => {
                 if cmd.len() != 2 {
-                    self.display_prompt("ERROR: Specify single project url or csv file to load the projects from");
+                    self.display_error("Specify single project url or csv file to load the projects from");
                 } else {
                     self.display_prompt("Adding projects to datastore, see task progress...");
                     self.schedule(Task::AddProjects{ source : cmd[1].to_owned() });
@@ -380,7 +438,7 @@ impl Updater {
             }
 
             _ => {
-                self.display_prompt(& format!("Unknown command: {}", command));
+                self.display_error(& format!("Unknown command: {}", command));
             }
         }
     }
@@ -423,7 +481,9 @@ impl std::panic::RefUnwindSafe for Updater { }
 #[derive(Eq, PartialEq, Debug)] 
 pub enum Task {
     UpdateRepo{id : u64, last_update_time : i64},
-    AddProjects{source : String}
+    AddProjects{source : String},
+    LoadSubstore{store : StoreKind},
+    DropSubstore{store : StoreKind},
 }
 
 impl Task {
@@ -438,6 +498,8 @@ impl Task {
         match self {
             Task::UpdateRepo{id, last_update_time : _} => format!("{}", id),
             Task::AddProjects{source : _ } => "add".to_owned(), 
+            Task::LoadSubstore{store} => format!("load {:?}", store),
+            Task::DropSubstore{store} => format!("drop {:?}", store),
         }
     }
 }

@@ -654,8 +654,13 @@ pub struct IndirectMapping<T : Serializable + Eq + Hash + Clone> {
 
 impl<T : Serializable + Eq + Hash + Clone> IndirectMapping<T> {
 
-    pub fn new(_root : & str, _name : & str) -> IndirectMapping<T> {
-        unimplemented!();
+    /** Creates new mapping. 
+     */
+    pub fn new(root : & str, name : & str) -> IndirectMapping<T> {
+        return IndirectMapping{
+            store : Store::new(root, & format!("{}.mapping", name)),
+            mapping : HashMap::new(),
+        }
     }
 
     pub fn load(& mut self) {
@@ -832,7 +837,7 @@ impl<T : Serializable, KIND: SplitKind> SplitStore<T, KIND> {
      
         If this is an update, then the kind specified must be the same as the kind the value has already been stored under. In other words, the split store allows updates of the values, but value cannot change its kind. 
      */
-    pub fn set(& mut self, id : u64, value : & T, kind : KIND) {
+    pub fn set(& mut self, id : u64, kind : KIND, value : & T) {
         match self.indexer.get(id) {
             Some(offset) => {
                 assert_eq!(kind, offset.kind, "Cannot change kind of already stored value");

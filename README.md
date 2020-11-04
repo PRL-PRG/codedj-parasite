@@ -7,7 +7,8 @@
 
 # TODO
 
-- add empty path and delete contents hash sentinels in the respective mappings and create them, or maybe just initialize each mapping with a sentinel... Easier...
+
+- to drop substore, all are paused, and we have to wake up one thread... 
 
 - make sure that all dbs first write to the file and only then write the index to the indexer so that if there is an during the write, the indexer won't change to bad contents
 
