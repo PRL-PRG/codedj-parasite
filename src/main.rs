@@ -10,6 +10,7 @@ mod records;
 mod updater;
 mod task_add_projects;
 mod task_update_repo;
+mod task_update_substore;
 mod github;
 
 use datastore::*;

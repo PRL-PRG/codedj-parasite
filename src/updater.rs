@@ -9,6 +9,7 @@ use crate::helpers;
 
 use crate::task_add_projects::*;
 use crate::task_update_repo::*;
+use crate::task_update_substore::*;
 
 
 pub type Tx = crossbeam_channel::Sender<TaskMessage>;
@@ -37,6 +38,7 @@ impl<'a> TaskStatus<'a> {
     pub fn progress(& self, progress : usize, max : usize) {
         self.tx.send(TaskMessage::Progress{name : self.name.to_owned(), progress, max}).unwrap();
     }
+
 }
 
 
@@ -56,7 +58,7 @@ pub (crate) struct Updater {
     /** Incremental updater
      */
     num_workers : u64, 
-    pool : Mutex<Pool>,
+    pub (crate) pool : Mutex<Pool>,
     cv_workers : Condvar,
 
     /** List of all urls of projects in the datastore so that new projects can be checked against duplicates. 
@@ -141,14 +143,9 @@ impl Updater {
                     Task::AddProjects{ref source} => {
                         return task_add_projects(self, source.to_owned(), TaskStatus::new(& tx, task));
                     },
-                    Task::LoadSubstore{store} => {
-                        self.ds.substore(store).load(TaskStatus::new(& tx, task));
-                        return Ok(());
+                    Task::Update{store} => {
+                        return task_update_substore(self, store, TaskStatus::new(& tx, task));
                     }, 
-                    Task::DropSubstore{store} => {
-                        self.ds.substore(store).clear(TaskStatus::new(& tx, task));
-                        return Ok(());
-                    },
                 }
             });
             match result {
@@ -209,7 +206,6 @@ impl Updater {
         return state.is_stopped();
     }
 
-
     /** Prints the status of the update process. 
      */
     fn reporter(& self, rx : crossbeam_channel::Receiver<TaskMessage>) {
@@ -225,12 +221,16 @@ impl Updater {
                     },
                     Ok(TaskMessage::Done{name}) => {
                         assert!(rinfo.tasks.contains_key(& name) == true, "Task does not exist");
-                        //rinfo.tasks.remove(& name);
+                        let mut task = rinfo.tasks.remove(& name).unwrap();
+                        task.end_time = helpers::now();
+                        rinfo.done.push((name, task));
                         rinfo.tick_tasks_done += 1;
                     },
                     Ok(TaskMessage::Error{name, cause}) => {
                         assert!(rinfo.tasks.contains_key(& name) == true, "Task does not exist");
-                        rinfo.errors.push_back((rinfo.tasks.remove(& name).unwrap(), cause));
+                        let mut task = rinfo.tasks.remove(& name).unwrap();
+                        task.end_time = helpers::now();
+                        rinfo.errors.push((name, task, cause));
                         rinfo.tick_tasks_error += 1;
                     },
                     Ok(TaskMessage::Progress{name, progress, max}) => {
@@ -305,13 +305,20 @@ impl Updater {
             helpers::pretty_value(info.total_tasks_done), helpers::pretty_value(info.total_tasks_error),
             helpers::pretty_value(queue_size)
         );
-        // tasks detail
-        for (name, task) in info.tasks.iter() {
-            task.print(name);
+        // details for running tasks, ordered by their start time
+        {
+            let mut tasks : Vec<(& String, & TaskInfo)> = info.tasks.iter().collect();
+            tasks.sort_by(|a, b| a.1.start_time.cmp(& b.1.start_time));
+            for (name, task) in tasks {
+                task.print(name);
+            }
         }
-        // TODO finished and errors
+        // print error one-liners
+
+        // print done one-liners
 
         // TODO
+        print!("\x1b"); // clear the rest of the screen
         print!("\x1b[m"); // reset attributes
         print!("\x1b8"); // restore cursor
         stdout().flush().unwrap();
@@ -347,10 +354,10 @@ impl Updater {
         self.display_prompt("Controller thread terminated. Command interface not available");
     }
 
-    fn display_prompt(& self, command_output : & str) {
+    fn display_prompt<T: Into<String>>(& self, command_output : T) {
         let _g = self.cout_lock.lock().unwrap();
         print!("\x1b[4;H\x1b[0m > \x1b[K\n");  
-        print!("\x1b[90m    {}\x1b[K", command_output);  
+        print!("\x1b[90m    {}\x1b[K", command_output.into());  
         print!("\x1b[m\x1b[4;4H");
         stdout().flush().unwrap();
     }
@@ -380,42 +387,18 @@ impl Updater {
                 self.cv_workers.notify_all();
                 self.display_prompt("Resuming worker threads...");
             }, 
-            /* Loads given substore from memory. 
+            /* Updates project belonging to the given substore . 
              */
-            "load" => {
+            "upsate" => {
                 if cmd.len() != 2 {
-                    self.display_error("No store to load specified");
+                    self.display_error("No store to update specified");
                 } else if let Some(kind) = StoreKind::from_string(cmd[1]) {
-                    if self.ds.substore(kind).is_loaded() {
-                        self.display_error(format!("Store {:?} already loaded", kind));
-                    } else {
-                        self.schedule(Task::LoadSubstore{store : kind});
-                        self.display_prompt("Loading substore, see task progress...");
-                    }
+                    self.schedule(Task::Update{store : kind});
+                    self.display_prompt(format!("Updating substore {:?}, see task progress...", kind));
                 } else {
                     self.display_error(format!("Unknown store kind {}", cmd[1]));
                 }
             },
-            /* Drops given substore from memory. 
-        
-               To use this command, the threads must be paused. 
-             */
-            "drop" => {
-                if cmd.len() != 2 {
-                    self.display_error("No store to drop specified");
-                } else if let Some(kind) = StoreKind::from_string(cmd[1]) {
-                    if ! self.ds.substore(kind).is_loaded() {
-                        self.display_error(format!("Store {:?} not loaded", kind));
-                    } else if ! self.pool.lock().unwrap().is_paused() {
-                        self.display_error("dcd must be paused before dropping stores");
-                    } else {
-                        self.schedule(Task::DropSubstore{store : kind});
-                        self.display_prompt("Dropping substore, see task progress...");
-                    }
-                } else {
-                    self.display_error(format!("Unknown store kind {}", cmd[1]));
-                }
-            }
             /* Adds given project url, or projects from given csv file. 
              */
             "add" => {
@@ -482,8 +465,11 @@ impl std::panic::RefUnwindSafe for Updater { }
 pub enum Task {
     UpdateRepo{id : u64, last_update_time : i64},
     AddProjects{source : String},
-    LoadSubstore{store : StoreKind},
-    DropSubstore{store : StoreKind},
+    /** Updates projects that belong to the specific substore. 
+     
+        Also looks at all unspecified projects and assigns their store, updating those that belong to the provided store. 
+     */
+    Update{store: StoreKind},
 }
 
 impl Task {
@@ -498,8 +484,7 @@ impl Task {
         match self {
             Task::UpdateRepo{id, last_update_time : _} => format!("{}", id),
             Task::AddProjects{source : _ } => "add".to_owned(), 
-            Task::LoadSubstore{store} => format!("load {:?}", store),
-            Task::DropSubstore{store} => format!("drop {:?}", store),
+            Task::Update{store} => format!("update {:?}", store),
         }
     }
 }
@@ -524,16 +509,16 @@ impl PartialOrd for Task {
  
     Grouped together because of how mutexes work in Rust. 
  */
-struct Pool {
-    state : State,
-    running_workers : u64, 
-    idle_workers : u64,
-    paused_workers : u64,
-    queue : BinaryHeap<Task>,
+pub (crate) struct Pool {
+    pub (crate) state : State,
+    pub (crate) running_workers : u64, 
+    pub (crate) idle_workers : u64,
+    pub (crate) paused_workers : u64,
+    pub (crate) queue : BinaryHeap<Task>,
 }
 
 #[derive(Eq, PartialEq)]
-enum State {
+pub (crate) enum State {
     Running,
     Paused,
     Stopped,
@@ -595,6 +580,7 @@ pub enum TaskMessage {
  */
 struct TaskInfo {
     start_time : i64,
+    end_time : i64,
     progress : usize, 
     progress_max : usize, 
     ping : u64, 
@@ -605,6 +591,7 @@ impl TaskInfo {
     fn new() -> TaskInfo {
         return TaskInfo{
             start_time : helpers::now(),
+            end_time : 0,
             progress : 0, 
             progress_max : 0,
             ping : 0,
@@ -631,7 +618,8 @@ impl TaskInfo {
 struct ReporterInfo {
     start_time : i64,
     tasks : HashMap<String, TaskInfo>,
-    errors : VecDeque<(TaskInfo, String)>,
+    errors : Vec<(String, TaskInfo, String)>, // name, task, cause
+    done : Vec<(String, TaskInfo)>, // name, task
     tick_num : u8, 
     tick_tasks_done : usize,
     tick_tasks_error : usize,
@@ -644,7 +632,8 @@ impl ReporterInfo {
         return ReporterInfo {
             start_time : helpers::now(),
             tasks : HashMap::new(),
-            errors : VecDeque::new(),
+            errors : Vec::new(),
+            done : Vec::new(),
             tick_num : 0,
             tick_tasks_done : 0,
             tick_tasks_error : 0,
@@ -669,6 +658,11 @@ impl ReporterInfo {
         self.total_tasks_error += self.tick_tasks_error;
         self.tick_tasks_done = 0;
         self.tick_tasks_error = 0;
+
+        // clear old errors and done tasks
+        let time_now = helpers::now();
+        self.errors.retain(|(_, task, _)| (time_now - task.end_time) < 10);
+        self.done.retain(|(_, task)| (time_now - task.end_time) < 10);
     }
 }
 

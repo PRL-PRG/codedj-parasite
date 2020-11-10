@@ -23,10 +23,32 @@ pub (crate) fn task_update_repo(updater : & Updater, task : TaskStatus) -> Resul
         ru.check_metadata()?;
         // update the project contents
         match ru.update_repository() {
-            Err(e) => 
-                return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("{:?}", e))),
-            _ => 
-                return Ok(()),
+            Err(e) => {
+                // if there was an error, report the error and exit
+                ru.ds.update_project_update_status(ru.id, ProjectUpdateStatus::Error{
+                    time : helpers::now(),
+                    version : Datastore::VERSION,
+                    error : format!("{:?}", e),
+                });
+                return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("{:?}", e)));
+            },
+            Ok(cancelled) => {
+                // if there was no error and the task was not cancelled, report the change / no-change 
+                if ! cancelled {
+                    if ru.changed {
+                        ru.ds.update_project_update_status(ru.id, ProjectUpdateStatus::Ok{
+                            time : helpers::now(),
+                            version : Datastore::VERSION,
+                        });
+                    } else {
+                        ru.ds.update_project_update_status(ru.id, ProjectUpdateStatus::NoChange{
+                            time : helpers::now(),
+                            version : Datastore::VERSION,
+                        });
+                    }
+                }
+                return Ok(());
+            },
         }
     } else {
         // the task is being skipped
@@ -43,9 +65,10 @@ struct RepoUpdater<'a> {
     id : u64,
     project : Project,
     force : bool,
-    substore : StoreKind,
+    /** The substore, or tentative substore for the project (see check_repository_substore function for more details). 
+     */
+    tentative_substore : StoreKind,
     changed : bool,
-    contents_changed : bool,
     local_folder : String,
     visited_commits : HashMap<Hash, u64>,
     users : HashMap<String, u64>,
@@ -67,9 +90,8 @@ impl<'a> RepoUpdater<'a> {
                 id,
                 project : updater.ds.get_project(id).unwrap(),
                 force : false,
-                substore : StoreKind::Unspecified,
+                tentative_substore : StoreKind::Unspecified,
                 changed : false,
-                contents_changed : false,
                 local_folder : format!("{}/repo_clones/{}", updater.ds.root_folder(), id),
                 visited_commits : HashMap::new(),
                 users : HashMap::new(),
@@ -82,7 +104,7 @@ impl<'a> RepoUpdater<'a> {
         }
     }
 
-    /** Checks whether the current project can be updated at this time.
+    /** Checks whether the current project can be updated and whether the update should be forced. 
      
         TODO we should ideally do something smatrter when there is an error during the update, i.e. dependning on the error, etc. 
      */
@@ -97,11 +119,6 @@ impl<'a> RepoUpdater<'a> {
             if Datastore::VERSION != last_update.version() {
                 self.force = true;
             }
-        }
-        // get the substore and determine if the substore is not active, in which case do not allow the update. Unspecified projects are always allowed to do the first update
-        self.substore = self.ds.get_project_substore(self.id);
-        if self.substore != StoreKind::Unspecified && ! self.ds.substore(self.substore).is_loaded() {
-            return false;
         }
         return true;
     }
@@ -124,6 +141,12 @@ impl<'a> RepoUpdater<'a> {
                 // clean the metadata and store, if applicable
                 filter_github_metadata_keys(& mut metadata, true);
                 self.changed = self.ds.update_project_metadata_if_differ(self.id, Metadata::GITHUB_METADATA.to_owned(), metadata.to_string());
+                // update the project store if the language is provided in the metadata, i.e. hold the substore as provided by the metadata tentatively in the substore field, when the project is updated, the tentative value and the real value obtained from the datastore will be reconciled
+                if metadata["language"].is_string() {
+                    if let Some(substore) = StoreKind::from_string(metadata["language"].as_str().unwrap()) {
+                        self.tentative_substore = substore;
+                    }
+                }
             }
         }
         return Ok(());
@@ -149,7 +172,9 @@ impl<'a> RepoUpdater<'a> {
      
         First loads the previous heads, if any and compares these to the heads fetched from the repository. If there are differences, clones the full repository and performs an update of its contents. 
      */
-    fn update_repository(& mut self) -> Result<(), git2::Error> {
+    fn update_repository(& mut self) -> Result<bool, git2::Error> {
+        // determine the actual substore of the project from the datastore
+        let mut substore = self.ds.get_project_substore(self.id);
         // create local repository
         // TODO reuse repository if found on disk already? 
         let repo = git2::Repository::init_bare(self.local_folder.clone())?;
@@ -158,18 +183,23 @@ impl<'a> RepoUpdater<'a> {
         // get own and remote heads and compare them 
         let last_heads = self.get_latest_heads();
         let mut remote_heads = self.get_remote_heads(& mut remote)?;
-        let heads_to_fetch = self.compare_project_heads(& last_heads, & mut remote_heads);
+        let heads_to_fetch = self.compare_project_heads(& last_heads, & mut remote_heads, substore);
         // fetch the repository from the remote and analyze its contents
         if ! heads_to_fetch.is_empty() {
             self.clone_repository(& mut remote, & heads_to_fetch)?;
-            // TODO determine the substore for the project / update when necessary and either terminate the update, or continue
-            let substore = self.ds.substore(StoreKind::Unspecified);
+            // check the repository's substore and terminate if the substore is not loaded
+            substore = self.update_repository_substore(& repo, substore)?;
+            if ! self.ds.substore(substore).is_loaded() {
+                return Ok(false);
+            }
+            // analyze the fetched heads
+            let ds_s = self.ds.substore(substore);
             let mut i = 0;
             self.task.progress(i, heads_to_fetch.len());
             for head in heads_to_fetch.iter() {
                 self.task.info(format!("analyzing branch {} ({} of {})", head, i, heads_to_fetch.len()));
                 let (id, hash) = remote_heads.get_mut(head).unwrap();
-                *id = self.analyze_branch(& repo, *hash, substore)?;
+                *id = self.analyze_branch(& repo, *hash, ds_s)?;
                 i += 1;
                 self.task.progress(i, heads_to_fetch.len());
             }
@@ -177,9 +207,73 @@ impl<'a> RepoUpdater<'a> {
         // if either the heads to fetch were not empty (i.e. there was a content to download), or there was no content, but the number of heads is different (some heads were deleted), store the updated heads
         if ! heads_to_fetch.is_empty() || remote_heads.len() != last_heads.len() {
             self.ds.update_project_heads(self.id, & remote_heads);
-            self.contents_changed = true;
+            self.changed = true;
         }
-        return Ok(());
+        return Ok(true);
+    }
+
+    /** Check the repository to determine the substore that should be used for the update. 
+     
+        Returns the store kind for the project, taking the current  store kind as a hint. 
+     
+     
+     */
+    fn update_repository_substore(& mut self, repo : & git2::Repository, current_substore : StoreKind) -> Result<StoreKind, git2::Error> {
+        let mut substore = current_substore;
+        // all ubspecified projects start as small projects
+        if substore == StoreKind::Unspecified {
+            substore = StoreKind::SmallProjects; 
+        }
+        // if the substore is that of small projects, we must verify that the project still has no more than N commits
+        if substore == StoreKind::SmallProjects {
+            if self.get_repo_commits(repo, Datastore::SMALL_PROJECT_THRESHOLD)? > Datastore::SMALL_PROJECT_THRESHOLD {
+                substore = StoreKind::Unspecified;
+            }
+        }
+        // if the substore is not small project at this point, it is open to change
+        if substore != StoreKind::SmallProjects {
+            // if tentative substore has been found out, set the substore accordingly
+            if self.tentative_substore != StoreKind::Unspecified {
+                substore = self.tentative_substore;
+            // otherwise if the substore is unspecified, we must pick a substore, so determine one. 
+            } else if substore == StoreKind::Unspecified || substore == StoreKind::Generic {
+                // TODO Determine some better substore than this
+                substore = StoreKind::Generic;
+            }
+        }
+        // check if the substore changed and if so, update the substore information. 
+        if substore != current_substore {
+            self.ds.update_project_substore(self.id, substore);
+        }
+        return Ok(substore);
+    }
+
+    /** Counts commits in the repository up to given limit. 
+     
+        Determines the number of commits in the repository. If the number of commits is at least the given limit, stops looking further. 
+     */
+    fn get_repo_commits(& self, repo : & git2::Repository, limit : usize) ->Result<usize, git2::Error> {
+        let mut commits = HashSet::<Hash>::new();
+        let mut q = Vec::<Hash>::new();
+        for reference in repo.references()? {
+            let x = reference?;
+            if x.is_branch() {
+                let commit = x.peel_to_commit()?;
+                if commits.insert(commit.id()) {
+                    q.push(commit.id());
+                }
+            }
+        }
+        while commits.len() < limit && ! q.is_empty() {
+            let hash = q.pop().unwrap();
+            let commit = repo.find_commit(hash)?;
+            for parent in commit.parents() {
+                if commits.insert(parent.id()) {
+                    q.push(parent.id());
+                }
+            }
+        }
+        return Ok(commits.len());
     }
 
     /** Returns the remote heads as of last analysis. 
@@ -216,7 +310,7 @@ impl<'a> RepoUpdater<'a> {
 
         For unchanged heads, updates their id from the last records. 
     */
-    fn compare_project_heads(& self, last : & ProjectHeads, current : & mut ProjectHeads) -> Vec<String> {
+    fn compare_project_heads(& self, last : & ProjectHeads, current : & mut ProjectHeads, substore : StoreKind) -> Vec<String> {
         let mut result = Vec::<String>::new();
         for (name, (id, hash)) in current.iter_mut() {
             if let Some((last_id, last_hash)) = last.get(name) {
@@ -229,6 +323,10 @@ impl<'a> RepoUpdater<'a> {
             }
             // if the hashes differ, or the head is not present, add it to the list of heads to be fetched 
             result.push(name.to_owned());
+        }
+        // if the actual substore is small projects *and* there are changes, update *all* heads so that we can correctly calculate the number of commits of the project
+        if substore == StoreKind::SmallProjects && ! result.is_empty() {
+            result = current.iter().map(|(name, _)| name.to_owned()).collect();
         }
         return result;
     }

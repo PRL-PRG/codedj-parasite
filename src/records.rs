@@ -7,6 +7,7 @@ use git2;
 use num_derive::*;
 
 use crate::db::*;
+use crate::datastore::*;
 
 /** Datastore kinds. 
  
@@ -15,6 +16,7 @@ use crate::db::*;
 #[repr(u16)]
 #[derive(Clone, Copy, Debug, std::cmp::PartialEq, std::cmp::Eq, std::hash::Hash, FromPrimitive)]
 pub enum StoreKind {
+    Generic,
     SmallProjects,
     C,
     Cpp,
@@ -205,7 +207,7 @@ pub enum ProjectUpdateStatus {
     /** Project url changes. Although project kind change is not expected when issuing project renames, it is technically possible. 
      */
     Rename{time : i64, version : u16, old_offset : u64}, // 2
-    Tombstone{time : i64, version : u16, new_kind : StoreKind }, // 254
+    ChangeStore{time : i64, version : u16, new_kind : StoreKind }, // 3
     Error{time : i64, version : u16, error : String }, // 255
 }
 
@@ -215,9 +217,20 @@ impl ProjectUpdateStatus {
             ProjectUpdateStatus::NoChange{time : _, version } => return *version,
             ProjectUpdateStatus::Ok{time : _, version} => return *version,
             ProjectUpdateStatus::Rename{time : _, version, old_offset: _} => return *version,
-            ProjectUpdateStatus::Tombstone{time : _, version, new_kind : _ } => return *version,
+            ProjectUpdateStatus::ChangeStore{time : _, version, new_kind : _ } => return *version,
             ProjectUpdateStatus::Error{time : _, version, error: _ } => return *version,
         }
+    }
+
+    pub fn time(& self) -> i64 {
+        match self {
+            ProjectUpdateStatus::NoChange{time, version: _ } => return *time,
+            ProjectUpdateStatus::Ok{time, version : _} => return *time,
+            ProjectUpdateStatus::Rename{time, version : _, old_offset: _} => return *time,
+            ProjectUpdateStatus::ChangeStore{time, version : _, new_kind : _ } => return *time,
+            ProjectUpdateStatus::Error{time, version : _, error: _ } => return *time,
+        }
+
     }
 }
 
@@ -240,8 +253,8 @@ impl Serializable for ProjectUpdateStatus {
                 u16::serialize(f, version);
                 u64::serialize(f, old_offset);
             },
-            ProjectUpdateStatus::Tombstone{time , version, new_kind } =>  {
-                u8::serialize(f, & 254);
+            ProjectUpdateStatus::ChangeStore{time , version, new_kind } =>  {
+                u8::serialize(f, & 3);
                 i64::serialize(f, time);
                 u16::serialize(f, version);
                 StoreKind::serialize(f, new_kind);
@@ -269,8 +282,8 @@ impl Serializable for ProjectUpdateStatus {
             2 => {
                 return ProjectUpdateStatus::Rename{time, version, old_offset : u64::deserialize(f)};
             },
-            254 => {
-                return ProjectUpdateStatus::Tombstone{time, version, new_kind : StoreKind::deserialize(f)};
+            3 => {
+                return ProjectUpdateStatus::ChangeStore{time, version, new_kind : StoreKind::deserialize(f)};
             },
             255 => {
                 return ProjectUpdateStatus::Error{time, version, error : String::deserialize(f)};
@@ -386,8 +399,6 @@ pub enum ContentsKind {
 
 impl ContentsKind {
 
-    pub const MAX_SMALL_FILE_SIZE : usize = 100;
-
     /** Determines a contents kind based on the path of the file.
      */
     pub fn from_path(path : & str) -> Option<ContentsKind> {
@@ -444,7 +455,7 @@ impl ContentsKind {
         For now, we only check if the file is really small, otherwise we keep the category as determined by its path.
      */
     pub fn from_contents(contents : & [u8], from_path : ContentsKind) -> Option<ContentsKind> {
-        if contents.len() < ContentsKind::MAX_SMALL_FILE_SIZE {
+        if contents.len() < Datastore::SMALL_FILE_THRESHOLD {
             return Some(ContentsKind::SmallFiles);
         } else {
             return Some(from_path);

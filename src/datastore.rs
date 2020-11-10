@@ -75,6 +75,10 @@ impl Datastore {
      */
     pub const VERSION : u16 = 0;
 
+    pub const SMALL_PROJECT_THRESHOLD : usize = 10;
+
+    pub const SMALL_FILE_THRESHOLD : usize = 100;
+
     /** Creates the datastore from given root folder. 
      
         If the path does not exist, initializes an empty datastore. 
@@ -160,8 +164,28 @@ impl Datastore {
         return self.project_updates.lock().unwrap().get(id);
     }
 
+    /** Updates the project's update status with a new record. 
+     */
+    pub fn update_project_update_status(& self, id : u64, status : ProjectUpdateStatus) {
+        self.project_updates.lock().unwrap().set(id, & status);    
+    }
+
     pub fn get_project_substore(& self, id : u64) -> StoreKind {
         return self.project_substores.lock().unwrap().get(id).or(Some(StoreKind::Unspecified)).unwrap();
+    }
+
+    /** Updates project substore information. 
+     
+        Adds the update status about store change and inserts a blank heads so that next time the project will be analyzed in its entirety in the new substore. 
+     */
+    pub (crate) fn update_project_substore(& self, id : u64, store : StoreKind) {
+        self.project_substores.lock().unwrap().set(id, & store);
+        self.project_heads.lock().unwrap().set(id, & ProjectHeads::new());
+        self.project_updates.lock().unwrap().set(id,  & ProjectUpdateStatus::ChangeStore{
+            time : helpers::now(),
+            version : Datastore::VERSION,
+            new_kind : store,
+        });
     }
 
     /** Returns the latest project heads for given project. 
@@ -354,36 +378,40 @@ impl Substore {
         return result;
     }
 
-    pub (crate) fn load(& self, task : updater::TaskStatus) {
+    pub (crate) fn load(& self, task : & updater::TaskStatus) {
         task.info("Acquiring substore lock...");
         task.progress(0, 4);
         let mut x = self.loaded.lock().unwrap();
-        task.info("Loading...");
-        self.commits.lock().unwrap().load();
-        task.progress(1, 4);
-        self.hashes.lock().unwrap().load();
-        task.progress(2, 4);
-        self.paths.lock().unwrap().load();
-        task.progress(3, 4);
-        self.users.lock().unwrap().load();
-        task.progress(4, 4);
-        *x = true;
+        if *x == false {
+            task.info("Loading...");
+            self.commits.lock().unwrap().load();
+            task.progress(1, 4);
+            self.hashes.lock().unwrap().load();
+            task.progress(2, 4);
+            self.paths.lock().unwrap().load();
+            task.progress(3, 4);
+            self.users.lock().unwrap().load();
+            task.progress(4, 4);
+            *x = true;
+        }
     }
 
-    pub (crate) fn clear(& self, task : updater::TaskStatus) {
+    pub (crate) fn clear(& self, task : & updater::TaskStatus) {
         task.info("Acquiring substore lock...");
         task.progress(0, 4);
         let mut x = self.loaded.lock().unwrap();
-        task.info("Clearing...");
-        self.commits.lock().unwrap().clear();
-        task.progress(1, 4);
-        self.hashes.lock().unwrap().clear();
-        task.progress(2, 4);
-        self.paths.lock().unwrap().clear();
-        task.progress(3, 4);
-        self.users.lock().unwrap().clear();
-        task.progress(4, 4);
-        *x = false;
+        if *x == true {
+            task.info("Clearing...");
+            self.commits.lock().unwrap().clear();
+            task.progress(1, 4);
+            self.hashes.lock().unwrap().clear();
+            task.progress(2, 4);
+            self.paths.lock().unwrap().clear();
+            task.progress(3, 4);
+            self.users.lock().unwrap().clear();
+            task.progress(4, 4);
+            *x = false;
+        }
     }
 
     pub (crate) fn is_loaded(& self) -> bool {
