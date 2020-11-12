@@ -113,8 +113,10 @@ impl FileWriter<ContentsData> for ContentsData {
         f.read(& mut encoded).unwrap();
         let mut dec = flate2::read::GzDecoder::new(&encoded[..]);
         let mut result = Vec::new();
-        dec.read_to_end(& mut result).unwrap();    
-        return result;
+        match dec.read_to_end(& mut result) {
+            Ok(_) => return result,
+            Err(_) => return Vec::new(),
+        }
     }
 
     fn write(f : & mut File, value : & ContentsData) {
