@@ -106,6 +106,13 @@ impl DatastoreView {
         return PropertyStoreIterator{g, limit : self.sp.limit_for("contents_data")};
     }
 
+    /** returns snapshot of given id if one exists. 
+     */
+    pub fn content(& self, id : u64) -> Option<ContentsData> {
+        let mut g = self.ds.contents_data.lock().unwrap();
+        return g.get(id);        
+    }
+
 }
 
 /** Iterator into hashed mappings. 
