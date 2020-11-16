@@ -12,17 +12,7 @@
 
 - make sure that all dbs first write to the file and only then write the index to the indexer so that if there is an during the write, the indexer won't change to bad contents
 
-- tasks can be skipped
 - force update should do all commits
-
-- finish the repository update - clone contents, update commits, write heads. 
-- for this substore management is necessary
-- try running 
-
-# Version 3 - Multiple Datastores
-
-
-
 
 
 

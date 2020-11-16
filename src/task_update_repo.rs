@@ -18,41 +18,19 @@ use crate::helpers;
  */
 pub (crate) fn task_update_repo(updater : & Updater, task : TaskStatus) -> Result<(), std::io::Error> {
     let mut ru = RepoUpdater::new(updater, task);
-    if ru.can_be_updated() {
-        // validate the url and project metadata
-        ru.check_metadata()?;
-        // update the project contents
-        match ru.update_repository() {
-            Err(e) => {
+    match ru.update() {
+        Err(e) => {
                 // if there was an error, report the error and exit
                 ru.ds.update_project_update_status(ru.id, ProjectUpdateStatus::Error{
                     time : helpers::now(),
                     version : Datastore::VERSION,
                     error : format!("{:?}", e),
                 });
-                return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("{:?}", e)));
-            },
-            Ok(cancelled) => {
-                // if there was no error and the task was not cancelled, report the change / no-change 
-                if ! cancelled {
-                    if ru.changed {
-                        ru.ds.update_project_update_status(ru.id, ProjectUpdateStatus::Ok{
-                            time : helpers::now(),
-                            version : Datastore::VERSION,
-                        });
-                    } else {
-                        ru.ds.update_project_update_status(ru.id, ProjectUpdateStatus::NoChange{
-                            time : helpers::now(),
-                            version : Datastore::VERSION,
-                        });
-                    }
-                }
-                return Ok(());
-            },
-        }
-    } else {
-        // the task is being skipped
-        return Ok(());
+                return Err(e);
+        },
+        Ok(()) => {
+            return Ok(());
+        },
     }
 }
 
@@ -102,6 +80,47 @@ impl<'a> RepoUpdater<'a> {
         } else {
             panic!("Invalid task kind");
         }
+    }
+
+    /** Updates the repository. 
+     
+        
+     */
+    fn update(& mut self) -> Result<(), std::io::Error> {
+        self.task.extra_url(self.project.name(), self.project.clone_url());
+        if self.can_be_updated() {
+            self.check_metadata()?;
+            // update the project contents
+            match self.update_repository() {
+                Err(e) => {
+                    return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("{}", e.message())));
+                },
+                Ok(processed) => {
+                    // if there was no error and the task was not cancelled, report the change / no-change 
+                    if processed {
+                        if self.changed {
+                            self.ds.update_project_update_status(self.id, ProjectUpdateStatus::Ok{
+                                time : helpers::now(),
+                                version : Datastore::VERSION,
+                            });
+                            self.task.info("ok");
+                            self.task.color("\x1b[92m");
+                        } else {
+                            self.ds.update_project_update_status(self.id, ProjectUpdateStatus::NoChange{
+                                time : helpers::now(),
+                                version : Datastore::VERSION,
+                            });
+                            self.task.info("no change");
+                            self.task.color("\x1b[90m");
+                        }
+                        return Ok(());
+                    }
+                },
+            }
+        } 
+        self.task.info("cancelled");
+        self.task.color("\x1b[96m");
+        return Ok(());
     }
 
     /** Checks whether the current project can be updated and whether the update should be forced. 
@@ -159,6 +178,7 @@ impl<'a> RepoUpdater<'a> {
             if self.project != new_project {
                 self.project = new_project;
                 self.task.info(format!("project url changed to {}", new_url));
+                self.task.extra_url(self.project.name(), self.project.clone_url());
                 self.ds.update_project(self.id, & self.project);
                 self.changed = true;
             }
@@ -176,7 +196,12 @@ impl<'a> RepoUpdater<'a> {
         // determine the actual substore of the project from the datastore
         let mut substore = self.ds.get_project_substore(self.id);
         // create local repository
-        // TODO reuse repository if found on disk already? 
+        // TODO reuse repository if found on disk already?, for now make sure there is no leftover repo present
+        let path = std::path::Path::new(& self.local_folder);
+        if path.exists() {
+            std::fs::remove_dir_all(& path).unwrap();
+        }
+        // create the repository and add its remote
         let repo = git2::Repository::init_bare(self.local_folder.clone())?;
         let mut remote = repo.remote("dcd", & self.project.clone_url())?;
         remote.connect(git2::Direction::Fetch)?;
@@ -198,6 +223,7 @@ impl<'a> RepoUpdater<'a> {
             self.task.progress(i, heads_to_fetch.len());
             for head in heads_to_fetch.iter() {
                 self.task.info(format!("analyzing branch {} ({} of {})", head, i, heads_to_fetch.len()));
+                self.task.progress(i, heads_to_fetch.len());
                 let (id, hash) = remote_heads.get_mut(head).unwrap();
                 *id = self.analyze_branch(& repo, *hash, ds_s)?;
                 i += 1;
@@ -226,7 +252,7 @@ impl<'a> RepoUpdater<'a> {
         }
         // if the substore is that of small projects, we must verify that the project still has no more than N commits
         if substore == StoreKind::SmallProjects {
-            if self.get_repo_commits(repo, Datastore::SMALL_PROJECT_THRESHOLD)? > Datastore::SMALL_PROJECT_THRESHOLD {
+            if self.get_repo_commits(repo, Datastore::SMALL_PROJECT_THRESHOLD)? >= Datastore::SMALL_PROJECT_THRESHOLD {
                 substore = StoreKind::Unspecified;
             }
         }
@@ -257,10 +283,12 @@ impl<'a> RepoUpdater<'a> {
         let mut q = Vec::<Hash>::new();
         for reference in repo.references()? {
             let x = reference?;
-            if x.is_branch() {
-                let commit = x.peel_to_commit()?;
+            if let Ok(commit) = x.peel_to_commit() {
                 if commits.insert(commit.id()) {
                     q.push(commit.id());
+                }
+                if commits.len() >= limit {
+                    break;
                 }
             }
         }
@@ -480,7 +508,7 @@ impl<'a> RepoUpdater<'a> {
     /** Updates the task information. 
      */
     fn update_task(& self) {
-        unimplemented!();
+        self.task.info(format!("q: {}, c: {}, s: {}", self.q.len(), self.visited_commits.len(), self.snapshots));
     }
 
 }
@@ -533,4 +561,3 @@ fn calculate_tree_diff(repo : & git2::Repository,  parent : Option<& git2::Tree>
     }
     return Ok(());
 }    
-

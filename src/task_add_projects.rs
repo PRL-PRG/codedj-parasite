@@ -26,8 +26,9 @@ fn add_project(updater : & Updater, url : & str, added : & mut usize, existing :
     match Project::from_url(url) {
         Some(project) => {
             match updater.ds.add_project(& project) {
-                Some(id) => {
-                    updater.schedule(Task::UpdateRepo{ id, last_update_time : Updater::NEVER });
+                Some(_id) => {
+                    // don't actually schedule the update, it has to be explicitly enabled by the user
+                    //updater.schedule(Task::UpdateRepo{ id, last_update_time : Updater::NEVER });
                     *added += 1;
                 },
                 _ => {

@@ -1,5 +1,6 @@
 use std::collections::*;
 use std::sync::*;
+use std::sync::atomic::*;
 use std::path::Path;
 use sha1::{Sha1, Digest};
 
@@ -151,7 +152,7 @@ impl Datastore {
         {
             let mut projects = self.projects.lock().unwrap();
             old_offset = projects.indexer.get(id).unwrap();
-            self.projects.lock().unwrap().set(id, project);
+            projects.set(id, project);
         }
         self.project_updates.lock().unwrap().set(id, & ProjectUpdateStatus::Rename{
             time : helpers::now(),
@@ -305,8 +306,11 @@ pub (crate) struct Substore {
     prefix : StoreKind,
 
     /** Determines whether the substore's mappings are loaded in memory and therefore new items can be added to it. 
+     
+        Atomic flag and mutex for actually loading and clearing the substore.
      */
-    loaded : Mutex<bool>,
+    loaded : AtomicBool,
+    load_mutex : Mutex<()>,
 
     /** Commits stored in the dataset. 
      */
@@ -353,7 +357,8 @@ impl Substore {
         let result = Substore{
             root : root.to_owned(),
             prefix : kind,
-            loaded : Mutex::new(false), 
+            loaded : AtomicBool::new(false),
+            load_mutex : Mutex::new(()), 
 
             commits : Mutex::new(Mapping::new(root, "commits")),
             commits_info : Mutex::new(Store::new(root, "commits-info")),
@@ -381,8 +386,8 @@ impl Substore {
     pub (crate) fn load(& self, task : & updater::TaskStatus) {
         task.info("Acquiring substore lock...");
         task.progress(0, 4);
-        let mut x = self.loaded.lock().unwrap();
-        if *x == false {
+        let mut _x = self.load_mutex.lock().unwrap();
+        if self.loaded.load(Ordering::SeqCst) == false {
             task.info("Loading...");
             self.commits.lock().unwrap().load();
             task.progress(1, 4);
@@ -392,15 +397,16 @@ impl Substore {
             task.progress(3, 4);
             self.users.lock().unwrap().load();
             task.progress(4, 4);
-            *x = true;
+            self.loaded.store(true, Ordering::SeqCst);
         }
     }
 
     pub (crate) fn clear(& self, task : & updater::TaskStatus) {
         task.info("Acquiring substore lock...");
         task.progress(0, 4);
-        let mut x = self.loaded.lock().unwrap();
-        if *x == true {
+        let mut _x = self.load_mutex.lock().unwrap();
+        if self.loaded.load(Ordering::SeqCst) == true {
+            self.loaded.store(false, Ordering::SeqCst);
             task.info("Clearing...");
             self.commits.lock().unwrap().clear();
             task.progress(1, 4);
@@ -410,12 +416,11 @@ impl Substore {
             task.progress(3, 4);
             self.users.lock().unwrap().clear();
             task.progress(4, 4);
-            *x = false;
         }
     }
 
     pub (crate) fn is_loaded(& self) -> bool {
-        return *self.loaded.lock().unwrap();
+        return self.loaded.load(Ordering::SeqCst);
     }
 
     /** Returns the memory report for the substore. 
@@ -428,7 +433,7 @@ impl Substore {
             let hashes = self.hashes.lock().unwrap().mapping_len();
             let paths = self.paths.lock().unwrap().mapping_len();
             let users = self.users.lock().unwrap().mapping_len();
-            return format!("{:?}:{}", self.prefix, commits + hashes + paths + users);
+            return format!("{:?}:{}", self.prefix, helpers::pretty_value(commits + hashes + paths + users));
         } else {
             return String::new();
         }

@@ -44,6 +44,7 @@ impl<'a, 'b> RepoUpdater<'a, 'b> {
         // update metadata and project url 
         task.update().set_message("checking metadata...");
         let mut updated = self.update_github_project(id, & mut url, task)?;
+        task.update().set_message("repository contents...");
         match self.update_project_contents(tmp_folder, id, & url, force, task) {
             Ok(value) => updated = updated || value,
             Err(cause) => {

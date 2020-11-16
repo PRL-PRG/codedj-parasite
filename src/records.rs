@@ -57,9 +57,9 @@ impl StoreKind {
      */
     pub fn from_string(name : & str) -> Option<StoreKind> {
         match name.to_lowercase().as_str() {
-            "small" => Some(StoreKind::SmallProjects),
+            "small" | "smallprojects" => Some(StoreKind::SmallProjects),
             "c" => Some(StoreKind::C),
-            "cpp" => Some(StoreKind::Cpp),
+            "cpp" | "c++" => Some(StoreKind::Cpp),
             "csharp" | "cs" => Some(StoreKind::CSharp),
             "clojure" => Some(StoreKind::Clojure),
             "coffeescript" => Some(StoreKind::CoffeeScript),
@@ -139,12 +139,23 @@ impl Project {
         }
     }
 
+    pub fn name(& self) -> String {
+        match self {
+            Project::Git{url} => {
+                return url.clone();
+            },
+            Project::GitHub{user_and_repo} => {
+                return user_and_repo.clone();                
+            }
+        }
+    }
+
     pub fn from_url(url : & str) -> Option<Project> {
-        if url.starts_with("https://github.com") {
+        if url.starts_with("https://github.com/") {
             if url.ends_with(".git") {
-                return Some(Project::GitHub{ user_and_repo : url[18..(url.len() - 4)].to_owned() });
+                return Some(Project::GitHub{ user_and_repo : url[19..(url.len() - 4)].to_owned() });
             } else {
-                return Some(Project::GitHub{ user_and_repo : url[18..].to_owned() });
+                return Some(Project::GitHub{ user_and_repo : url[19..].to_owned() });
             }
         } else if url.starts_with("https://api.github.com/repos/") {
             return Some(Project::GitHub{ user_and_repo : url[29..].to_owned() });

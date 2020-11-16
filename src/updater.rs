@@ -1,6 +1,8 @@
 use std::collections::*;
 use std::sync::*;
 use std::io::{Write, stdout};
+use sysinfo::SystemExt;
+
 
 use crate::datastore::*;
 use crate::records::*;
@@ -35,8 +37,20 @@ impl<'a> TaskStatus<'a> {
         self.tx.send(TaskMessage::Info{name : self.name.to_owned(), info : info.into() }).unwrap();
     }
 
+    pub fn extra<S: Into<String>>(& self, extra : S) {
+        self.tx.send(TaskMessage::Extra{name : self.name.to_owned(), extra : extra.into() }).unwrap();
+    }
+
+    pub fn extra_url<S: Into<String>>(& self, extra : S, url : S) {
+        self.extra(format!("\x1b]8;;{}\x07{}\x1b]8;;\x07", url.into(), extra.into()));
+    }
+
     pub fn progress(& self, progress : usize, max : usize) {
         self.tx.send(TaskMessage::Progress{name : self.name.to_owned(), progress, max}).unwrap();
+    }
+
+    pub fn color(& self, color : & str) {
+        self.tx.send(TaskMessage::Color{name : self.name.to_owned(), color : color.to_owned()}).unwrap();
     }
 
 }
@@ -84,7 +98,7 @@ impl Updater {
             github : Github::new("/mnt/data/github-tokens.csv"),
 
             // TODO do not hardcode!!!!!!!!
-            num_workers : 1,
+            num_workers : 16,
             pool : Mutex::new(Pool::new()),
             cv_workers : Condvar::new(),
 
@@ -153,7 +167,7 @@ impl Updater {
                     tx.send(TaskMessage::Done{ name : task_name }).unwrap();
                 },
                 Ok(Err(cause)) => {
-                    tx.send(TaskMessage::Error{ name : task_name, cause : format!("{:?}", cause) }).unwrap();
+                    tx.send(TaskMessage::Error{ name : task_name, cause : format!("{}", cause) }).unwrap();
                 },
                 Err(cause) => {
                     tx.send(TaskMessage::Error{ name : task_name, cause : format!("PANIC: {:?}", cause) }).unwrap();
@@ -246,14 +260,26 @@ impl Updater {
                         task.ping = 0;
                         task.info = info;
                     },
-                    _ => {
-                        panic!("Unknown message or channel error");
+                    Ok(TaskMessage::Extra{name, extra}) => {
+                        assert!(rinfo.tasks.contains_key(& name) == true, "Task does not exist");
+                        let task = rinfo.tasks.get_mut(& name).unwrap();    
+                        task.ping = 0;
+                        task.extra = extra;
+                    },
+                    Ok(TaskMessage::Color{name, color}) => {
+                        assert!(rinfo.tasks.contains_key(& name) == true, "Task does not exist");
+                        let task = rinfo.tasks.get_mut(& name).unwrap();    
+                        task.ping = 0;
+                        task.color = color;
+                    },
+                    Err(_) => {
+                        panic!("Oh noez, can't receive stuff");
                     }
-
                 }
                 msgs -= 1;
             }
             // now that the messages have been processed, redraw the status information
+            rinfo.system.refresh_all();
             self.status(& rinfo);
             // retire errored tasks that are too old
             rinfo.tick();
@@ -297,7 +323,18 @@ impl Updater {
             loaded
         );
         // server health
-        println!("  Health: \x1b[K");
+        //let total_mem = info.system.get_total_memory() as usize;
+        //let used_mem = info.system.get_used_memory() as usize;
+        // TODO get this from the process tables instead
+        // add disk info for temp and for datastore
+        println!("  Health: [mem: {}, free {}], [cpu: {}] \x1b[K",
+            /*helpers::pct(used_mem, total_mem),
+            helpers::pretty_value(total_mem - used_mem),
+            info.system.get
+            */
+            0,0,0
+        );
+
         // tasks summary
         print!("\x1b[6H\x1b[104m");
         println!(" tick [ {}a, {}d, {}e ] total [ {}d, {}e ] queue [{}]\x1b[K",
@@ -309,17 +346,39 @@ impl Updater {
         {
             let mut tasks : Vec<(& String, & TaskInfo)> = info.tasks.iter().collect();
             tasks.sort_by(|a, b| a.1.start_time.cmp(& b.1.start_time));
+            let mut odd = true;
             for (name, task) in tasks {
+                let mut color = task.color.as_str();
+                if task.ping >= 10 {
+                    color = "\x1b[48;2;255;165;0m";
+                }
+                if color.is_empty() {
+                    color = if odd { "\x1b[48;2;0;0;0m" } else { "\x1b[48;2;48;48;48m" };
+                }
+                print!("{}", color);
+                odd = ! odd;
                 task.print(name);
             }
         }
         // print error one-liners
-
+        if ! info.errors.is_empty() {
+            print!("\x1b[48;2;128;0;0mErrors ({}):\x1b[K\x1b[0m\n", info.errors.len());
+            for (name, task, cause) in info.errors.iter() {
+                print!("{}: {} {},", name, task.info, cause);
+            }
+            print!("\x1b[K\n");
+    
+        }
         // print done one-liners
-
-        // TODO
-        print!("\x1b"); // clear the rest of the screen
+        if ! info.done.is_empty() {
+            print!("\x1b[48;2;0;128;0mDone ({}):\x1b[K\x1b[0m\n", info.done.len());
+            for (_, task) in info.done.iter() {
+                print!("{}{}: {}, ", task.color, task.info, task.extra);
+            }
+            print!("\x1b[K\n");
+        }
         print!("\x1b[m"); // reset attributes
+        print!("\x1b[J"); // clear the rest of the screen
         print!("\x1b8"); // restore cursor
         stdout().flush().unwrap();
     }
@@ -370,26 +429,32 @@ impl Updater {
         let cmd : Vec<&str> = command.trim().split(" ").collect();
         match cmd[0] {
             "pause" => {
-                let mut threads = self.pool.lock().unwrap();
-                threads.state = State::Paused;
-                self.cv_workers.notify_all();
+                {
+                    let mut threads = self.pool.lock().unwrap();
+                    threads.state = State::Paused;
+                    self.cv_workers.notify_all();
+                }
                 self.display_prompt("Pausing threads...");
             },
             "stop" => {
-                let mut threads = self.pool.lock().unwrap();
-                threads.state = State::Stopped;
-                self.cv_workers.notify_all();
+                {
+                    let mut threads = self.pool.lock().unwrap();
+                    threads.state = State::Stopped;
+                    self.cv_workers.notify_all();
+                }
                 self.display_prompt("Stopping threads...");
             },
             "run" => {
-                let mut threads = self.pool.lock().unwrap();
-                threads.state = State::Running;
-                self.cv_workers.notify_all();
+                {
+                    let mut threads = self.pool.lock().unwrap();
+                    threads.state = State::Running;
+                    self.cv_workers.notify_all();
+                }
                 self.display_prompt("Resuming worker threads...");
             }, 
             /* Updates project belonging to the given substore . 
              */
-            "upsate" => {
+            "update" => {
                 if cmd.len() != 2 {
                     self.display_error("No store to update specified");
                 } else if let Some(kind) = StoreKind::from_string(cmd[1]) {
@@ -409,6 +474,9 @@ impl Updater {
                     self.schedule(Task::AddProjects{ source : cmd[1].to_owned() });
                 }
             }
+            
+            // debug stuffz
+
             /* Kill immediately aborts the entire process. 
                
                It goes without saying that this should be used only sparingly and that issuing the command is likely to have dire consequences for the integrity of the datastore. 
@@ -574,6 +642,8 @@ pub enum TaskMessage {
     Error{name : String, cause : String},
     Progress{name : String, progress : usize, max : usize },
     Info{name : String, info : String },
+    Extra{name : String, extra : String },
+    Color{name : String, color : String },
 }
 
 /** Task info as stored on the updater's end. 
@@ -585,6 +655,10 @@ struct TaskInfo {
     progress_max : usize, 
     ping : u64, 
     info : String,
+    // extra string that can be displayed
+    extra : String,
+    // color to be printed before the task, if any
+    color : String,
 }
 
 impl TaskInfo {
@@ -596,14 +670,17 @@ impl TaskInfo {
             progress_max : 0,
             ping : 0,
             info : String::new(),
+            extra : String::new(),
+            color : String::new(),
         };
     }
 
     /** Prints the task information. 
      */
     pub fn print(& self, name : & str) {
-        println!(" {}: elapsed [ {} ], progress [ {}% ({}/{}) ]\x1b[K",
+        println!(" {}: {} elapsed [ {} ], progress [ {}% ({}/{}) ]\x1b[K",
             name,
+            self.extra,
             helpers::pretty_time(helpers::now() - self.start_time),
             helpers::pct(self.progress, self.progress_max),
             self.progress,
@@ -624,7 +701,8 @@ struct ReporterInfo {
     tick_tasks_done : usize,
     tick_tasks_error : usize,
     total_tasks_done : usize,
-    total_tasks_error : usize
+    total_tasks_error : usize,
+    system : sysinfo::System,
 }
 
 impl ReporterInfo {
@@ -639,6 +717,7 @@ impl ReporterInfo {
             tick_tasks_error : 0,
             total_tasks_done : 0,
             total_tasks_error : 0,
+            system : sysinfo::System::new(),
         };
     }
 
@@ -665,10 +744,3 @@ impl ReporterInfo {
         self.done.retain(|(_, task)| (time_now - task.end_time) < 10);
     }
 }
-
-
-
-
-
-
-
