@@ -109,6 +109,10 @@ pub type ContentsData = Vec<u8>;
 impl FileWriter<ContentsData> for ContentsData {
     fn read(f : & mut File) -> ContentsData {
         let len = f.read_u64::<LittleEndian>().unwrap() as usize;
+        if len > 10 * 1024 * 1024 * 1024 {
+            println!("errorneous length: {}", len);
+            return Vec::new();
+        }
         let mut encoded = vec![0; len];
         f.read(& mut encoded).unwrap();
         let mut dec = flate2::read::GzDecoder::new(&encoded[..]);
