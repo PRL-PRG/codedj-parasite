@@ -8,6 +8,7 @@ use crate::datastore::*;
 use crate::records::*;
 use crate::github::*;
 use crate::helpers;
+use crate::db::*;
 
 use crate::task_add_projects::*;
 use crate::task_update_repo::*;
@@ -163,7 +164,7 @@ impl Updater {
                     }, 
                     Task::LoadSubstore{store} => {
                         return task_load_substore(self, store, TaskStatus::new(& tx, task));
-                    }
+                    },
                     Task::DropSubstore{store} => {
                         return task_drop_substore(self, store, TaskStatus::new(& tx, task));
                     }
@@ -475,21 +476,36 @@ impl Updater {
                     self.display_prompt("Adding projects to datastore, see task progress...");
                     self.schedule(Task::AddProjects{ source : cmd[1].to_owned() });
                 }
-            }
+            },
             /* Loads given substore in memory. 
              */
             "load" => {
                 if cmd.len() != 2 {
                     self.display_error("No store to load specified");
                 } else if let Some(kind) = StoreKind::from_string(cmd[1]) {
-                    self.schedule(Task::Update{store : kind});
-                    self.display_prompt(format!("Updating substore {:?}, see task progress...", kind));
+                    self.schedule(Task::LoadSubstore{store : kind});
+                    self.display_prompt(format!("Loading substore {:?}, see task progress...", kind));
                 } else {
                     self.display_error(format!("Unknown store kind {}", cmd[1]));
                 }
 
+            },
+            "drop" => {
+                if cmd.len() != 2 {
+                    self.display_error("No store to drop specified");
+                } else if let Some(kind) = StoreKind::from_string(cmd[1]) {
+                    self.schedule(Task::DropSubstore{store : kind});
+                    self.display_prompt(format!("Dropping substore {:?}, see task progress...", kind));
+                } else {
+                    self.display_error(format!("Unknown store kind {}", cmd[1]));
+                }
+            },
+            "loadall" => {
+                for kind in SplitKindIter::<StoreKind>::new() {
+                    self.display_prompt("Loading all substores, see task progress...");
+                    self.schedule(Task::LoadSubstore{store : kind});
+                }
             }
-            
             // debug stuffz
 
             /* Kill immediately aborts the entire process. 
