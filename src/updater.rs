@@ -12,7 +12,8 @@ use crate::helpers;
 use crate::task_add_projects::*;
 use crate::task_update_repo::*;
 use crate::task_update_substore::*;
-
+use crate::task_load_substore::*;
+use crate::task_drop_substore::*;
 
 pub type Tx = crossbeam_channel::Sender<TaskMessage>;
 
@@ -160,6 +161,12 @@ impl Updater {
                     Task::Update{store} => {
                         return task_update_substore(self, store, TaskStatus::new(& tx, task));
                     }, 
+                    Task::LoadSubstore{store} => {
+                        return task_load_substore(self, store, TaskStatus::new(& tx, task));
+                    }
+                    Task::DropSubstore{store} => {
+                        return task_drop_substore(self, store, TaskStatus::new(& tx, task));
+                    }
                 }
             });
             match result {
@@ -469,6 +476,19 @@ impl Updater {
                     self.schedule(Task::AddProjects{ source : cmd[1].to_owned() });
                 }
             }
+            /* Loads given substore in memory. 
+             */
+            "load" => {
+                if cmd.len() != 2 {
+                    self.display_error("No store to load specified");
+                } else if let Some(kind) = StoreKind::from_string(cmd[1]) {
+                    self.schedule(Task::Update{store : kind});
+                    self.display_prompt(format!("Updating substore {:?}, see task progress...", kind));
+                } else {
+                    self.display_error(format!("Unknown store kind {}", cmd[1]));
+                }
+
+            }
             
             // debug stuffz
 
@@ -533,6 +553,12 @@ pub enum Task {
         Also looks at all unspecified projects and assigns their store, updating those that belong to the provided store. 
      */
     Update{store: StoreKind},
+    /** Loads given substore to memory.
+     */
+    LoadSubstore{store: StoreKind},
+    /** Drops the given substore from memory. 
+     */
+    DropSubstore{store: StoreKind},
 }
 
 impl Task {
@@ -548,6 +574,8 @@ impl Task {
             Task::UpdateRepo{id, last_update_time : _} => format!("{}", id),
             Task::AddProjects{source : _ } => "add".to_owned(), 
             Task::Update{store} => format!("update {:?}", store),
+            Task::LoadSubstore{store} => format!("load {:?}", store),
+            Task::DropSubstore{store} => format!("drop {:?}", store),
         }
     }
 }

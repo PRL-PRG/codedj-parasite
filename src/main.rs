@@ -11,6 +11,8 @@ mod updater;
 mod task_add_projects;
 mod task_update_repo;
 mod task_update_substore;
+mod task_load_substore;
+mod task_drop_substore;
 mod github;
 
 use datastore::*;

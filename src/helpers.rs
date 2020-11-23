@@ -104,17 +104,9 @@ pub fn process_resources() -> (usize, usize) {
         std::process::Command::new("sh")
             .arg("-c")
             .arg(format!("ps -x -o pid,%mem,%cpu | grep \"^ *{}\"", std::process::id()))
-//            .arg("-x")
-//            .arg("-o")
-//            .arg("pid,%mem,%cpu")
-//            .arg("|")
-//            .arg("grep")
-//            .arg(format!("^ *{}", std::process::id()))
             .output().unwrap().stdout
     ).unwrap();
-    //println!("{:?}", output);
     let line : Vec<String> = output.split_whitespace().map( |x|{ x.to_owned()} ).collect();
-    //println!("{:?}", line);
     return (
         (line[1].parse::<f64>().unwrap() * 100.0) as usize,
         line[2].parse::<f64>().unwrap() as usize
