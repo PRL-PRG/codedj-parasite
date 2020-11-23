@@ -1,7 +1,7 @@
 use std::collections::*;
 use std::sync::*;
 use std::io::{Write, stdout};
-use sysinfo::SystemExt;
+//use sysinfo::{SystemExt, ProcessExt};
 
 
 use crate::datastore::*;
@@ -279,7 +279,6 @@ impl Updater {
                 msgs -= 1;
             }
             // now that the messages have been processed, redraw the status information
-            rinfo.system.refresh_all();
             self.status(& rinfo);
             // retire errored tasks that are too old
             rinfo.tick();
@@ -323,16 +322,12 @@ impl Updater {
             loaded
         );
         // server health
-        //let total_mem = info.system.get_total_memory() as usize;
-        //let used_mem = info.system.get_used_memory() as usize;
         // TODO get this from the process tables instead
         // add disk info for temp and for datastore
-        println!("  Health: [mem: {}, free {}], [cpu: {}] \x1b[K",
-            /*helpers::pct(used_mem, total_mem),
-            helpers::pretty_value(total_mem - used_mem),
-            info.system.get
-            */
-            0,0,0
+        let (mem, cpu) = helpers::process_resources();
+        println!("  Health: [cpu: {}%], [mem:{}%] \x1b[K",
+            cpu,
+            mem,
         );
 
         // tasks summary
@@ -702,7 +697,6 @@ struct ReporterInfo {
     tick_tasks_error : usize,
     total_tasks_done : usize,
     total_tasks_error : usize,
-    system : sysinfo::System,
 }
 
 impl ReporterInfo {
@@ -717,7 +711,6 @@ impl ReporterInfo {
             tick_tasks_error : 0,
             total_tasks_done : 0,
             total_tasks_error : 0,
-            system : sysinfo::System::new(),
         };
     }
 

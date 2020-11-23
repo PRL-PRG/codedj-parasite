@@ -69,12 +69,54 @@ pub fn pretty_value(mut value : usize) -> String {
     }
     value = value / 1000;
     if value < 1000 {
-        return format!("{}K", value);
+        return format!("{}k", value);
     }
     value = value / 1000;
     if value < 1000 {
-        return format!("{}M", value);
+        return format!("{}m", value);
     }
     value = value / 1000;
-    return format!("{}B", value);
+    return format!("{}b", value);
+}
+
+pub fn pretty_size(mut value : usize) -> String {
+    if value < 1000 {
+        return format!("{}", value);
+    }
+    value = value / 1000;
+    if value < 1000 {
+        return format!("{}kb", value);
+    }
+    value = value / 1000;
+    if value < 1000 {
+        return format!("{}mb", value);
+    }
+    value = value / 1000;
+    return format!("{}gb", value);
+}
+
+/** Returns the process usage of memory and cpu. 
+ 
+    Just use ps. i.e. ps -x -o pid,%mem,%cpu and then grep for our pid
+ */
+pub fn process_resources() -> (usize, usize) {
+    let output : String = String::from_utf8(
+        std::process::Command::new("sh")
+            .arg("-c")
+            .arg(format!("ps -x -o pid,%mem,%cpu | grep \"^ *{}\"", std::process::id()))
+//            .arg("-x")
+//            .arg("-o")
+//            .arg("pid,%mem,%cpu")
+//            .arg("|")
+//            .arg("grep")
+//            .arg(format!("^ *{}", std::process::id()))
+            .output().unwrap().stdout
+    ).unwrap();
+    //println!("{:?}", output);
+    let line : Vec<String> = output.split_whitespace().map( |x|{ x.to_owned()} ).collect();
+    //println!("{:?}", line);
+    return (
+        (line[1].parse::<f64>().unwrap() * 100.0) as usize,
+        line[2].parse::<f64>().unwrap() as usize
+    );
 }

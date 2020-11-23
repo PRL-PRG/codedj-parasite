@@ -30,4 +30,5 @@ flate2="1.0"
 num = "0.3"
 num-derive = "0.3"
 num-traits = "0.2"
-sysinfo = "0.7.0"
+# not this one, really, really bad dependencies
+#sysinfo = "0.15.0"
