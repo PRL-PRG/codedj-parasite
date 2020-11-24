@@ -55,6 +55,14 @@ struct RepoUpdater<'a> {
     snapshots : usize,
 }
 
+impl<'a> Drop for RepoUpdater<'a> {
+    fn drop(& mut self) {
+        match std::fs::remove_dir_all(& self.local_folder) {
+            _ => {},
+        }
+    }
+}
+
 impl<'a> RepoUpdater<'a> {
 
     /** Creates new repository updater. 
