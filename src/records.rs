@@ -1,5 +1,5 @@
-use std::fs::*;
-use std::io::*;
+use std::fs::{File};
+use std::io::{Read, Write};
 use std::collections::*;
 use byteorder::*;
 use flate2::*;
@@ -98,6 +98,7 @@ impl SplitKind for StoreKind {
 }
 
 impl Serializable for StoreKind {
+    type Item = StoreKind;
     fn serialize(f : & mut File, value : & StoreKind) {
         f.write_u16::<LittleEndian>(value.to_number() as u16).unwrap();
     }
@@ -106,6 +107,14 @@ impl Serializable for StoreKind {
         return StoreKind::from_number(f.read_u16::<LittleEndian>().unwrap() as u64);
     }
 
+    fn verify(f : & mut File) -> Result<StoreKind, std::io::Error> {
+        let index = u16::verify(f)? as u64;
+        if index >= Self::COUNT {
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, "Invalid store kind index"));
+        } else {
+            return Ok(StoreKind::from_number(index));
+        }
+    }
 }
 
 impl FixedSizeSerializable for StoreKind {
@@ -168,6 +177,7 @@ impl Project {
 }
 
 impl Serializable for Project {
+    type Item = Project;
     fn serialize(f : & mut File, value : & Project) {
         match value {
             Project::Git{url} => {
@@ -192,6 +202,20 @@ impl Serializable for Project {
                 return Project::GitHub{ user_and_repo };
             },
             _ => panic!("Unknown project kind"),
+        }
+    }
+
+    fn verify(f : & mut File) -> Result<Project, std::io::Error> {
+        match u8::verify(f)? {
+            0 => {
+                let url = String::verify(f)?;
+                return Ok(Project::Git{ url });
+            },
+            1 => {
+                let user_and_repo = String::verify(f)?;
+                return Ok(Project::GitHub{ user_and_repo });
+            },
+            _ => return Err(std::io::Error::new(std::io::ErrorKind::Other, "Invalid project kind id")),
         }
     }
 }
@@ -246,6 +270,7 @@ impl ProjectUpdateStatus {
 }
 
 impl Serializable for ProjectUpdateStatus {
+    type Item = ProjectUpdateStatus;
     fn serialize(f : & mut File, value : & ProjectUpdateStatus) {
         match value {
             ProjectUpdateStatus::NoChange{time , version } => {
@@ -302,6 +327,36 @@ impl Serializable for ProjectUpdateStatus {
             _ => panic!("Unknown project update status kind"),
         }
     }
+
+    fn verify(f : & mut File) -> Result<ProjectUpdateStatus, std::io::Error> {
+        let kind = u8::verify(f)?;
+        match kind {
+            0 | 1 | 2 | 3 | 255 => {
+                let time = i64::verify(f)?;
+                let version = u16::verify(f)?;
+                match kind {
+                    0 => {
+                        return Ok(ProjectUpdateStatus::NoChange{time, version});
+                    },
+                    1 => {
+                        return Ok(ProjectUpdateStatus::Ok{time, version});
+                    },
+                    2 => {
+                        return Ok(ProjectUpdateStatus::Rename{time, version, old_offset : u64::deserialize(f)});
+                    },
+                    3 => {
+                        return Ok(ProjectUpdateStatus::ChangeStore{time, version, new_kind : StoreKind::deserialize(f)});
+                    },
+                    255 => {
+                        return Ok(ProjectUpdateStatus::Error{time, version, error : String::deserialize(f)});
+                    },
+                    _ => unreachable!(),
+                }
+        
+            },
+            _ => return Err(std::io::Error::new(std::io::ErrorKind::Other, "Invalid project update status id")),
+        };
+    }
 }
 
 /** Head references at any given repository update.
@@ -313,6 +368,7 @@ impl Serializable for ProjectUpdateStatus {
 pub type ProjectHeads = HashMap<String, (u64, Hash)>;
 
 impl Serializable for ProjectHeads {
+    type Item = ProjectHeads;
     fn serialize(f : & mut File, value : & ProjectHeads) {
         u32::serialize(f, & (value.len() as u32));
         for (name, (id, hash)) in value {
@@ -333,6 +389,22 @@ impl Serializable for ProjectHeads {
             records -= 1;
         }
         return result;
+    }
+
+    fn verify(f : & mut File) -> Result<ProjectHeads, std::io::Error> {
+        let mut records = u32::verify(f)?;
+        if records as u64 > MAX_BUFFER_LENGTH {
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, "Invalid length of project heads"));
+        }
+        let mut result = ProjectHeads::new();
+        while records > 0 {
+            let name = String::verify(f)?;
+            let id = u64::verify(f)?;
+            let hash = Hash::verify(f)?;
+            result.insert(name, (id, hash));
+            records -= 1;
+        }
+        return Ok(result);
     }
 }
 
@@ -359,6 +431,7 @@ impl IDPrefix for StoreKind {
 pub type Hash = git2::Oid;
 
 impl Serializable for Hash {
+    type Item = Hash;
     fn serialize(f : & mut File, value : & Hash) {
         f.write(value.as_bytes()).unwrap();
     }
@@ -367,6 +440,15 @@ impl Serializable for Hash {
         let mut buffer = vec![0; 20];
         f.read(& mut buffer).unwrap();
         return git2::Oid::from_bytes(& buffer).unwrap();
+    }
+
+    fn verify(f : & mut File) -> Result<Hash, std::io::Error> {
+        let mut buffer = vec![0; 20];
+        f.read(& mut buffer)?;
+        match git2::Oid::from_bytes(& buffer) {
+            Ok(oid) => return Ok(oid),
+            Err(err) => return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("{:?}", err))),
+        }
     }
 }
 
@@ -489,12 +571,22 @@ impl SplitKind for ContentsKind {
 }
 
 impl Serializable for ContentsKind {
+    type Item = ContentsKind;
     fn serialize(f : & mut File, value : & ContentsKind) {
         f.write_u16::<LittleEndian>(value.to_number() as u16).unwrap();
     }
 
     fn deserialize(f : & mut File) -> ContentsKind {
         return ContentsKind::from_number(f.read_u16::<LittleEndian>().unwrap() as u64);
+    }
+
+    fn verify(f : & mut File) -> Result<ContentsKind, std::io::Error> {
+        let index = u16::verify(f)? as u64;
+        if index >= Self::COUNT {
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, "Invalid contents kind index"));
+        } else {
+            return Ok(ContentsKind::from_number(index));
+        }
     }
 }
 
@@ -510,6 +602,7 @@ impl FixedSizeSerializable for ContentsKind {
 pub type FileContents = Vec<u8>;
 
 impl Serializable for FileContents {
+    type Item = FileContents;
     fn serialize(f : & mut File, value : & FileContents) {
         let mut enc = flate2::write::GzEncoder::new(Vec::new(), Compression::best());
         enc.write_all(value).unwrap();
@@ -527,6 +620,19 @@ impl Serializable for FileContents {
         dec.read_to_end(& mut result).unwrap();    
         return result;
     }
+
+    fn verify(f : & mut File) -> Result<FileContents, std::io::Error> {
+        let len = u64::verify(f)?;
+        if len > MAX_BUFFER_LENGTH {
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, "Compressed file contents too large"));
+        }
+        let mut encoded = vec![0; len as usize];
+        f.read(& mut encoded)?;
+        let mut dec = flate2::read::GzDecoder::new(&encoded[..]);
+        let mut result = Vec::new();
+        dec.read_to_end(& mut result)?;    
+        return Ok(result);
+    }
 }
 
 /** Metadata values. 
@@ -543,6 +649,7 @@ impl Metadata {
 }
 
 impl Serializable for Metadata {
+    type Item = Metadata;
     fn serialize(f : & mut File, value : & Metadata) {
         String::serialize(f, & value.key);
         String::serialize(f, & value.value);
@@ -553,6 +660,13 @@ impl Serializable for Metadata {
             key : String::deserialize(f),
             value : String::deserialize(f),
         };
+    }
+
+    fn verify(f : & mut File) -> Result<Metadata, std::io::Error> {
+        return Ok(Metadata{
+            key : String::verify(f)?,
+            value : String::verify(f)?,
+        });
     }
 }
 
@@ -581,6 +695,7 @@ impl CommitInfo {
 }
 
 impl Serializable for CommitInfo {
+    type Item = CommitInfo;
     fn serialize(f : & mut File, value : & CommitInfo) {
         u64::serialize(f, & value.committer);
         i64::serialize(f, & value.committer_time);
@@ -618,6 +733,34 @@ impl Serializable for CommitInfo {
         }
         result.message = String::deserialize(f);
         return result;
+    }
+
+    fn verify(f : & mut File) -> Result<CommitInfo, std::io::Error> {
+        let mut result = CommitInfo::new();
+        result.committer = u64::verify(f)?;
+        result.committer_time = i64::verify(f)?;
+        result.author = u64::verify(f)?;
+        result.author_time = i64::verify(f)?;
+        let mut num_parents = u16::verify(f)?;
+        if num_parents as u64 > MAX_BUFFER_LENGTH {
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, "Too many commit parents"));
+        }
+        while num_parents > 0 {
+            result.parents.push(u64::verify(f)?);
+            num_parents -= 1;
+        }
+        let mut num_changes = u32::verify(f)?;
+        if num_changes as u64 > MAX_BUFFER_LENGTH {
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, "Too many commit changes"));
+        }
+        while num_changes > 0 {
+            let path = u64::verify(f)?;
+            let hash = u64::verify(f)?;
+            result.changes.insert(path, hash);
+            num_changes -= 1;
+        }
+        result.message = String::verify(f)?;
+        return Ok(result);
     }
 }
 

@@ -16,17 +16,24 @@
 
  */
 use std::fs::{File, OpenOptions};
-use std::io::*;
+use std::io::{Seek, SeekFrom, Read, Write};
 use byteorder::*;
 use std::collections::*;
 use std::hash::*;
-use std::fmt::*;
+use std::fmt::{Debug};
 //use crate::records::*;
 
+pub (crate) const MAX_BUFFER_LENGTH : u64 = 10 * 1024 * 1024 * 1024; // 10GB
 
+/** TODO since at the end I need verify anyways, maybe check if deserialize should behave like verify already and the performance hit of that.
+ */
 pub trait Serializable {
-    fn serialize(f : & mut File, value : & Self);
-    fn deserialize(f : & mut File) -> Self;
+    type Item;
+
+    fn serialize(f : & mut File, value : & Self::Item);
+    fn deserialize(f : & mut File) -> Self::Item;
+
+    fn verify(f : & mut File) -> Result<Self::Item, std::io::Error>;
 }
 
 pub trait FixedSizeSerializable : Serializable {
@@ -34,18 +41,24 @@ pub trait FixedSizeSerializable : Serializable {
 }
 
 pub trait Indexable : FixedSizeSerializable + Eq {
-    const EMPTY : Self;
+    const EMPTY : Self::Item;
 }
 
 /* The serializable, fixed size serializable and indexable implementations are provided for u64 used as id in the rest of the file. 
  */
 impl Serializable for u64 {
+    type Item = u64;
     fn serialize(f : & mut File, value : & u64) {
         f.write_u64::<LittleEndian>(*value).unwrap();
     }
     fn deserialize(f : & mut File) -> u64 {
         return f.read_u64::<LittleEndian>().unwrap();
     }
+
+    fn verify(f : & mut File) -> Result<u64, std::io::Error> {
+        return f.read_u64::<LittleEndian>();
+    }
+
 }
 
 impl FixedSizeSerializable for u64 {
@@ -57,11 +70,16 @@ impl Indexable for u64 {
 }
 
 impl Serializable for i64 {
+    type Item = i64;
     fn serialize(f : & mut File, value : & i64) {
         f.write_i64::<LittleEndian>(*value).unwrap();
     }
     fn deserialize(f : & mut File) -> i64 {
         return f.read_i64::<LittleEndian>().unwrap();
+    }
+
+    fn verify(f : & mut File) -> Result<i64, std::io::Error> {
+        return f.read_i64::<LittleEndian>();
     }
 }
 
@@ -70,12 +88,18 @@ impl FixedSizeSerializable for i64 {
 }
 
 impl Serializable for u32 {
+    type Item = u32;
     fn serialize(f : & mut File, value : & u32) {
         f.write_u32::<LittleEndian>(*value).unwrap();
     }
     fn deserialize(f : & mut File) -> u32 {
         return f.read_u32::<LittleEndian>().unwrap();
     }
+
+    fn verify(f : & mut File) -> Result<u32, std::io::Error> {
+        return f.read_u32::<LittleEndian>();
+    }
+
 }
 
 impl FixedSizeSerializable for u32 {
@@ -83,12 +107,18 @@ impl FixedSizeSerializable for u32 {
 }
 
 impl Serializable for u16 {
+    type Item = u16;
     fn serialize(f : & mut File, value : & u16) {
         f.write_u16::<LittleEndian>(*value).unwrap();
     }
     fn deserialize(f : & mut File) -> u16 {
         return f.read_u16::<LittleEndian>().unwrap();
     }
+
+    fn verify(f : & mut File) -> Result<u16, std::io::Error> {
+        return f.read_u16::<LittleEndian>();
+    }
+
 }
 
 impl FixedSizeSerializable for u16 {
@@ -96,12 +126,17 @@ impl FixedSizeSerializable for u16 {
 }
 
 impl Serializable for u8 {
+    type Item = u8;
     fn serialize(f : & mut File, value : & u8) {
         f.write_u8(*value).unwrap();
     }
     fn deserialize(f : & mut File) -> u8 {
         return f.read_u8().unwrap();
     }
+    fn verify(f : & mut File) -> Result<u8, std::io::Error> {
+        return f.read_u8();
+    }
+
 }
 
 impl FixedSizeSerializable for u8 {
@@ -111,6 +146,7 @@ impl FixedSizeSerializable for u8 {
 /** Strings are serializable too, very handy:)
  */
 impl Serializable for String {
+    type Item = String;
 
     fn serialize(f : & mut File, value : & String) {
         f.write_u32::<LittleEndian>(value.len() as u32).unwrap();
@@ -125,6 +161,17 @@ impl Serializable for String {
         }
         return String::from_utf8(buf).unwrap();
     }
+    fn verify(f : & mut File) -> Result<String, std::io::Error> {
+        let len = u32::verify(f)?;
+        if len as u64 > MAX_BUFFER_LENGTH {
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, "Invalid buffer size"));
+        }
+        let mut buf = vec![0; len as usize];
+        if f.read(& mut buf)? as u32 != len {
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, "Corrupted binary format"));
+        }
+        return Ok(String::from_utf8(buf).unwrap());
+    }
 }
 
 /** Holds indices for each id.
@@ -133,14 +180,14 @@ impl Serializable for String {
 
     The indexer is usually not used alone, but as part of more complex structures. 
  */
-pub struct Indexer<T : Indexable = u64> {
+pub struct Indexer<T : Indexable + Serializable<Item = T> = u64 > {
     name : String, 
     f : File, 
     size : u64,
     why_oh_why : std::marker::PhantomData<T>
 }
 
-impl<T : Indexable> Indexer<T> {
+impl<T : Indexable + Serializable<Item = T>> Indexer<T> {
     pub fn new(root : & str, name : & str) -> Indexer<T> {
         let mut f = OpenOptions::new().read(true).write(true).create(true).open(format!("{}/{}.idx", root, name)).unwrap();
         let size = f.seek(SeekFrom::End(0)).unwrap() / T::SIZE;
@@ -186,12 +233,12 @@ impl<T : Indexable> Indexer<T> {
 
 }
 
-pub struct IndexerIterator<'a, T : Indexable> {
+pub struct IndexerIterator<'a, T : Indexable + Serializable<Item = T>> {
     indexer : &'a mut Indexer<T>,
     id : u64
 }
 
-impl<'a, T : Indexable> Iterator for IndexerIterator<'a, T> {
+impl<'a, T : Indexable + Serializable<Item = T>> Iterator for IndexerIterator<'a, T> {
     type Item = (u64, T);
 
     fn next(& mut self) -> Option<(u64, T)> {
@@ -214,13 +261,13 @@ impl<'a, T : Indexable> Iterator for IndexerIterator<'a, T> {
 
     TODO add savepoint
  */
-pub struct Store<T : Serializable> {
+pub struct Store<T : Serializable<Item = T>> {
     pub (crate) indexer : Indexer,
     pub (crate) f : File,
     why_oh_why : std::marker::PhantomData<T>,
 }
 
-impl<T: Serializable> Store<T> {
+impl<T: Serializable<Item = T>> Store<T> {
 
     pub fn new(root : & str, name : & str) -> Store<T> {
         let f = OpenOptions::new().read(true).write(true).create(true).open(format!("{}/{}.store", root, name)).unwrap();
@@ -303,13 +350,13 @@ impl<T: Serializable> Store<T> {
     }
 }
 
-pub struct StoreIter<'a, T: Serializable> {
+pub struct StoreIter<'a, T: Serializable<Item = T>> {
     f : &'a mut File,
     iiter : IndexerIterator<'a, u64>,
     why_oh_why : std::marker::PhantomData<T>,
 }
 
-impl<'a, T : Serializable> StoreIter<'a, T> {
+impl<'a, T : Serializable<Item = T>> StoreIter<'a, T> {
     fn new(f : &'a mut File, indexer : &'a mut Indexer) -> StoreIter<'a, T> {
         return StoreIter{
             f : f,
@@ -319,7 +366,7 @@ impl<'a, T : Serializable> StoreIter<'a, T> {
     }
 }
 
-impl<'a, T : Serializable> Iterator for StoreIter<'a, T> {
+impl<'a, T : Serializable<Item = T>> Iterator for StoreIter<'a, T> {
     type Item = (u64, T);
 
     fn next(& mut self) -> Option<(u64, T)> {
@@ -334,11 +381,11 @@ impl<'a, T : Serializable> Iterator for StoreIter<'a, T> {
     }
 }
 
-pub struct StoreIterAll<'a, T : Serializable> {
+pub struct StoreIterAll<'a, T : Serializable<Item = T>> {
     store : &'a mut Store<T>
 }
 
-impl<'a, T : Serializable> Iterator for StoreIterAll<'a, T> {
+impl<'a, T : Serializable<Item = T>> Iterator for StoreIterAll<'a, T> {
     type Item = (u64, T);
 
     fn next(& mut self) -> Option<(u64, T)> {
@@ -352,13 +399,13 @@ impl<'a, T : Serializable> Iterator for StoreIterAll<'a, T> {
 
     TODO add savepoint
  */
-pub struct LinkedStore<T : Serializable> {
+pub struct LinkedStore<T : Serializable<Item = T>> {
     pub (crate) indexer : Indexer,
     pub (crate) f : File,
     why_oh_why : std::marker::PhantomData<T>,
 }
 
-impl<T: Serializable> LinkedStore<T> {
+impl<T: Serializable<Item = T>> LinkedStore<T> {
 
     pub fn new(root : & str, name : & str) -> LinkedStore<T> {
         let f = OpenOptions::new().read(true).write(true).create(true).open(format!("{}/{}.store", root, name)).unwrap();
@@ -451,13 +498,13 @@ impl<T: Serializable> LinkedStore<T> {
     }
 }
 
-pub struct LinkedStoreIter<'a, T: Serializable> {
+pub struct LinkedStoreIter<'a, T: Serializable<Item = T>> {
     f : &'a mut File,
     iiter : IndexerIterator<'a, u64>,
     why_oh_why : std::marker::PhantomData<T>,
 }
 
-impl<'a, T : Serializable> LinkedStoreIter<'a, T> {
+impl<'a, T : Serializable<Item = T>> LinkedStoreIter<'a, T> {
     fn new(f : &'a mut File, indexer : &'a mut Indexer) -> LinkedStoreIter<'a, T> {
         return LinkedStoreIter{
             f : f,
@@ -467,7 +514,7 @@ impl<'a, T : Serializable> LinkedStoreIter<'a, T> {
     }
 }
 
-impl<'a, T : Serializable> Iterator for LinkedStoreIter<'a, T> {
+impl<'a, T : Serializable<Item = T>> Iterator for LinkedStoreIter<'a, T> {
     type Item = (u64, T);
 
     fn next(& mut self) -> Option<(u64, T)> {
@@ -482,11 +529,11 @@ impl<'a, T : Serializable> Iterator for LinkedStoreIter<'a, T> {
     }
 }
 
-pub struct LinkedStoreIterAll<'a, T : Serializable> {
+pub struct LinkedStoreIterAll<'a, T : Serializable<Item = T>> {
     store : &'a mut LinkedStore<T>
 }
 
-impl<'a, T : Serializable> Iterator for LinkedStoreIterAll<'a, T> {
+impl<'a, T : Serializable<Item = T>> Iterator for LinkedStoreIterAll<'a, T> {
     type Item = (u64, T);
 
     fn next(& mut self) -> Option<(u64, T)> {
@@ -498,12 +545,12 @@ impl<'a, T : Serializable> Iterator for LinkedStoreIterAll<'a, T> {
 
 }
 
-pub struct LinkedStoreIterId<'a, T : Serializable> {
+pub struct LinkedStoreIterId<'a, T : Serializable<Item = T>> {
     store : &'a mut LinkedStore<T>,
     offset : Option<u64>,
 }
 
-impl<'a, T : Serializable> Iterator for LinkedStoreIterId<'a, T> {
+impl<'a, T : Serializable<Item = T>> Iterator for LinkedStoreIterId<'a, T> {
     type Item = T;
 
     fn next(& mut self) -> Option<T> {
@@ -523,14 +570,14 @@ impl<'a, T : Serializable> Iterator for LinkedStoreIterId<'a, T> {
  
     Unlike store, mapping does not allow updates to added values. 
  */
-pub struct Mapping<T : FixedSizeSerializable + Eq + Hash + Clone> {
+pub struct Mapping<T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone> {
     name : String,
     f : File,
     mapping : HashMap<T, u64>,
     size : u64
 }
 
-impl<T : FixedSizeSerializable + Eq + Hash + Clone> Mapping<T> {
+impl<T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone> Mapping<T> {
 
     pub fn new(root : & str, name : & str) -> Mapping<T> {
         let mut f = OpenOptions::new().read(true).write(true).create(true).open(format!("{}/{}.mapping", root, name)).unwrap();
@@ -623,14 +670,14 @@ impl<T : FixedSizeSerializable + Eq + Hash + Clone> Mapping<T> {
     }
 }
 
-pub struct MappingIter<'a, T : FixedSizeSerializable + Eq + Hash + Clone> {
+pub struct MappingIter<'a, T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone> {
     f : &'a mut File,
     index : u64,
     size : u64,
     why_oh_why : std::marker::PhantomData<T>
 }
 
-impl<'a, T : FixedSizeSerializable + Eq + Hash + Clone> Iterator for MappingIter<'a, T> {
+impl<'a, T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone> Iterator for MappingIter<'a, T> {
     type Item = (u64, T);
 
     fn next(& mut self) -> Option<(u64, T)> {
@@ -647,12 +694,12 @@ impl<'a, T : FixedSizeSerializable + Eq + Hash + Clone> Iterator for MappingIter
 
 /** Mapping from values to ids where the values require indexing. 
  */
-pub struct IndirectMapping<T : Serializable + Eq + Hash + Clone> {
+pub struct IndirectMapping<T : Serializable<Item = T> + Eq + Hash + Clone> {
     store : Store<T>,
     mapping : HashMap<T, u64>
 }
 
-impl<T : Serializable + Eq + Hash + Clone> IndirectMapping<T> {
+impl<T : Serializable<Item = T> + Eq + Hash + Clone> IndirectMapping<T> {
 
     /** Creates new mapping. 
      */
@@ -762,12 +809,14 @@ impl<T : SplitKind> Iterator for SplitKindIter<T> {
     Each kind has its own store. The SplitOffset is serializable with fixed size calculated from the offset (8 bytes) and serialized kind size. 
  */
 #[derive(Eq, PartialEq)]
-struct SplitOffset<KIND : SplitKind> {
+struct SplitOffset<KIND : SplitKind<Item = KIND>> {
     offset : u64,
     kind : KIND, 
 }
 
-impl<KIND : SplitKind> Serializable for SplitOffset<KIND> {
+impl<KIND : SplitKind<Item = KIND>> Serializable for SplitOffset<KIND> {
+    type Item = SplitOffset<KIND>;
+
     fn serialize(f : & mut File, value : & SplitOffset<KIND>) {
         u64::serialize(f, & value.offset);
         KIND::serialize(f, & value.kind);
@@ -779,26 +828,33 @@ impl<KIND : SplitKind> Serializable for SplitOffset<KIND> {
             kind : KIND::deserialize(f)
         };
     }
+
+    fn verify(f : & mut File) -> Result<SplitOffset<KIND>, std::io::Error> {
+        return Ok(SplitOffset{
+            offset : u64::verify(f)?,
+            kind : KIND::verify(f)?
+        });  
+    }
 }
 
-impl<KIND : SplitKind> FixedSizeSerializable for SplitOffset<KIND> {
+impl<KIND : SplitKind<Item = KIND>> FixedSizeSerializable for SplitOffset<KIND> {
     const SIZE : u64 = 8 + KIND::SIZE;
 }
 
-impl<KIND : SplitKind> Indexable for SplitOffset<KIND> {
+impl<KIND : SplitKind<Item = KIND>> Indexable for SplitOffset<KIND> {
     const EMPTY : SplitOffset<KIND> = SplitOffset{offset : u64::EMPTY, kind : KIND::EMPTY};
 }
 
 /** Split store contains single index, but multiple files that store the data based on its kind. 
  */
-pub struct SplitStore<T : Serializable, KIND : SplitKind> {
+pub struct SplitStore<T : Serializable<Item = T>, KIND : SplitKind<Item = KIND>> {
     name : String,
     indexer : Indexer<SplitOffset<KIND>>,
     files : Vec<File>,
     why_oh_why : std::marker::PhantomData<T>
 }
 
-impl<T : Serializable, KIND: SplitKind> SplitStore<T, KIND> {
+impl<T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>> SplitStore<T, KIND> {
     pub fn new(root : & str, name : & str) -> SplitStore<T, KIND> {
         let mut files = Vec::<File>::new();
         for i in 0..KIND::COUNT {
@@ -861,14 +917,14 @@ impl<T : Serializable, KIND: SplitKind> SplitStore<T, KIND> {
 
 /** Split store contains single index, but multiple files that store the data based on its kind. 
  */
-pub struct SplitLinkedStore<T : Serializable, KIND : SplitKind> {
+pub struct SplitLinkedStore<T : Serializable<Item = T>, KIND : SplitKind<Item = KIND>> {
     name : String,
     indexer : Indexer<SplitOffset<KIND>>,
     files : Vec<File>,
     why_oh_why : std::marker::PhantomData<T>
 }
 
-impl<T : Serializable, KIND: SplitKind> SplitLinkedStore<T, KIND> {
+impl<T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>> SplitLinkedStore<T, KIND> {
     pub fn new(root : & str, name : & str) -> SplitLinkedStore<T, KIND> {
         let mut files = Vec::<File>::new();
         for i in 0..KIND::COUNT {

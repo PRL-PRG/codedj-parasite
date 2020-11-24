@@ -367,7 +367,7 @@ impl Updater {
         // print error one-liners
         if ! info.errors.is_empty() {
             print!("\x1b[48;2;128;0;0mErrors ({}):\x1b[K\x1b[0m\n", info.errors.len());
-            for (name, task, cause) in info.errors.iter() {
+            for (_, task, cause) in info.errors.iter() {
                 print!("{}: {} {},", task.extra, task.info, cause);
             }
             print!("\x1b[K\n");
