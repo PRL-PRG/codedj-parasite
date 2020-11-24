@@ -97,9 +97,11 @@ pub fn pretty_size(mut value : usize) -> String {
 
 /** Returns the process usage of memory and cpu. 
  
-    Just use ps. i.e. ps -x -o pid,%mem,%cpu and then grep for our pid
+    Just use ps. i.e. ps -x -o pid,%mem,%cpu and then grep for our pid.
+
+    Note that CPU frequency has a lot of latency and will decrease quickly
  */
-pub fn process_resources() -> (usize, usize) {
+pub fn process_resources() -> (usize, usize, usize) {
     let output : String = String::from_utf8(
         std::process::Command::new("sh")
             .arg("-c")
@@ -108,7 +110,8 @@ pub fn process_resources() -> (usize, usize) {
     ).unwrap();
     let line : Vec<String> = output.split_whitespace().map( |x|{ x.to_owned()} ).collect();
     return (
-        (line[1].parse::<f64>().unwrap() * 100.0) as usize,
+        std::process::id() as usize,
+        line[1].parse::<f64>().unwrap() as usize,
         line[2].parse::<f64>().unwrap() as usize
     );
 }

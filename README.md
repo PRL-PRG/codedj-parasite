@@ -8,15 +8,15 @@
 # TODO
 
 
+- add log for commands entered
+- add log for on/off of the downloader on the database
+
+
 - to drop substore, all are paused, and we have to wake up one thread... 
 
 - make sure that all dbs first write to the file and only then write the index to the indexer so that if there is an during the write, the indexer won't change to bad contents
 
 - force update should do all commits
-
-
-
-
 
 - load the counts and then start immediately in command mode
 - utilize alt mode, i.e. output log to the alt mode, have a log in the normal mode

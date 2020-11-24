@@ -175,7 +175,7 @@ impl Updater {
                     tx.send(TaskMessage::Done{ name : task_name }).unwrap();
                 },
                 Ok(Err(cause)) => {
-                    tx.send(TaskMessage::Error{ name : task_name, cause : format!("{}", cause) }).unwrap();
+                    tx.send(TaskMessage::Error{ name : task_name, cause : format!("{}", cause).trim().to_owned() }).unwrap();
                 },
                 Err(cause) => {
                     tx.send(TaskMessage::Error{ name : task_name, cause : format!("PANIC: {:?}", cause) }).unwrap();
@@ -332,8 +332,9 @@ impl Updater {
         // server health
         // TODO get this from the process tables instead
         // add disk info for temp and for datastore
-        let (mem, cpu) = helpers::process_resources();
-        println!("  Health: [cpu: {}%], [mem:{}%] \x1b[K",
+        let (pid, mem, cpu) = helpers::process_resources();
+        println!("  Health: pid: {}, [cpu: {}%], [mem:{}%] \x1b[K",
+            pid,
             cpu,
             mem,
         );
@@ -367,7 +368,7 @@ impl Updater {
         if ! info.errors.is_empty() {
             print!("\x1b[48;2;128;0;0mErrors ({}):\x1b[K\x1b[0m\n", info.errors.len());
             for (name, task, cause) in info.errors.iter() {
-                print!("{}: {} {},", name, task.info, cause);
+                print!("{}: {} {},", task.extra, task.info, cause);
             }
             print!("\x1b[K\n");
     
@@ -376,7 +377,7 @@ impl Updater {
         if ! info.done.is_empty() {
             print!("\x1b[48;2;0;128;0mDone ({}):\x1b[K\x1b[0m\n", info.done.len());
             for (_, task) in info.done.iter() {
-                print!("{}{}: {}, ", task.color, task.info, task.extra);
+                print!("{}{}: {}, ", task.color, task.extra, task.info);
             }
             print!("\x1b[K\n");
         }
@@ -546,11 +547,6 @@ impl Updater {
         self.project_urls.lock().unwrap().clear();
     }
 
-
-    /*
-    fn update_project(& self, _task : QueuedProject) -> Result<(), std::io::Error> {
-        unimplemented!();
-    } */
 }
 
 /** This is required so that we can pass updater across the catch_unwind barrier. 
@@ -779,5 +775,10 @@ impl ReporterInfo {
         let time_now = helpers::now();
         self.errors.retain(|(_, task, _)| (time_now - task.end_time) < 10);
         self.done.retain(|(_, task)| (time_now - task.end_time) < 10);
+        // increase tick for all tasks
+        for (_, task) in self.tasks.iter_mut() {
+            task.ping += 1;
+        }
+
     }
 }
