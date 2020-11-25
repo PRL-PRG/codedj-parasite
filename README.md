@@ -7,6 +7,7 @@
 
 # TODO
 
+- and how to stop them threads that are updating (purge the queue should do it, the task would then end once all other threads will become idle)
 
 - add log for commands entered
 - add log for on/off of the downloader on the database

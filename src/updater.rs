@@ -159,8 +159,8 @@ impl Updater {
                     Task::AddProjects{ref source} => {
                         return task_add_projects(self, source.to_owned(), TaskStatus::new(& tx, task));
                     },
-                    Task::Update{store} => {
-                        return task_update_substore(self, store, TaskStatus::new(& tx, task));
+                    Task::UpdateSubstore{store, mode} => {
+                        return task_update_substore(self, store, mode, TaskStatus::new(& tx, task));
                     }, 
                     Task::LoadSubstore{store} => {
                         return task_load_substore(self, store, TaskStatus::new(& tx, task));
@@ -462,10 +462,30 @@ impl Updater {
                 if cmd.len() != 2 {
                     self.display_error("No store to update specified");
                 } else if let Some(kind) = StoreKind::from_string(cmd[1]) {
-                    self.schedule(Task::Update{store : kind});
+                    self.schedule(Task::UpdateSubstore{store : kind, mode : UpdateMode::Single});
                     self.display_prompt(format!("Updating substore {:?}, see task progress...", kind));
                 } else {
                     self.display_error(format!("Unknown store kind {}", cmd[1]));
+                }
+            },
+            /* Updates all projects once substore by substore. 
+             */
+            "updateall" => {
+                if cmd.len() != 1 {
+                    self.display_error("Invalid arguments");
+                } else {
+                    self.schedule(Task::UpdateSubstore{store : StoreKind::from_number(0), mode : UpdateMode::All});
+                    self.display_prompt("Updating all substores , see task progress...");
+                }
+            },
+            /* Continuously updates all projects store by store
+             */
+            "updatecontinuous" => {
+                if cmd.len() != 1 {
+                    self.display_error("Invalid arguments");
+                } else {
+                    self.schedule(Task::UpdateSubstore{store : StoreKind::from_number(0), mode : UpdateMode::Continuous});
+                    self.display_prompt("Updating all substores , see task progress...");
                 }
             },
             /* Adds given project url, or projects from given csv file. 
@@ -556,6 +576,15 @@ impl Updater {
 impl std::panic::RefUnwindSafe for Updater { }
 
 
+/** Determines the mode of the update. 
+ */
+#[derive(Eq, PartialEq, Debug, Clone, Copy)]
+pub enum UpdateMode {
+    Single,
+    All,
+    Continuous,
+}
+
 #[derive(Eq, PartialEq, Debug)] 
 pub enum Task {
     UpdateRepo{id : u64, last_update_time : i64},
@@ -564,7 +593,7 @@ pub enum Task {
      
         Also looks at all unspecified projects and assigns their store, updating those that belong to the provided store. 
      */
-    Update{store: StoreKind},
+    UpdateSubstore{store: StoreKind, mode : UpdateMode},
     /** Loads given substore to memory.
      */
     LoadSubstore{store: StoreKind},
@@ -585,7 +614,7 @@ impl Task {
         match self {
             Task::UpdateRepo{id, last_update_time : _} => format!("{}", id),
             Task::AddProjects{source : _ } => "add".to_owned(), 
-            Task::Update{store} => format!("update {:?}", store),
+            Task::UpdateSubstore{store, mode} => format!("update {:?} {:?}", store, mode),
             Task::LoadSubstore{store} => format!("load {:?}", store),
             Task::DropSubstore{store} => format!("drop {:?}", store),
         }

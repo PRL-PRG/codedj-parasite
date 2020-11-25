@@ -1,11 +1,12 @@
 use crate::updater::*;
 use crate::records::*;
+use crate::db::*;
 
 /** Task that does an update of a given substore. 
  
     First the substore is loaded, then its own and unspecified projects are scheduled and then the task waits for completion of the scheduled queue and monitor the health of the datastore. 
  */
-pub (crate) fn task_update_substore(updater : & Updater, store : StoreKind,  task : TaskStatus) -> Result<(), std::io::Error> {
+pub (crate) fn task_update_substore(updater : & Updater, store : StoreKind, mode : UpdateMode, task : TaskStatus) -> Result<(), std::io::Error> {
     // load the substore
     updater.ds.substore(store).load(& task);
     let mut num_projects = 0;
@@ -33,7 +34,7 @@ pub (crate) fn task_update_substore(updater : & Updater, store : StoreKind,  tas
             }
         }
     }
-    // observe the update progress and report the state, in the future also observe the datastore & updater health and manage substores
+    // observe the update progress and report the state, in the future also observe the datastore & updater health and manage substores. 
     // we determine that the update has finished when the queue is empty and all threads but one are idle
     {
         task.info("Updating projects...");
@@ -48,11 +49,17 @@ pub (crate) fn task_update_substore(updater : & Updater, store : StoreKind,  tas
                 progress = num_projects - pool.queue.len();
             }
             task.progress(progress, num_projects);
-            // TODO check updater's health and deal with the consequences
-
             // and sleep for a second
             std::thread::sleep(std::time::Duration::from_millis(1000));
         }
+    }
+    // now that we have finished we can start update of other datastore. Technically we can do this earlier too, as long as the queue is empty and there are some idle threads, but that would require the necessity to have two substore mappings loaded in memory which we want to avoid. So this is less efficient but more robust solution
+    if mode != UpdateMode::Single {
+        let mut next_substore = StoreKind::from_number(store.to_number());
+        if next_substore == StoreKind::Unspecified && mode == UpdateMode::Continuous {
+            next_substore = StoreKind::from_number(0);
+        }
+        updater.schedule(Task::UpdateSubstore{store : next_substore, mode});
     }
     return Ok(());
 }
