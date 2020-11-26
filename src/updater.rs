@@ -169,8 +169,11 @@ impl Updater {
                     Task::DropSubstore{store} => {
                         return task_drop_substore(self, store, TaskStatus::new(& tx, task));
                     }
-                    Task::VerifySubstore{store} => {
-                        return task_verify_substore(self, store, TaskStatus::new(& tx, task));
+                    Task::VerifySubstore{store, mode} => {
+                        return task_verify_substore(self, store, mode, TaskStatus::new(& tx, task));
+                    }
+                    Task::VerifyDatastore{} => {
+                        return task_verify_datastore(self, TaskStatus::new(& tx, task));
                     }
                 }
             });
@@ -534,10 +537,26 @@ impl Updater {
                 if cmd.len() != 2 {
                     self.display_error("No store to verify specified");
                 } else if let Some(kind) = StoreKind::from_string(cmd[1]) {
-                    self.schedule(Task::VerifySubstore{store : kind});
+                    self.schedule(Task::VerifySubstore{store : kind, mode : UpdateMode::Single});
                     self.display_prompt(format!("Verifying substore {:?}, see task progress...", kind));
                 } else {
                     self.display_error(format!("Unknown store kind {}", cmd[1]));
+                }
+            },
+            "verifyall" => {
+                if cmd.len() != 1 {
+                    self.display_error("Invalid arguments");
+                } else {
+                    self.schedule(Task::VerifySubstore{store : StoreKind::from_number(0), mode : UpdateMode::All});
+                    self.display_prompt("Verifying all substores, see task progress...");
+                }
+            },
+            "verifyds" => {
+                if cmd.len() != 1 {
+                    self.display_error("Invalid arguments");
+                } else {
+                    self.schedule(Task::VerifyDatastore{});
+                    self.display_prompt("Verifying main datastore, see task progress...");
                 }
             },
             // debug stuffz
@@ -613,7 +632,8 @@ pub enum Task {
     /** Drops the given substore from memory. 
      */
     DropSubstore{store: StoreKind},
-    VerifySubstore{store : StoreKind},
+    VerifySubstore{store : StoreKind, mode : UpdateMode},
+    VerifyDatastore{},
 }
 
 impl Task {
@@ -631,7 +651,8 @@ impl Task {
             Task::UpdateSubstore{store, mode} => format!("update {:?} {:?}", store, mode),
             Task::LoadSubstore{store} => format!("load {:?}", store),
             Task::DropSubstore{store} => format!("drop {:?}", store),
-            Task::VerifySubstore{store} => format!("verify {:?}", store),
+            Task::VerifySubstore{store, mode} => format!("verify {:?} {:?}", store, mode),
+            Task::VerifyDatastore{} => format!("verify datastore"),
         }
     }
 }

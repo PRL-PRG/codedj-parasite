@@ -55,11 +55,13 @@ pub (crate) fn task_update_substore(updater : & Updater, store : StoreKind, mode
     }
     // now that we have finished we can start update of other datastore. Technically we can do this earlier too, as long as the queue is empty and there are some idle threads, but that would require the necessity to have two substore mappings loaded in memory which we want to avoid. So this is less efficient but more robust solution
     if mode != UpdateMode::Single {
-        let mut next_substore = StoreKind::from_number(store.to_number());
+        let mut next_substore = StoreKind::from_number(store.to_number() + 1);
         if next_substore == StoreKind::Unspecified && mode == UpdateMode::Continuous {
             next_substore = StoreKind::from_number(0);
         }
-        updater.schedule(Task::UpdateSubstore{store : next_substore, mode});
+        if next_substore != StoreKind::Unspecified {
+            updater.schedule(Task::UpdateSubstore{store : next_substore, mode});
+        }
     }
     return Ok(());
 }

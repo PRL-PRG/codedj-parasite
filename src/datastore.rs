@@ -113,6 +113,60 @@ impl Datastore {
         return ds;
     }
 
+    pub (crate) fn verify(& self, task : & updater::TaskStatus) -> Result<usize, std::io::Error> {
+        let mut progress = 0;
+        let max_progress = 5;
+        task.progress(progress, max_progress);
+        let mut items = 0;
+        self.projects.lock().unwrap().verify(& mut |_|{
+            items += 1;
+            if items % 1000 == 0 {
+                task.info(format!("{} items, checking projects...", helpers::pretty_value(items)));
+            }
+            return Ok(());
+        })?;
+        progress += 1;
+        task.progress(progress, max_progress);
+        self.project_substores.lock().unwrap().verify(& mut |_|{
+            items += 1;
+            if items % 1000 == 0 {
+                task.info(format!("{} items, checking project substores...", helpers::pretty_value(items)));
+            }
+            return Ok(());
+        })?;
+        progress += 1;
+        task.progress(progress, max_progress);
+        self.project_updates.lock().unwrap().verify(& mut |_|{
+            items += 1;
+            if items % 1000 == 0 {
+                task.info(format!("{} items, checking project updates...", helpers::pretty_value(items)));
+            }
+            return Ok(());
+        })?;
+        progress += 1;
+        task.progress(progress, max_progress);
+        self.project_heads.lock().unwrap().verify(& mut |_|{
+            items += 1;
+            if items % 1000 == 0 {
+                task.info(format!("{} items, checking project heads...", helpers::pretty_value(items)));
+            }
+            return Ok(());
+        })?;
+        progress += 1;
+        task.progress(progress, max_progress);
+        self.project_metadata.lock().unwrap().verify(& mut |_|{
+            items += 1;
+            if items % 1000 == 0 {
+                task.info(format!("{} items, checking project metadata...", helpers::pretty_value(items)));
+            }
+            return Ok(());
+        })?;
+        progress += 1;
+        task.progress(progress, max_progress);
+        return Ok(items);
+    }
+
+
     /** Returns the root folder of the datastore. 
      */
     pub fn root_folder(&self) -> & str {
@@ -421,6 +475,105 @@ impl Substore {
 
     pub (crate) fn is_loaded(& self) -> bool {
         return self.loaded.load(Ordering::SeqCst);
+    }
+
+    pub (crate) fn verify(& self, task : & updater::TaskStatus) -> Result<usize, std::io::Error> {
+        self.load(task);
+        let mut progress = 0;
+        let max_progress = 10;
+        task.progress(progress, max_progress);
+        let mut items = 0;
+        self.commits.lock().unwrap().verify(& mut |_|{
+            items += 1;
+            if items % 1000 == 0 {
+                task.info(format!("{} items, checking commits...", helpers::pretty_value(items)));
+            }
+            return Ok(());
+        })?;
+        progress += 1;
+        task.progress(progress, max_progress);
+        self.commits_info.lock().unwrap().verify(& mut |_|{
+            items += 1;
+            if items % 1000 == 0 {
+                task.info(format!("{} items, checking commits info...", helpers::pretty_value(items)));
+            }
+            return Ok(());
+        })?;
+        progress += 1;
+        task.progress(progress, max_progress);
+        self.commits_metadata.lock().unwrap().verify(& mut |_|{
+            items += 1;
+            if items % 1000 == 0 {
+                task.info(format!("{} items, checking commits metadata...", helpers::pretty_value(items)));
+            }
+            return Ok(());
+        })?;
+        progress += 1;
+        task.progress(progress, max_progress);
+        self.hashes.lock().unwrap().verify(& mut |_|{
+            items += 1;
+            if items % 1000 == 0 {
+                task.info(format!("{} items, checking hashes ...", helpers::pretty_value(items)));
+            }
+            return Ok(());
+        })?;
+        progress += 1;
+        task.progress(progress, max_progress);
+        self.contents.lock().unwrap().verify(& mut |_|{
+            items += 1;
+            if items % 1000 == 0 {
+                task.info(format!("{} items, checking contents ...", helpers::pretty_value(items)));
+            }
+            return Ok(());
+        })?;
+        progress += 1;
+        task.progress(progress, max_progress);
+        self.contents_metadata.lock().unwrap().verify(& mut |_|{
+            items += 1;
+            if items % 1000 == 0 {
+                task.info(format!("{} items, checking contents metadata ...", helpers::pretty_value(items)));
+            }
+            return Ok(());
+        })?;
+        progress += 1;
+        task.progress(progress, max_progress);
+        self.paths.lock().unwrap().verify(& mut |_|{
+            items += 1;
+            if items % 1000 == 0 {
+                task.info(format!("{} items, checking paths ...", helpers::pretty_value(items)));
+            }
+            return Ok(());
+        })?;
+        progress += 1;
+        task.progress(progress, max_progress);
+        self.path_strings.lock().unwrap().verify(& mut |_|{
+            items += 1;
+            if items % 1000 == 0 {
+                task.info(format!("{} items, checking path strings ...", helpers::pretty_value(items)));
+            }
+            return Ok(());
+        })?;
+        progress += 1;
+        task.progress(progress, max_progress);
+        self.users.lock().unwrap().verify(& mut |_|{
+            items += 1;
+            if items % 1000 == 0 {
+                task.info(format!("{} items, checking users ...", helpers::pretty_value(items)));
+            }
+            return Ok(());
+        })?;
+        progress += 1;
+        task.progress(progress, max_progress);
+        self.users_metadata.lock().unwrap().verify(& mut |_|{
+            items += 1;
+            if items % 1000 == 0 {
+                task.info(format!("{} items, checking users metadata ...", helpers::pretty_value(items)));
+            }
+            return Ok(());
+        })?;
+        progress += 1;
+        task.progress(progress, max_progress);
+        return Ok(items);
     }
 
     /** Returns the memory report for the substore. 
