@@ -125,7 +125,7 @@ impl FileWriter<String> for String {
  */
 pub struct Indexer {
     f : File, 
-    size: u64
+    pub (crate) size: u64
 }
 
 impl Indexer {
@@ -424,7 +424,7 @@ impl<T : FileWriter<T> + FileWriterStaticSize<T> + std::cmp::Eq + std::hash::Has
 }
 
 pub struct PropertyStore<T : FileWriter<T>> {
-    indexer : Indexer,
+    pub (crate) indexer : Indexer,
     pub (crate) f : File, 
     why_oh_why : std::marker::PhantomData<T>,
 }

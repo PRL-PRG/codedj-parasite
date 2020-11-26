@@ -34,16 +34,16 @@ impl DatastoreView {
         return DatastoreView{ds, sp};
     }
 
+    // patched  
     pub fn project_urls(& self) -> PropertyStoreIterator<String> {
-        let mut g = self.ds.project_urls.lock().unwrap();
-        g.f.seek(SeekFrom::Start(0)).unwrap();
-        return PropertyStoreIterator{g, limit : self.sp.limit_for("project_urls")};
+        let g = self.ds.project_urls.lock().unwrap();
+        return PropertyStoreIterator{g, limit : self.sp.limit_for("project_urls"), id : 0};
     }
 
+    // patched
     pub fn project_heads(& self) -> PropertyStoreIterator<Heads> {
-        let mut g = self.ds.project_heads.lock().unwrap();
-        g.f.seek(SeekFrom::Start(0)).unwrap();
-        return PropertyStoreIterator{g, limit : self.sp.limit_for("project_heads")};
+        let g = self.ds.project_heads.lock().unwrap();
+        return PropertyStoreIterator{g, limit : self.sp.limit_for("project_heads"), id : 0};
     }
 
     pub fn projects_metadata(& self) -> LinkedPropertyStoreIterator<Metadata> {
@@ -94,16 +94,16 @@ impl DatastoreView {
         };
     }
 
+    // patched
     pub fn commits(& self) -> PropertyStoreIterator<Commit> {
-        let mut g = self.ds.commits_info.lock().unwrap();
-        g.f.seek(SeekFrom::Start(0)).unwrap();
-        return PropertyStoreIterator{g, limit : self.sp.limit_for("commits_info")};
+        let g = self.ds.commits_info.lock().unwrap();
+        return PropertyStoreIterator{g, limit : self.sp.limit_for("commits_info"), id : 0};
     }
 
+    // patched
     pub fn contents(& self) -> PropertyStoreIterator<ContentsData> {
-        let mut g = self.ds.contents_data.lock().unwrap();
-        g.f.seek(SeekFrom::Start(0)).unwrap();
-        return PropertyStoreIterator{g, limit : self.sp.limit_for("contents_data")};
+        let g = self.ds.contents_data.lock().unwrap();
+        return PropertyStoreIterator{g, limit : self.sp.limit_for("contents_data"), id : 0};
     }
 
     /** returns snapshot of given id if one exists. 
@@ -178,22 +178,29 @@ impl<'a> Iterator for StringMappingIterator<'a> {
 pub struct PropertyStoreIterator<'a, T : FileWriter<T>> {
     g : MutexGuard<'a, PropertyStore<T>>,
     limit : u64,
+    id : u64
 }
 
 impl<'a, T : FileWriter<T>> Iterator for PropertyStoreIterator<'a, T> {
     type Item = (u64, T);
 
     fn next(& mut self) -> Option<Self::Item> {
-        let offset = self.g.f.seek(SeekFrom::Current(0)).unwrap();
-        if offset >= self.limit {
-            return None;
+        while self.id < self.g.indexer.size {
+            if let Some(offset) = self.g.indexer.get(self.id) {
+                if offset >= self.limit {
+                    return None;
+                }
+                self.g.f.seek(SeekFrom::Start(offset)).unwrap();
+                let check_id = self.g.f.read_u64::<LittleEndian>().unwrap();
+                if self.id == check_id {
+                    let id = self.id;
+                    self.id += 1;
+                    return Some((id, T::read(& mut self.g.f)));
+                }
+            }
+            self.id += 1;
         }
-        if let Ok(id) = self.g.f.read_u64::<LittleEndian>() {
-            let value = T::read(& mut self.g.f);
-            return Some((id, value));
-        } else {
-            return None;
-        }
+        return None;
     }
 }
 
