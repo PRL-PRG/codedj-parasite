@@ -15,6 +15,7 @@ use crate::task_update_repo::*;
 use crate::task_update_substore::*;
 use crate::task_load_substore::*;
 use crate::task_drop_substore::*;
+use crate::task_verify_substore::*;
 
 pub type Tx = crossbeam_channel::Sender<TaskMessage>;
 
@@ -167,6 +168,9 @@ impl Updater {
                     },
                     Task::DropSubstore{store} => {
                         return task_drop_substore(self, store, TaskStatus::new(& tx, task));
+                    }
+                    Task::VerifySubstore{store} => {
+                        return task_verify_substore(self, store, TaskStatus::new(& tx, task));
                     }
                 }
             });
@@ -509,7 +513,6 @@ impl Updater {
                 } else {
                     self.display_error(format!("Unknown store kind {}", cmd[1]));
                 }
-
             },
             "drop" => {
                 if cmd.len() != 2 {
@@ -527,6 +530,16 @@ impl Updater {
                     self.schedule(Task::LoadSubstore{store : kind});
                 }
             }
+            "verify" => {
+                if cmd.len() != 2 {
+                    self.display_error("No store to verify specified");
+                } else if let Some(kind) = StoreKind::from_string(cmd[1]) {
+                    self.schedule(Task::VerifySubstore{store : kind});
+                    self.display_prompt(format!("Verifying substore {:?}, see task progress...", kind));
+                } else {
+                    self.display_error(format!("Unknown store kind {}", cmd[1]));
+                }
+            },
             // debug stuffz
 
             /* Kill immediately aborts the entire process. 
@@ -600,6 +613,7 @@ pub enum Task {
     /** Drops the given substore from memory. 
      */
     DropSubstore{store: StoreKind},
+    VerifySubstore{store : StoreKind},
 }
 
 impl Task {
@@ -617,6 +631,7 @@ impl Task {
             Task::UpdateSubstore{store, mode} => format!("update {:?} {:?}", store, mode),
             Task::LoadSubstore{store} => format!("load {:?}", store),
             Task::DropSubstore{store} => format!("drop {:?}", store),
+            Task::VerifySubstore{store} => format!("verify {:?}", store),
         }
     }
 }

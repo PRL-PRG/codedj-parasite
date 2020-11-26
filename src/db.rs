@@ -280,6 +280,55 @@ impl<T: Serializable<Item = T>> Store<T> {
         return result;
     }
 
+    /** Verifies the store. 
+     
+        Checks the following:
+
+        - that every item stored in the store is valid
+        - that the indices point to valid starts of the items
+        - that these are the latest
+        - if there is a missing slot in the index then no id is defined
+     */
+    pub fn verify(& mut self, checker : & mut dyn FnMut(T) -> Result<(), std::io::Error>) -> Result<(), std::io::Error> {
+        let end = self.f.seek(SeekFrom::End(0))?;
+        self.f.seek(SeekFrom::Start(0))?;
+        // first check all the items in the store, including the old ones
+        let mut latest_mappings = HashMap::<u64, u64>::new();
+        loop {
+            let offset = self.f.seek(SeekFrom::Current(0))?;
+            if offset == end {
+                break;
+            }
+            let id = self.f.read_u64::<LittleEndian>()?;
+            if id >= self.indexer.size {
+                return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Store id {}, but only {} ids known at offset {}", id, self.indexer.size, offset)));
+            }
+            latest_mappings.insert(id, offset);
+            let item = T::verify(& mut self.f)?;
+            checker(item)?;
+        }
+        // then check the index's integrity
+        for (id, offset) in self.indexer.iter() {
+            if offset == u64::EMPTY {
+                if latest_mappings.contains_key(& id) {
+                    return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Store index id {}, has empty index, but offset {} found in the store", id, latest_mappings[& id])));
+                }
+            } else {
+                match latest_mappings.get(& id) {
+                    Some(found_offset) => {
+                        if offset != *found_offset {
+                            return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Store index id {}, has indexed offset {}, but offset {} found in store", id, offset, found_offset)));
+                        }
+                    },
+                    None => {
+                        return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Store index id {}, has indexed offset {} but none found", id, offset)));
+                    }
+                }
+            }
+        }
+        return Ok(());
+    }
+
     /** Returns true if there is a valid record for sgiven id. 
      */
     pub fn has(& mut self, id : u64) -> bool {
@@ -416,8 +465,76 @@ impl<T: Serializable<Item = T>> LinkedStore<T> {
         };
         println!("    {}: indices {}, size {}", name, result.indexer.len(), result.f.seek(SeekFrom::End(0)).unwrap());
         return result;
-
     }
+
+    /** Verifies the linked store. 
+     
+        Checks the following:
+
+        - that every item stored in the store is valid
+        - that every update's back link points to correct item
+        - that the indices point to valid starts of the items
+        - that these are the latest
+        - if there is a missing slot in the index then no id is defined
+     */
+    pub fn verify(& mut self, checker : & mut dyn FnMut(T) -> Result<(), std::io::Error>) -> Result<(), std::io::Error> {
+        let end = self.f.seek(SeekFrom::End(0))?;
+        self.f.seek(SeekFrom::Start(0))?;
+        // first check all the items in the store, including the old ones
+        let mut latest_mappings = HashMap::<u64, u64>::new();
+        loop {
+            let offset = self.f.seek(SeekFrom::Current(0))?;
+            if offset == end {
+                break;
+            }
+            let id = self.f.read_u64::<LittleEndian>()?;
+            if id >= self.indexer.size {
+                return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("LinkedStore id {}, but only {} ids known at offset {}", id, self.indexer.size, offset)));
+            }
+            let previous_offset = self.f.read_u64::<LittleEndian>()?;
+            if previous_offset == u64::EMPTY {
+                if latest_mappings.contains_key(& id) {
+                    return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("LinkedStore index id {} at offset {} has empty backlink, but offset {} found", id, offset, latest_mappings[& id])));
+                }
+            } else {
+                match latest_mappings.get(& id) {
+                    Some(found_offset) => {
+                        if previous_offset != *found_offset {
+                            return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("LinkedStore index id {} at offset {} has previous offset {} but offset {} found in the store", id, offset, previous_offset, found_offset)));
+                        }
+                    },
+                    None => {
+                        return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("LinkedStore index id {} at offset {} has previous offset {} but no offset found in the store", id, offset, previous_offset)));
+                    }
+                }
+            }
+            latest_mappings.insert(id, offset);
+            let item = T::verify(& mut self.f)?;
+            checker(item)?;
+        }
+        // then check the index's integrity
+        for (id, offset) in self.indexer.iter() {
+            if offset == u64::EMPTY {
+                if latest_mappings.contains_key(& id) {
+                    return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("LinkedStore index id {}, has empty index, but offset {} found in the store", id, latest_mappings[& id])));
+                }
+            } else {
+                match latest_mappings.get(& id) {
+                    Some(found_offset) => {
+                        if offset != *found_offset {
+                            return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("LinkedStore index id {}, has indexed offset {}, but offset {} found in store", id, offset, found_offset)));
+                        }
+                    },
+                    None => {
+                        return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("LinkedStore index id {}, has indexed offset {} but none found", id, offset)));
+                    }
+                }
+            }
+        }
+        return Ok(());
+    }
+
+
 
     /** Gets the value for given id. 
      */
@@ -592,6 +709,24 @@ impl<T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone> Mapping<T> {
         return result;
     }
 
+    /** Verifies the mapping's integrity. 
+
+        Checking mapping is simple and simply the verification function is called on all items stored in the mapping. 
+     */
+    pub fn verify(& mut self, checker : & mut dyn FnMut(T) -> Result<(), std::io::Error>) -> Result<(), std::io::Error> {
+        let end = self.f.seek(SeekFrom::End(0))?;
+        self.f.seek(SeekFrom::Start(0))?;
+        loop {
+            let offset = self.f.seek(SeekFrom::Current(0))?;
+            if offset == end {
+                break;
+            }
+            let item = T::verify(& mut self.f)?;
+            checker(item)?;
+        }
+        return Ok(());
+    }
+
     /** Loads the mapping into from disk to the hashmap. 
      */
     pub fn load(& mut self) {
@@ -708,6 +843,14 @@ impl<T : Serializable<Item = T> + Eq + Hash + Clone> IndirectMapping<T> {
             store : Store::new(root, & format!("{}.mapping", name)),
             mapping : HashMap::new(),
         }
+    }
+
+    /** Verifies the mapping's integrity. 
+
+        Simply verifies the integrity of the store as mapping is just a hashmap and a store.
+     */
+    pub fn verify(& mut self, checker : & mut dyn FnMut(T) -> Result<(), std::io::Error>) -> Result<(), std::io::Error> {
+        return self.store.verify(checker);
     }
 
     pub fn load(& mut self) {
@@ -870,8 +1013,65 @@ impl<T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>> SplitStore<T, KIN
         };
         println!("    {}: indices {}, splits {}", name, result.indexer.len(), result.files.len());
         return result;
-
     }
+
+    /** Verifies the split store's integrity
+     
+        For a split store, this means:
+
+        - look at all files and verify that the things stored in them are valid
+
+
+     */
+    pub fn verify(& mut self, checker : & mut dyn FnMut(T) -> Result<(), std::io::Error>) -> Result<(), std::io::Error> {
+        let mut latest_mappings = Vec::new();
+        let mut i = 0;
+        for f in self.files.iter_mut() {
+            latest_mappings.push(HashMap::<u64, u64>::new());
+            let end = f.seek(SeekFrom::End(0))?;
+            f.seek(SeekFrom::Start(0))?;
+            loop {
+                let offset = f.seek(SeekFrom::Current(0))?;
+                if offset == end {
+                    break;
+                }
+                let id = f.read_u64::<LittleEndian>()?;
+                if id >= self.indexer.size {
+                    return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("SplitStore id {}, but only {} ids known at offset {} in split {:?}", id, self.indexer.size, offset, KIND::from_number(i))));
+                }
+                let item = T::verify(f)?;
+                checker(item)?;
+                // now we need to add this to the mappings, but only to those valid for current id
+                latest_mappings.get_mut(i as usize).unwrap().insert(id, offset);
+            }
+            i += 1;
+        }
+        // then check the index's integrity
+        for (id, offset) in self.indexer.iter() {
+            if offset == SplitOffset::<KIND>::EMPTY {
+                let mut i = 0;
+                for mapping in latest_mappings.iter() {
+                    if mapping.contains_key(& id) {
+                        return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("SplitStore index id {}, has empty index, but offset {} found in the split {:?}", id, mapping[& id], KIND::from_number(i))));
+                    }
+                    i += 1;
+                }
+            } else {
+                match latest_mappings[offset.kind.to_number() as usize].get(& id) {
+                    Some(found_offset) => {
+                        if offset.offset != *found_offset {
+                            return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Store index id {}, has indexed offset {} in split {:?}, but offset {} found", id, offset.offset, offset.kind, found_offset)));
+                        }
+                    },
+                    None => {
+                        return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Store index id {}, has indexed offset {} in split {:?} but none found", id, offset.offset, offset.kind)));
+                    }
+                }
+            }
+        }
+        return Ok(());
+    }
+
 
     /** Determines the file that holds value for given id and returns the stored value. If the value has not been stored, returns None. 
      */
@@ -938,6 +1138,11 @@ impl<T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>> SplitLinkedStore<
             files, 
             why_oh_why : std::marker::PhantomData{}
         };
+    }
+
+    // TODO do we really need split linked store for now?
+    pub fn verify(& mut self, _checker : & mut dyn FnMut(T) -> Result<(), std::io::Error>) -> Result<(), std::io::Error> {
+        unimplemented!();
     }
 
     /** Determines the file that holds value for given id and returns the stored value. If the value has not been stored, returns None. 
