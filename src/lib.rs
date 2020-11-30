@@ -100,15 +100,27 @@ impl DatastoreView {
         return PropertyStoreIterator{g, limit : self.sp.limit_for("commits_info"), id : 0};
     }
 
+    /** Mapping from changes id in commits to contents data id in contents data.
+     */
+    pub fn contents(& self) -> IdMappingIterator {
+        let mut g = self.ds.contents.lock().unwrap();
+        g.writer.f.seek(SeekFrom::Start(0)).unwrap();
+        return IdMappingIterator{
+            g,
+            limit : self.sp.limit_for("contents"),
+            id : 0,
+        };
+    }
+
     // patched
-    pub fn contents(& self) -> PropertyStoreIterator<ContentsData> {
+    pub fn contents_data(& self) -> PropertyStoreIterator<ContentsData> {
         let g = self.ds.contents_data.lock().unwrap();
         return PropertyStoreIterator{g, limit : self.sp.limit_for("contents_data"), id : 0};
     }
 
     /** returns snapshot of given id if one exists. 
      */
-    pub fn content(& self, id : u64) -> Option<ContentsData> {
+    pub fn content_data(& self, id : u64) -> Option<ContentsData> {
         let mut g = self.ds.contents_data.lock().unwrap();
         return g.get(id);        
     }
@@ -142,6 +154,32 @@ impl<'a> Iterator for HashMappingIterator<'a> {
         }
     }
 }
+
+pub struct IdMappingIterator<'a> {
+    g : MutexGuard<'a, DirectMapping<u64>>,
+    limit : u64, 
+    id : u64
+}
+
+
+impl<'a> Iterator for IdMappingIterator<'a> {
+    type Item = (u64, u64);
+
+    fn next(& mut self) -> Option<Self::Item> {
+        let offset = self.g.writer.f.seek(SeekFrom::Current(0)).unwrap();
+        if offset >= self.limit {
+            return None;
+        }
+        if let Ok(value) = self.g.writer.f.read_u64::<LittleEndian>() {
+            let id = self.id;
+            self.id += 1;
+            return Some((id, value));
+        } else {
+            return None;
+        }
+    }
+}
+
 
 /** Iterator into string mappings.
  */
