@@ -160,6 +160,8 @@ impl<'a> Iterator for StringMappingIterator<'a> {
         if offset >= self.limit {
             return None;
         }
+        // first id, then offset
+        self.g.writer.f.read_u64::<LittleEndian>().unwrap();
         // TODO this is a bit ugly, would be nice if this was part of the API? 
         if let Ok(len) = self.g.writer.f.read_u32::<LittleEndian>() {
             let mut buf = vec![0; len as usize];
@@ -168,7 +170,15 @@ impl<'a> Iterator for StringMappingIterator<'a> {
             }
             let id = self.id;
             self.id += 1;
-            return Some((id, String::from_utf8(buf).unwrap()));
+            match String::from_utf8(buf) {
+                Ok(str) => {
+                    return Some((id, str));
+                },
+                _ => {
+                    println!("Non-UTF8 string detected, id: {}, offset: {}, invalid utf8, length: {}", id, offset, len);
+                    return Some((id, String::new()));
+                }
+            }
         } else {
             return None;
         }

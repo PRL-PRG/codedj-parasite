@@ -4,6 +4,7 @@ use std::io::*;
 use std::collections::hash_map::*;
 use byteorder::*;
 use flate2::*;
+//use std::fmt::Debug;
 
 use crate::*;
 use crate::db::*;
@@ -210,7 +211,6 @@ impl FileWriter<UpdateLog> for UpdateLog {
 
 /** Metadata Entry 
  */
-
 pub struct Metadata {
     pub key : String, 
     pub value : String

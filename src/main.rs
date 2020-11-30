@@ -15,13 +15,40 @@ use datastore::*;
 use updater::*;
 
 fn main() {
-
+/*
     //let gh = Github::new("/dejacode/github-tokens.csv");
     //let metadata = gh.get_repo("https://github.com/skyphp/pgbackup.git").unwrap();
     //let new_url = format!("{}.git",metadata["html_url"]);
     //println!("{}", new_url);
 
     //return;
+
+    //let store = Datastore::from("/mnt/data/datastore");
+    let store = DatastoreView::new("/mnt/data/datastore", helpers::now());
+    store.paths().count();
+    // 15->content_id=375603357
+
+    for md in store.projects_metadata.lock().unwrap().id_iter(15) {
+            println!("{}: {}", md.key, md.value);
+    }
+
+    //let x = store.contents_data.lock().unwrap().get(375603357).unwrap();
+    //let x = store.contents_data.lock().unwrap().get(375603000).unwrap();
+
+    //println!("{}",String::from_utf8(x).unwrap());
+
+    for (id, contents) in store.contents_data.lock().unwrap().latest_iter() {
+        if id == 375603357 {
+            println!("-------------------------------------------");
+        } else if id % 100000 == 0 {
+           println!("{}", id);
+        }
+    }
+
+    return;
+
+    */
+
 
 
     println!("DejaCode Downloader mark II");

@@ -1,4 +1,4 @@
-/** The database support.
+    /** The database support.
 
     Provides serialization and deserialization of various structures used by the downloader and extra infrastructure for their efficiency, such as indexes and mappings. 
 
@@ -452,7 +452,10 @@ impl<T: FileWriter<T>> PropertyStore<T> {
         if let Some(offset) = self.indexer.get(id) {
             self.f.seek(SeekFrom::Start(offset)).unwrap();
             let check_id = self.f.read_u64::<LittleEndian>().unwrap();
-            assert_eq!(check_id, id);
+            if check_id != id {
+                println!("Id mismatch, expected {}, got {} at offset {}", id, check_id, offset);
+            }
+//            assert_eq!(check_id, id);
             return Some(T::read(& mut self.f));
         } else {
             return None;
@@ -508,6 +511,7 @@ impl<'a, T : FileWriter<T>> Iterator for PropertyStoreAllIterator<'a, T> {
     type Item = (u64, T);
 
     fn next(& mut self) -> Option<Self::Item> {
+        //let offset = self.ps.f.seek(SeekFrom::Current(0)).unwrap();
         if let Ok(id) = self.ps.f.read_u64::<LittleEndian>() {
             let value = T::read(& mut self.ps.f);
             return Some((id, value));
