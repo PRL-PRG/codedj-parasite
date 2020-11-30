@@ -79,7 +79,7 @@ pub fn pretty_value(mut value : usize) -> String {
     return format!("{}b", value);
 }
 
-pub fn pretty_size(mut value : usize) -> String {
+pub fn pretty_size(mut value : u64) -> String {
     if value < 1000 {
         return format!("{}", value);
     }

@@ -335,8 +335,10 @@ impl<'a> RepoUpdater<'a> {
     fn get_remote_heads(& mut self, remote : & mut git2::Remote) -> Result<ProjectHeads, git2::Error> {
         let mut result = ProjectHeads::new();
         for x in remote.list()? {
-            if x.name().starts_with("refs/heads/") {
-                result.insert(String::from(x.name()), (0, x.oid()));
+            // TODO this is an issue in libgit2 it seems that a branch must be valid utf8, otherwise we will fail. For now that seems ok as it affects only a really small amount of projects
+            let name = x.name().to_owned();
+            if name.starts_with("refs/heads/") {
+                result.insert(name, (0, x.oid()));
             }
         }        
         return Ok(result);

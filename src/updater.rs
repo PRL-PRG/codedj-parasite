@@ -559,6 +559,14 @@ impl Updater {
                     self.display_prompt("Verifying main datastore, see task progress...");
                 }
             },
+            "savepoint" => {
+                if cmd.len() != 2 {
+                    self.display_error("Invalid arguments");
+                } else {
+                    let sp = self.ds.create_savepoint(cmd[1].to_owned());
+                    self.display_prompt(format!("Created savepoint {}, total size {}", sp.name(), helpers::pretty_size(sp.size())));
+                }
+            },
             // debug stuffz
 
             /* Kill immediately aborts the entire process. 

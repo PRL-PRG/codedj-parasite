@@ -66,6 +66,8 @@ pub struct Datastore {
         Stored in vector since we know their ids from the IDSplit based on the SubstoreKind. Does not have to be protected as the substores protect their data with mutexes themselves and all substores are cratead when the datastore is instantiated. 
      */
     substores : Vec<Substore>,
+
+    savepoints : Mutex<LinkedStore<Savepoint>>,
 }
 
 impl Datastore {
@@ -102,6 +104,8 @@ impl Datastore {
             project_urls : Mutex::new(HashSet::new()),
 
             substores : Vec::new(),
+
+            savepoints : Mutex::new(LinkedStore::new(root, "savepoints")),
         };
         // initialize the substores
         for store_kind in SplitKindIter::<StoreKind>::new() {
@@ -115,7 +119,7 @@ impl Datastore {
 
     pub (crate) fn verify(& self, task : & updater::TaskStatus) -> Result<usize, std::io::Error> {
         let mut progress = 0;
-        let max_progress = 5;
+        let max_progress = 6;
         task.progress(progress, max_progress);
         let mut items = 0;
         self.projects.lock().unwrap().verify(& mut |_|{
@@ -163,15 +167,43 @@ impl Datastore {
         })?;
         progress += 1;
         task.progress(progress, max_progress);
+        self.savepoints.lock().unwrap().verify(& mut |_|{
+            items += 1;
+            if items % 1000 == 0 {
+                task.info(format!("{} items, checking savepoints...", helpers::pretty_value(items)));
+            }
+            return Ok(());
+        })?;
+        progress += 1;
+        task.progress(progress, max_progress);
         return Ok(items);
     }
-
 
     /** Returns the root folder of the datastore. 
      */
     pub fn root_folder(&self) -> & str {
         return & self.root;
     }
+
+    // savepoints -------------------------------------------------------------------------------------------------------
+
+    /** Creates new savepoint and stores it in the datastore. 
+     */
+    pub (crate) fn create_savepoint(& self, name : String) -> Savepoint {
+        let mut savepoint = Savepoint::new(name);
+        self.projects.lock().unwrap().savepoint(& mut savepoint);
+        self.project_substores.lock().unwrap().savepoint(& mut savepoint);
+        self.project_updates.lock().unwrap().savepoint(& mut savepoint);
+        self.project_heads.lock().unwrap().savepoint(& mut savepoint);
+        self.project_metadata.lock().unwrap().savepoint(& mut savepoint);
+        self.savepoints.lock().unwrap().savepoint(& mut savepoint);
+        for substore in self.substores.iter() {
+            substore.savepoint(& mut savepoint);
+        }
+        self.savepoints.lock().unwrap().set(0, & savepoint);
+        return savepoint;
+    }
+
 
     // substores --------------------------------------------------------------------------------------------------------
 
@@ -414,19 +446,19 @@ impl Substore {
             loaded : AtomicBool::new(false),
             load_mutex : Mutex::new(()), 
 
-            commits : Mutex::new(Mapping::new(root, "commits")),
-            commits_info : Mutex::new(Store::new(root, "commits-info")),
-            commits_metadata : Mutex::new(LinkedStore::new(root, "commits-metadata")),
+            commits : Mutex::new(Mapping::new(root, & format!("{:?}-commits", kind))),
+            commits_info : Mutex::new(Store::new(root, & format!("{:?}-commits-info", kind))),
+            commits_metadata : Mutex::new(LinkedStore::new(root, & format!("{:?}-commits-metadata", kind))),
 
-            hashes : Mutex::new(Mapping::new(root, "hashes")),
-            contents : Mutex::new(SplitStore::new(root, "contents")),
-            contents_metadata : Mutex::new(LinkedStore::new(root, "contents-metadata")),
+            hashes : Mutex::new(Mapping::new(root, & format!("{:?}-hashes", kind))),
+            contents : Mutex::new(SplitStore::new(root, & format!("{:?}-contents", kind))),
+            contents_metadata : Mutex::new(LinkedStore::new(root, & format!("{:?}-contents-metadata", kind))),
 
-            paths : Mutex::new(Mapping::new(root, "paths")),
-            path_strings : Mutex::new(Store::new(root, "path-strings")),
+            paths : Mutex::new(Mapping::new(root, & format!("{:?}-paths", kind))),
+            path_strings : Mutex::new(Store::new(root, & format!("{:?}-path-strings", kind))),
 
-            users : Mutex::new(IndirectMapping::new(root, "users")),
-            users_metadata : Mutex::new(LinkedStore::new(root, "users-metadata")),
+            users : Mutex::new(IndirectMapping::new(root, & format!("{:?}-users", kind))),
+            users_metadata : Mutex::new(LinkedStore::new(root, & format!("{:?}-users-metadata", kind))),
 
         };
         // add sentinels (0 index values) for commits, hashes, paths and users
@@ -435,6 +467,19 @@ impl Substore {
         result.get_or_create_path_id(& "".to_owned());
         result.get_or_create_user_id(& "".to_owned());
         return result;
+    }
+
+    fn savepoint(& self, savepoint : & mut Savepoint) {
+        self.commits.lock().unwrap().savepoint(savepoint);
+        self.commits_info.lock().unwrap().savepoint(savepoint);
+        self.commits_metadata.lock().unwrap().savepoint(savepoint);
+        self.hashes.lock().unwrap().savepoint(savepoint);
+        self.contents.lock().unwrap().savepoint(savepoint);
+        self.contents_metadata.lock().unwrap().savepoint(savepoint);
+        self.paths.lock().unwrap().savepoint(savepoint);
+        self.path_strings.lock().unwrap().savepoint(savepoint);
+        self.users.lock().unwrap().savepoint(savepoint);
+        self.users_metadata.lock().unwrap().savepoint(savepoint);
     }
 
     pub (crate) fn load(& self, task : & updater::TaskStatus) {

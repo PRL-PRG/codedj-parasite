@@ -21,7 +21,7 @@ use byteorder::*;
 use std::collections::*;
 use std::hash::*;
 use std::fmt::{Debug};
-//use crate::records::*;
+use crate::helpers;
 
 pub (crate) const MAX_BUFFER_LENGTH : u64 = 10 * 1024 * 1024 * 1024; // 10GB
 
@@ -280,6 +280,19 @@ impl<T: Serializable<Item = T>> Store<T> {
         return result;
     }
 
+    pub fn name<'a>(&'a self) -> &'a str {
+        return self.indexer.name.as_str();
+    }
+
+    /** Updates the savepoint with own information. 
+     */
+    pub fn savepoint(& mut self, savepoint : & mut Savepoint) {
+        savepoint.add_entry(
+            self.name().to_owned(),
+            self.f.seek(SeekFrom::End(0)).unwrap()
+        );
+    }
+
     /** Verifies the store. 
      
         Checks the following:
@@ -465,6 +478,19 @@ impl<T: Serializable<Item = T>> LinkedStore<T> {
         };
         println!("    {}: indices {}, size {}", name, result.indexer.len(), result.f.seek(SeekFrom::End(0)).unwrap());
         return result;
+    }
+
+    pub fn name<'a>(&'a self) -> &'a str {
+        return self.indexer.name.as_str();
+    }
+
+    /** Updates the savepoint with own information. 
+     */
+    pub fn savepoint(& mut self, savepoint : & mut Savepoint) {
+        savepoint.add_entry(
+            self.name().to_owned(),
+            self.f.seek(SeekFrom::End(0)).unwrap()
+        );
     }
 
     /** Verifies the linked store. 
@@ -709,6 +735,19 @@ impl<T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone> Mapping<T> {
         return result;
     }
 
+    pub fn name<'a>(&'a self) -> &'a str {
+        return self.name.as_str();
+    }
+
+    /** Updates the savepoint with own information. 
+     */
+    pub fn savepoint(& mut self, savepoint : & mut Savepoint) {
+        savepoint.add_entry(
+            self.name().to_owned(),
+            self.f.seek(SeekFrom::End(0)).unwrap()
+        );
+    }
+
     /** Verifies the mapping's integrity. 
 
         Checking mapping is simple and simply the verification function is called on all items stored in the mapping. 
@@ -844,6 +883,17 @@ impl<T : Serializable<Item = T> + Eq + Hash + Clone> IndirectMapping<T> {
             mapping : HashMap::new(),
         }
     }
+
+    pub fn name<'a>(&'a self) -> &'a str {
+        return self.store.name();
+    }
+
+    /** Updates the savepoint with own information. 
+     */
+    pub fn savepoint(& mut self, savepoint : & mut Savepoint) {
+        self.store.savepoint(savepoint);
+    }
+
 
     /** Verifies the mapping's integrity. 
 
@@ -1015,6 +1065,23 @@ impl<T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>> SplitStore<T, KIN
         return result;
     }
 
+    pub fn name<'a>(&'a self) -> &'a str {
+        return self.name.as_str();
+    }
+
+    /** Updates the savepoint with own information. 
+     */
+    pub fn savepoint(& mut self, savepoint : & mut Savepoint) {
+        let mut i = 0;
+        for f in self.files.iter_mut() {
+            savepoint.add_entry(
+                format!("{}-{}", self.name, i),
+                f.seek(SeekFrom::End(0)).unwrap()
+            );
+            i += 1;
+        }
+    }
+
     /** Verifies the split store's integrity
      
         For a split store, this means:
@@ -1140,6 +1207,23 @@ impl<T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>> SplitLinkedStore<
         };
     }
 
+    pub fn name<'a>(&'a self) -> &'a str {
+        return self.name.as_str();
+    }
+
+    /** Updates the savepoint with own information. 
+     */
+    pub fn savepoint(& mut self, savepoint : & mut Savepoint) {
+        let mut i = 0;
+        for f in self.files.iter_mut() {
+            savepoint.add_entry(
+                format!("{}-{}", self.name, i),
+                f.seek(SeekFrom::End(0)).unwrap()
+            );
+            i += 1;
+        }
+    }
+
     // TODO do we really need split linked store for now?
     pub fn verify(& mut self, _checker : & mut dyn FnMut(T) -> Result<(), std::io::Error>) -> Result<(), std::io::Error> {
         unimplemented!();
@@ -1226,4 +1310,100 @@ impl<T : IDPrefix, W : Serializable, ITER: Iterator<Item = (u64, W)>> Iterator f
         }
     }
 } 
+
+/** Savepoint for the entire datastore. 
+ 
+ */
+pub struct Savepoint {
+    name : String,
+    time : i64,
+    sizes : HashMap<String, u64>,
+}
+
+impl Savepoint {
+    pub fn new(name : String) -> Savepoint {
+        let time = helpers::now();
+        return Savepoint{
+            name, 
+            time, 
+            sizes : HashMap::new(),
+        };
+    }
+
+    pub fn add_entry(& mut self, name : String, size : u64) {
+        assert!(! self.sizes.contains_key(&name), "weird  {}", name);
+        self.sizes.insert(name, size);
+    }
+
+    pub fn limit_for(& self, name : & str) -> u64 {
+        match self.sizes.get(name) {
+            Some(size) => return *size,
+            None => return 0,
+        }
+    }
+
+    pub fn name(& self) -> & str {
+        return self.name.as_str();
+    }
+
+    pub fn size(& self) -> u64 {
+        return self.sizes.iter().map(|(_, size)| size).sum();
+    }
+
+}
+
+impl Serializable for Savepoint {
+    type Item = Savepoint;
+
+    fn serialize(f : & mut File, value : & Savepoint) {
+        i64::serialize(f, & value.time);
+        String::serialize(f, & value.name);
+        u32::serialize(f, & (value.sizes.len() as u32));
+        for (name, size) in value.sizes.iter() {
+            String::serialize(f, name);
+            u64::serialize(f, size);
+        }
+    }
+
+    fn deserialize(f : & mut File) -> Savepoint {
+        let time = i64::deserialize(f);
+        let name = String::deserialize(f);
+        let mut records = u32::deserialize(f);
+        let mut result = Savepoint{
+            name, 
+            time, 
+            sizes : HashMap::new(),
+        };
+        while records > 0 {
+            let name = String::deserialize(f);
+            let size = u64::deserialize(f);
+            result.sizes.insert(name, size);
+            records -= 1;
+        }
+        return result;
+    }
+
+    fn verify(f : & mut File) -> Result<Savepoint, std::io::Error> {
+        let time = i64::verify(f)?;
+        let name = String::verify(f)?;
+        let mut records = u32::verify(f)?;
+        if records as u64 > MAX_BUFFER_LENGTH {
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, "Invalid length of savepoint records"));
+        }
+        let mut result = Savepoint{
+            name, 
+            time, 
+            sizes : HashMap::new(),
+        };
+        while records > 0 {
+            let name = String::verify(f)?;
+            let size = u64::verify(f)?;
+            result.sizes.insert(name, size);
+            records -= 1;
+        }
+        return Ok(result);
+    }
+
+}
+
 
