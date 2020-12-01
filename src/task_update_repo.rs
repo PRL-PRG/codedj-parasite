@@ -40,7 +40,7 @@ struct RepoUpdater<'a> {
     updater : &'a Updater,
     ds : &'a Datastore,
     task : TaskStatus<'a>,
-    id : u64,
+    id : ProjectId,
     project : Project,
     force : bool,
     /** The substore, or tentative substore for the project (see check_repository_substore function for more details). 
@@ -48,10 +48,10 @@ struct RepoUpdater<'a> {
     tentative_substore : StoreKind,
     changed : bool,
     local_folder : String,
-    visited_commits : HashMap<Hash, u64>,
-    users : HashMap<String, u64>,
-    paths : HashMap<String, u64>,
-    q : Vec<(Hash, u64)>,
+    visited_commits : HashMap<Hash, CommitId>,
+    users : HashMap<String, UserId>,
+    paths : HashMap<String, PathId>,
+    q : Vec<(Hash, CommitId)>,
     snapshots : usize,
 }
 
@@ -78,7 +78,7 @@ impl<'a> RepoUpdater<'a> {
                 force : false,
                 tentative_substore : StoreKind::Unspecified,
                 changed : false,
-                local_folder : format!("{}/repo_clones/{}", updater.ds.root_folder(), id),
+                local_folder : format!("{}/repo_clones/{}", updater.ds.root_folder(), u64::from(id)),
                 visited_commits : HashMap::new(),
                 users : HashMap::new(),
                 paths : HashMap::new(),
@@ -338,7 +338,7 @@ impl<'a> RepoUpdater<'a> {
             // TODO this is an issue in libgit2 it seems that a branch must be valid utf8, otherwise we will fail. For now that seems ok as it affects only a really small amount of projects
             let name = x.name().to_owned();
             if name.starts_with("refs/heads/") {
-                result.insert(name, (0, x.oid()));
+                result.insert(name, (CommitId::INVALID, x.oid()));
             }
         }        
         return Ok(result);
@@ -391,7 +391,7 @@ impl<'a> RepoUpdater<'a> {
     /** Analyzes given branch, starting at a head commit and returns the id of the head commit. 
      
      */
-    fn analyze_branch(& mut self, repo : & git2::Repository, head : Hash, substore : & Substore) -> Result<u64, git2::Error> {
+    fn analyze_branch(& mut self, repo : & git2::Repository, head : Hash, substore : & Substore) -> Result<CommitId, git2::Error> {
         // add head to the queue
         let head_id = self.add_commit(& head, substore);
         // process the queue
@@ -486,7 +486,7 @@ impl<'a> RepoUpdater<'a> {
 
         Returns : path id, hash id, path, hash, is hash new?
      */
-    fn convert_and_register_changes(& mut self, changes : HashMap<String, Hash>, substore : & Substore) -> Vec<(u64, u64, String, Hash, bool)> {
+    fn convert_and_register_changes(& mut self, changes : HashMap<String, Hash>, substore : & Substore) -> Vec<(PathId, HashId, String, Hash, bool)> {
         // contents hashes are easy, we just go straight to the substore to get us the hash ids and whether they are new or not
         let hashes = changes.iter().map(|(_, hash)| *hash ).collect::<Vec<Hash>>();
         let hash_ids = substore.convert_hashes_to_ids(& hashes);
@@ -497,15 +497,15 @@ impl<'a> RepoUpdater<'a> {
                 return (*id, path, hash);
             } else {
                 unknown_paths.push(path.clone());
-                return (0, path, hash);
+                return (PathId::EMPTY, path, hash);
             }
-        }).collect::<Vec<(u64, String, Hash)>>();
+        }).collect::<Vec<(PathId, String, Hash)>>();
         // get the missing path ids
         if ! unknown_paths.is_empty() {
             let path_ids = substore.convert_paths_to_ids(& unknown_paths);
             let mut i = path_ids.iter();
             for (id, _, _) in paths.iter_mut() {
-                if *id == 0 {
+                if *id == PathId::EMPTY {
                     *id = i.next().unwrap().0;
                 }
             }

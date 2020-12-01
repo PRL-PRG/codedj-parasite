@@ -627,7 +627,7 @@ pub enum UpdateMode {
 
 #[derive(Eq, PartialEq, Debug)] 
 pub enum Task {
-    UpdateRepo{id : u64, last_update_time : i64},
+    UpdateRepo{id : ProjectId, last_update_time : i64},
     AddProjects{source : String},
     /** Updates projects that belong to the specific substore. 
      
@@ -654,7 +654,7 @@ impl Task {
 
     pub fn name(& self) -> String {
         match self {
-            Task::UpdateRepo{id, last_update_time : _} => format!("{}", id),
+            Task::UpdateRepo{id, last_update_time : _} => format!("{:?}", id),
             Task::AddProjects{source : _ } => "add".to_owned(), 
             Task::UpdateSubstore{store, mode} => format!("update {:?} {:?}", store, mode),
             Task::LoadSubstore{store} => format!("load {:?}", store),

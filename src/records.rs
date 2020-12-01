@@ -9,11 +9,114 @@ use num_derive::*;
 use crate::db::*;
 use crate::datastore::*;
 
-pub type ProjectId = u64;
-pub type CommitId = u64;
-pub type HashId = u64;
-pub type PathId = u64;
-pub type UserId = u64;
+#[derive(std::fmt::Debug, std::cmp::PartialEq, std::cmp::Eq, std::hash::Hash, std::marker::Copy, std::clone::Clone)]
+pub struct ProjectId {
+    id : u64,
+}
+
+impl std::convert::From<u64> for ProjectId {
+    fn from(id : u64) -> ProjectId {
+        return ProjectId{id};
+    }
+}
+
+impl std::convert::From<ProjectId> for u64 {
+    fn from(value : ProjectId) -> u64 {
+        return value.id;
+    }
+}
+impl Id for ProjectId {}
+
+#[derive(std::fmt::Debug, std::cmp::PartialEq, std::cmp::Eq, std::hash::Hash, std::marker::Copy, std::clone::Clone)]
+pub struct CommitId {
+    id : u64,
+}
+
+impl CommitId {
+    pub const INVALID : CommitId = CommitId{id : 0};
+}
+
+impl std::convert::From<u64> for CommitId {
+    fn from(id : u64) -> CommitId {
+        return CommitId{id};
+    }
+}
+
+impl std::convert::From<CommitId> for u64 {
+    fn from(value : CommitId) -> u64 {
+        return value.id;
+    }
+}
+impl Id for CommitId {}
+
+#[derive(std::fmt::Debug, std::cmp::PartialEq, std::cmp::Eq, std::hash::Hash, std::marker::Copy, std::clone::Clone)]
+pub struct HashId {
+    id : u64,
+}
+
+impl HashId {
+    pub const DELETED : HashId = HashId{id : 0};
+}
+
+impl std::convert::From<u64> for HashId {
+    fn from(id : u64) -> HashId {
+        return HashId{id};
+    }
+}
+
+impl std::convert::From<HashId> for u64 {
+    fn from(value : HashId) -> u64 {
+        return value.id;
+    }
+}
+
+impl Id for HashId {}
+
+#[derive(std::fmt::Debug, std::cmp::PartialEq, std::cmp::Eq, std::hash::Hash, std::marker::Copy, std::clone::Clone)]
+pub struct PathId {
+    id : u64,
+}
+
+impl PathId {
+    pub const EMPTY : PathId = PathId{id : 0};
+}
+
+impl std::convert::From<u64> for PathId {
+    fn from(id : u64) -> PathId {
+        return PathId{id};
+    }
+}
+
+impl std::convert::From<PathId> for u64 {
+    fn from(value : PathId) -> u64 {
+        return value.id;
+    }
+}
+
+impl Id for PathId {}
+
+#[derive(std::fmt::Debug, std::cmp::PartialEq, std::cmp::Eq, std::hash::Hash, std::marker::Copy, std::clone::Clone)]
+pub struct UserId {
+    id : u64,
+}
+
+impl UserId {
+    pub const INVALID : UserId = UserId{id : 0};
+}
+
+impl std::convert::From<u64> for UserId {
+    fn from(id : u64) -> UserId {
+        return UserId{id};
+    }
+}
+
+impl std::convert::From<UserId> for u64 {
+    fn from(value : UserId) -> u64 {
+        return value.id;
+    }
+}
+
+impl Id for UserId {}
 
 /** Datastore kinds. 
  
@@ -371,7 +474,7 @@ impl Serializable for ProjectUpdateStatus {
     
     For practical reasons, the heads keep both the id of the latest commit's hash as well as the hash itself. This is important so that the updater can compare the string hashes against the possibly new commits in new heads without having to consult the substore, while everyone else can use the commit ids directly.
  */
-pub type ProjectHeads = HashMap<String, (u64, Hash)>;
+pub type ProjectHeads = HashMap<String, (CommitId, Hash)>;
 
 impl Serializable for ProjectHeads {
     type Item = ProjectHeads;
@@ -379,7 +482,7 @@ impl Serializable for ProjectHeads {
         u32::serialize(f, & (value.len() as u32));
         for (name, (id, hash)) in value {
             String::serialize(f, name);
-            u64::serialize(f, id);
+            u64::serialize(f, & u64::from(*id));
             Hash::serialize(f, hash);
         }
     }
@@ -389,7 +492,7 @@ impl Serializable for ProjectHeads {
         let mut result = ProjectHeads::new();
         while records > 0 {
             let name = String::deserialize(f);
-            let id = u64::deserialize(f);
+            let id = CommitId::from(u64::deserialize(f));
             let hash = Hash::deserialize(f);
             result.insert(name, (id, hash));
             records -= 1;
@@ -405,7 +508,7 @@ impl Serializable for ProjectHeads {
         let mut result = ProjectHeads::new();
         while records > 0 {
             let name = String::verify(f)?;
-            let id = u64::verify(f)?;
+            let id = CommitId::from(u64::verify(f)?);
             let hash = Hash::verify(f)?;
             result.insert(name, (id, hash));
             records -= 1;
@@ -689,9 +792,9 @@ pub struct CommitInfo {
 impl CommitInfo {
     pub fn new() -> CommitInfo {
         return CommitInfo{
-            committer : 0,
+            committer : UserId::INVALID,
             committer_time : 0,
-            author : 0,
+            author : UserId::INVALID,
             author_time : 0,
             parents : Vec::new(),
             changes : HashMap::new(),
@@ -703,37 +806,37 @@ impl CommitInfo {
 impl Serializable for CommitInfo {
     type Item = CommitInfo;
     fn serialize(f : & mut File, value : & CommitInfo) {
-        u64::serialize(f, & value.committer);
+        u64::serialize(f, & u64::from(value.committer));
         i64::serialize(f, & value.committer_time);
-        u64::serialize(f, & value.author);
+        u64::serialize(f, & u64::from(value.author));
         i64::serialize(f, & value.author_time);
         u16::serialize(f, & (value.parents.len() as u16));
         for parent in value.parents.iter() {
-            u64::serialize(f, parent);
+            u64::serialize(f, & u64::from(*parent));
         }
         u32::serialize(f, & (value.changes.len() as u32));
         for (path, hash) in value.changes.iter() {
-            u64::serialize(f, path);
-            u64::serialize(f, hash);
+            u64::serialize(f, & u64::from(*path));
+            u64::serialize(f, & u64::from(*hash));
         }
         String::serialize(f, & value.message);
     }
 
     fn deserialize(f : & mut File) -> CommitInfo {
         let mut result = CommitInfo::new();
-        result.committer = u64::deserialize(f);
+        result.committer = UserId::from(u64::deserialize(f));
         result.committer_time = i64::deserialize(f);
-        result.author = u64::deserialize(f);
+        result.author = UserId::from(u64::deserialize(f));
         result.author_time = i64::deserialize(f);
         let mut num_parents = u16::deserialize(f);
         while num_parents > 0 {
-            result.parents.push(u64::deserialize(f));
+            result.parents.push(CommitId::from(u64::deserialize(f)));
             num_parents -= 1;
         }
         let mut num_changes = u32::deserialize(f);
         while num_changes > 0 {
-            let path = u64::deserialize(f);
-            let hash = u64::deserialize(f);
+            let path = PathId::from(u64::deserialize(f));
+            let hash = HashId::from(u64::deserialize(f));
             result.changes.insert(path, hash);
             num_changes -= 1;
         }
@@ -743,16 +846,16 @@ impl Serializable for CommitInfo {
 
     fn verify(f : & mut File) -> Result<CommitInfo, std::io::Error> {
         let mut result = CommitInfo::new();
-        result.committer = u64::verify(f)?;
+        result.committer = UserId::from(u64::verify(f)?);
         result.committer_time = i64::verify(f)?;
-        result.author = u64::verify(f)?;
+        result.author = UserId::from(u64::verify(f)?);
         result.author_time = i64::verify(f)?;
         let mut num_parents = u16::verify(f)?;
         if num_parents as u64 > MAX_BUFFER_LENGTH {
             return Err(std::io::Error::new(std::io::ErrorKind::Other, "Too many commit parents"));
         }
         while num_parents > 0 {
-            result.parents.push(u64::verify(f)?);
+            result.parents.push(CommitId::from(u64::verify(f)?));
             num_parents -= 1;
         }
         let mut num_changes = u32::verify(f)?;
@@ -760,8 +863,8 @@ impl Serializable for CommitInfo {
             return Err(std::io::Error::new(std::io::ErrorKind::Other, "Too many commit changes"));
         }
         while num_changes > 0 {
-            let path = u64::verify(f)?;
-            let hash = u64::verify(f)?;
+            let path = PathId::from(u64::verify(f)?);
+            let hash = HashId::from(u64::verify(f)?);
             result.changes.insert(path, hash);
             num_changes -= 1;
         }

@@ -17,7 +17,7 @@ pub (crate) fn task_update_substore(updater : & Updater, store : StoreKind, mode
         task.progress(0, total_projects);
         let mut i = 0;
         while i < total_projects {
-            let id = i as u64;
+            let id = ProjectId::from(i as u64);
             let pstore = updater.ds.get_project_substore(id);
             if pstore == store || pstore == StoreKind::Unspecified {
                 // its a possibly valid project, so determine the last time it was updated

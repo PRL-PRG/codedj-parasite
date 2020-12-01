@@ -225,7 +225,7 @@ impl Datastore {
 
     /** Returns the information about given project. 
      */
-    pub fn get_project(& self, id : u64) -> Option<Project> {
+    pub fn get_project(& self, id : ProjectId) -> Option<Project> {
         return self.projects.lock().unwrap().get(id);
     }
 
@@ -233,7 +233,7 @@ impl Datastore {
      
         Updates the project info and adds the appropriate update record. 
      */
-    pub (crate) fn update_project(& self, id : u64, project : & Project) {
+    pub (crate) fn update_project(& self, id : ProjectId, project : & Project) {
         let old_offset;
         {
             let mut projects = self.projects.lock().unwrap();
@@ -247,17 +247,17 @@ impl Datastore {
         });
     }
 
-    pub fn get_project_last_update(& self, id : u64) -> Option<ProjectUpdateStatus> {
+    pub fn get_project_last_update(& self, id : ProjectId) -> Option<ProjectUpdateStatus> {
         return self.project_updates.lock().unwrap().get(id);
     }
 
     /** Updates the project's update status with a new record. 
      */
-    pub fn update_project_update_status(& self, id : u64, status : ProjectUpdateStatus) {
+    pub fn update_project_update_status(& self, id : ProjectId, status : ProjectUpdateStatus) {
         self.project_updates.lock().unwrap().set(id, & status);    
     }
 
-    pub fn get_project_substore(& self, id : u64) -> StoreKind {
+    pub fn get_project_substore(& self, id : ProjectId) -> StoreKind {
         return self.project_substores.lock().unwrap().get(id).or(Some(StoreKind::Unspecified)).unwrap();
     }
 
@@ -265,7 +265,7 @@ impl Datastore {
      
         Adds the update status about store change and inserts a blank heads so that next time the project will be analyzed in its entirety in the new substore. 
      */
-    pub (crate) fn update_project_substore(& self, id : u64, store : StoreKind) {
+    pub (crate) fn update_project_substore(& self, id : ProjectId, store : StoreKind) {
         self.project_substores.lock().unwrap().set(id, & store);
         self.project_heads.lock().unwrap().set(id, & ProjectHeads::new());
         self.project_updates.lock().unwrap().set(id,  & ProjectUpdateStatus::ChangeStore{
@@ -277,19 +277,19 @@ impl Datastore {
 
     /** Returns the latest project heads for given project. 
      */
-    pub fn get_project_heads(& self, id : u64) -> Option<ProjectHeads> {
+    pub fn get_project_heads(& self, id : ProjectId) -> Option<ProjectHeads> {
         return self.project_heads.lock().unwrap().get(id);
     }
 
     /** Updates the project heads to given value. 
      */
-    pub (crate) fn update_project_heads(& self, id : u64, heads : & ProjectHeads) {
+    pub (crate) fn update_project_heads(& self, id : ProjectId, heads : & ProjectHeads) {
         self.project_heads.lock().unwrap().set(id, heads);
     }
 
     /** Returns metadata value for given key and project, if one exists. 
      */
-    pub fn get_project_metadata(& self, id : u64, key : & str) -> Option<String> {
+    pub fn get_project_metadata(& self, id : ProjectId, key : & str) -> Option<String> {
         let mut metadata = self.project_metadata.lock().unwrap();
         for kv in metadata.iter_id(id) {
             if kv.key == key {
@@ -303,7 +303,7 @@ impl Datastore {
      
         Returns true if the value was updated, false otherwise.
      */
-    pub (crate) fn update_project_metadata_if_differ(& self, id : u64, key : String, value : String) -> bool {
+    pub (crate) fn update_project_metadata_if_differ(& self, id : ProjectId, key : String, value : String) -> bool {
         let mut metadata = self.project_metadata.lock().unwrap();
         for kv in metadata.iter_id(id) {
             if kv.key == key {
@@ -358,12 +358,12 @@ impl Datastore {
      
         If the project does not exist, adds the project and returns its id. If the project already exists in the known urls, returns None. 
      */
-    pub (crate) fn add_project(& self, project : & Project) -> Option<u64> {
+    pub (crate) fn add_project(& self, project : & Project) -> Option<ProjectId> {
         let mut urls = self.project_urls.lock().unwrap();
         let mut projects = self.projects.lock().unwrap();
         assert!(projects.len() == 0 || urls.len() != 0, "Load project urls first");
         if urls.insert(project.clone()) {
-            let id = projects.len() as u64;
+            let id = ProjectId::from(projects.len() as u64);
             projects.set(id, project);
             return Some(id);
         } else {
@@ -641,22 +641,22 @@ impl Substore {
      
         The secord returned value determines whether the commit is new,  or already known.
      */
-    pub (crate) fn get_or_create_commit_id(& self, hash : & Hash) -> (u64, bool) {
+    pub (crate) fn get_or_create_commit_id(& self, hash : & Hash) -> (CommitId, bool) {
         return self.commits.lock().unwrap().get_or_create(hash);
     }
 
-    pub (crate) fn add_commit_info_if_missing(& self, id : u64, commit_info : & CommitInfo) {
+    pub (crate) fn add_commit_info_if_missing(& self, id : CommitId, commit_info : & CommitInfo) {
         let mut cinfo = self.commits_info.lock().unwrap();
         if ! cinfo.has(id) {
             cinfo.set(id, commit_info);
         }
     }
 
-    pub (crate) fn get_or_create_hash_id(& self, hash : & Hash) -> (u64, bool) {
+    pub (crate) fn get_or_create_hash_id(& self, hash : & Hash) -> (HashId, bool) {
         return self.hashes.lock().unwrap().get_or_create(hash);
     }
 
-    pub (crate) fn convert_hashes_to_ids(& self, hashes : & Vec<Hash>) -> Vec<(u64, bool)> {
+    pub (crate) fn convert_hashes_to_ids(& self, hashes : & Vec<Hash>) -> Vec<(HashId, bool)> {
         let mut mapping = self.hashes.lock().unwrap();
         return hashes.iter().map(|hash| {
             return mapping.get_or_create(hash);
@@ -667,7 +667,7 @@ impl Substore {
      
         Note that once stored, the kind of the id is not supposed to change. 
      */
-    pub (crate) fn add_file_contents(& self, id : u64, kind : ContentsKind, contents : & Vec<u8>) {
+    pub (crate) fn add_file_contents(& self, id : HashId, kind : ContentsKind, contents : & Vec<u8>) {
         self.contents.lock().unwrap().set(id, kind, contents);
     }
 
@@ -675,7 +675,7 @@ impl Substore {
      
         Returns a tuple of the id and whether the path is new, or already existing one. 
      */
-    pub (crate) fn get_or_create_path_id(& self, path : & String) -> (u64, bool) {
+    pub (crate) fn get_or_create_path_id(& self, path : & String) -> (PathId, bool) {
         let hash = Datastore::hash_of(path.as_bytes());
         let (id, is_new) = self.paths.lock().unwrap().get_or_create(& hash);
         if is_new {
@@ -684,7 +684,7 @@ impl Substore {
         return (id, is_new);
     }
 
-    pub (crate) fn convert_paths_to_ids(& self, paths : & Vec<String>) -> Vec<(u64, bool)> {
+    pub (crate) fn convert_paths_to_ids(& self, paths : & Vec<String>) -> Vec<(PathId, bool)> {
         let mut mapping = self.paths.lock().unwrap();
         let mut path_strings = self.path_strings.lock().unwrap();
         return paths.iter().map(|path| {
@@ -697,7 +697,7 @@ impl Substore {
         }).collect();
     }
 
-    pub (crate) fn get_or_create_user_id(& self, email : & String) -> (u64, bool) {
+    pub (crate) fn get_or_create_user_id(& self, email : & String) -> (UserId, bool) {
         return self.users.lock().unwrap().get_or_create(email);
     }
 
