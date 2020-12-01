@@ -100,7 +100,7 @@ impl DatastoreView {
         return PropertyStoreIterator{g, limit : self.sp.limit_for("commits_info"), id : 0};
     }
 
-    /** Mapping from changes id in commits to contents data id in contents data.
+    /** Mapping from contents data id to changes id for stored contents data. 
      */
     pub fn contents(& self) -> IdMappingIterator {
         let mut g = self.ds.contents.lock().unwrap();
@@ -166,16 +166,20 @@ impl<'a> Iterator for IdMappingIterator<'a> {
     type Item = (u64, u64);
 
     fn next(& mut self) -> Option<Self::Item> {
-        let offset = self.g.writer.f.seek(SeekFrom::Current(0)).unwrap();
-        if offset >= self.limit {
-            return None;
-        }
-        if let Ok(value) = self.g.writer.f.read_u64::<LittleEndian>() {
-            let id = self.id;
-            self.id += 1;
-            return Some((id, value));
-        } else {
-            return None;
+        loop {
+            let offset = self.g.writer.f.seek(SeekFrom::Current(0)).unwrap();
+            if offset >= self.limit {
+                return None;
+            }
+            if let Ok(value) = self.g.writer.f.read_u64::<LittleEndian>() {
+                let id = self.id;
+                self.id += 1;
+                if ! u64::is_empty_value(& value) {
+                    return Some((id, value));
+                }
+            } else {
+                return None;
+            }
         }
     }
 }

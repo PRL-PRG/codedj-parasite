@@ -38,6 +38,7 @@ impl FileWriter<Heads> for Heads {
 
 /** Basic commit information. 
  */
+#[derive(Debug)]
 pub struct CommitInfo {
     pub committer : u64,
     pub committer_time : i64,
