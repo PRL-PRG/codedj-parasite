@@ -21,9 +21,14 @@ use byteorder::*;
 use std::collections::*;
 use std::hash::*;
 use std::fmt::{Debug};
+use std::convert::From;
 use crate::helpers;
 
 pub (crate) const MAX_BUFFER_LENGTH : u64 = 10 * 1024 * 1024 * 1024; // 10GB
+
+pub trait Id : From<u64> + Into<u64> + std::marker::Copy + std::fmt::Debug + std::cmp::PartialEq + std::cmp::Eq + std::hash::Hash {}
+
+impl Id for u64 {}
 
 /** TODO since at the end I need verify anyways, maybe check if deserialize should behave like verify already and the performance hit of that.
  */
@@ -180,23 +185,31 @@ impl Serializable for String {
 
     The indexer is usually not used alone, but as part of more complex structures. 
  */
-pub struct Indexer<T : Indexable + Serializable<Item = T> = u64 > {
+pub struct Indexer<T : Indexable + Serializable<Item = T> = u64, ID : Id = u64 > {
     name : String, 
     f : File, 
     size : u64,
-    why_oh_why : std::marker::PhantomData<T>
+    why_oh_why : std::marker::PhantomData<(T, ID)>
 }
 
-impl<T : Indexable + Serializable<Item = T>> Indexer<T> {
-    pub fn new(root : & str, name : & str) -> Indexer<T> {
+impl<T : Indexable + Serializable<Item = T>, ID : Id> Indexer<T, ID> {
+    pub fn new(root : & str, name : & str) -> Indexer<T, ID> {
         let mut f = OpenOptions::new().read(true).write(true).create(true).open(format!("{}/{}.idx", root, name)).unwrap();
         let size = f.seek(SeekFrom::End(0)).unwrap() / T::SIZE;
         return Indexer{ name : name.to_owned(), f, size, why_oh_why : std::marker::PhantomData{} };
     } 
 
-    pub fn get(& mut self, id : u64) -> Option<T> {
-        if id < self.size {
-            self.f.seek(SeekFrom::Start(T::SIZE * id)).unwrap();
+    /** Creates a read-only indexer. 
+     */
+    pub fn reader(root : & str, name : & str) -> Indexer<T, ID> {
+        let mut f = OpenOptions::new().read(true).open(format!("{}/{}.idx", root, name)).unwrap();
+        let size = f.seek(SeekFrom::End(0)).unwrap() / T::SIZE;
+        return Indexer{ name : name.to_owned(), f, size, why_oh_why : std::marker::PhantomData{} };
+    }
+
+    pub fn get(& mut self, id : ID) -> Option<T> {
+        if id.into() < self.size {
+            self.f.seek(SeekFrom::Start(T::SIZE * id.into())).unwrap();
             let result = T::deserialize(& mut self.f);
             if result != T::EMPTY {
                 return Some(result); 
@@ -207,13 +220,13 @@ impl<T : Indexable + Serializable<Item = T>> Indexer<T> {
         return None;
     }
 
-    pub fn set(& mut self, id : u64, value : & T) {
-        if id < self.size {
-            self.f.seek(SeekFrom::Start(T::SIZE * id)).unwrap();
+    pub fn set(& mut self, id : ID, value : & T) {
+        if id.into() < self.size {
+            self.f.seek(SeekFrom::Start(T::SIZE * id.into())).unwrap();
             T::serialize(& mut self.f, value);
         } else {
             self.f.seek(SeekFrom::End(0)).unwrap();
-            while id > self.size  {
+            while id.into() > self.size  {
                 T::serialize(& mut self.f, & T::EMPTY);
                 self.size += 1;
             }
@@ -226,27 +239,27 @@ impl<T : Indexable + Serializable<Item = T>> Indexer<T> {
         return self.size as usize;
     }
 
-    pub fn iter(& mut self) -> IndexerIterator<T> {
+    pub fn iter(& mut self) -> IndexerIterator<T, ID> {
         self.f.seek(SeekFrom::Start(0)).unwrap();
         return IndexerIterator{indexer : self, id : 0};
     }
 
 }
 
-pub struct IndexerIterator<'a, T : Indexable + Serializable<Item = T>> {
-    indexer : &'a mut Indexer<T>,
+pub struct IndexerIterator<'a, T : Indexable + Serializable<Item = T>, ID : Id = u64> {
+    indexer : &'a mut Indexer<T, ID>,
     id : u64
 }
 
-impl<'a, T : Indexable + Serializable<Item = T>> Iterator for IndexerIterator<'a, T> {
-    type Item = (u64, T);
+impl<'a, T : Indexable + Serializable<Item = T>, ID : Id> Iterator for IndexerIterator<'a, T, ID> {
+    type Item = (ID, T);
 
-    fn next(& mut self) -> Option<(u64, T)> {
+    fn next(& mut self) -> Option<(ID, T)> {
         loop {
             if self.id == self.indexer.len() as u64 { 
                 return None;
             } else {
-                let id = self.id;
+                let id = ID::from(self.id);
                 let result = T::deserialize(& mut self.indexer.f);
                 self.id += 1;
                 return Some((id, result));
@@ -261,18 +274,31 @@ impl<'a, T : Indexable + Serializable<Item = T>> Iterator for IndexerIterator<'a
 
     TODO add savepoint
  */
-pub struct Store<T : Serializable<Item = T>> {
-    pub (crate) indexer : Indexer,
+pub struct Store<T : Serializable<Item = T>, ID : Id = u64> {
+    pub (crate) indexer : Indexer<u64, ID>,
     pub (crate) f : File,
     why_oh_why : std::marker::PhantomData<T>,
 }
 
-impl<T: Serializable<Item = T>> Store<T> {
+impl<T: Serializable<Item = T>, ID : Id> Store<T, ID> {
 
-    pub fn new(root : & str, name : & str) -> Store<T> {
+    pub fn new(root : & str, name : & str) -> Store<T, ID> {
         let f = OpenOptions::new().read(true).write(true).create(true).open(format!("{}/{}.store", root, name)).unwrap();
         let mut result = Store{
             indexer : Indexer::new(root, name),
+            f,
+            why_oh_why : std::marker::PhantomData{}
+        };
+        println!("    {}: indices {}, size {}", name, result.indexer.len(), result.f.seek(SeekFrom::End(0)).unwrap());
+        return result;
+    }
+
+    /** Creates a readonly store.
+     */
+    pub fn reader(root : & str, name : & str) -> Store<T, ID> {
+        let f = OpenOptions::new().read(true).open(format!("{}/{}.store", root, name)).unwrap();
+        let mut result = Store{
+            indexer : Indexer::reader(root, name),
             f,
             why_oh_why : std::marker::PhantomData{}
         };
@@ -314,7 +340,7 @@ impl<T: Serializable<Item = T>> Store<T> {
             }
             let id = self.f.read_u64::<LittleEndian>()?;
             if id >= self.indexer.size {
-                return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Store id {}, but only {} ids known at offset {}", id, self.indexer.size, offset)));
+                return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Store id {:?}, but only {} ids known at offset {}", ID::from(id), self.indexer.size, offset)));
             }
             latest_mappings.insert(id, offset);
             let item = T::verify(& mut self.f)?;
@@ -323,18 +349,18 @@ impl<T: Serializable<Item = T>> Store<T> {
         // then check the index's integrity
         for (id, offset) in self.indexer.iter() {
             if offset == u64::EMPTY {
-                if latest_mappings.contains_key(& id) {
-                    return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Store index id {}, has empty index, but offset {} found in the store", id, latest_mappings[& id])));
+                if latest_mappings.contains_key(& id.into()) {
+                    return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Store index id {:?}, has empty index, but offset {} found in the store", id, latest_mappings[& id.into()])));
                 }
             } else {
-                match latest_mappings.get(& id) {
+                match latest_mappings.get(& id.into()) {
                     Some(found_offset) => {
                         if offset != *found_offset {
-                            return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Store index id {}, has indexed offset {}, but offset {} found in store", id, offset, found_offset)));
+                            return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Store index id {:?}, has indexed offset {}, but offset {} found in store", id, offset, found_offset)));
                         }
                     },
                     None => {
-                        return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Store index id {}, has indexed offset {} but none found", id, offset)));
+                        return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Store index id {:?}, has indexed offset {} but none found", id, offset)));
                     }
                 }
             }
@@ -344,13 +370,13 @@ impl<T: Serializable<Item = T>> Store<T> {
 
     /** Returns true if there is a valid record for sgiven id. 
      */
-    pub fn has(& mut self, id : u64) -> bool {
+    pub fn has(& mut self, id : ID) -> bool {
         return self.indexer.get(id).is_some();
     }
 
     /** Gets the value for given id. 
      */
-    pub fn get(& mut self, id : u64) -> Option<T> {
+    pub fn get(& mut self, id : ID) -> Option<T> {
         if let Some(offset) = self.indexer.get(id) {
             self.f.seek(SeekFrom::Start(offset)).unwrap();
             let (record_id, value) = Self::read_record(& mut self.f).unwrap();
@@ -363,7 +389,7 @@ impl<T: Serializable<Item = T>> Store<T> {
 
     /** Sets the value for given id. 
      */
-    pub fn set(& mut self, id : u64, value : & T) {
+    pub fn set(& mut self, id : ID, value : & T) {
         self.indexer.set(id, & Self::write_record(& mut self.f, id, value));
     }
 
@@ -379,7 +405,7 @@ impl<T: Serializable<Item = T>> Store<T> {
      
         Returns the latest stored value for every id. The ids are guaranteed to be increasing. 
      */
-    pub fn iter(& mut self) -> StoreIter<T> {
+    pub fn iter(& mut self) -> StoreIter<T, ID> {
         return StoreIter::new(& mut self. f, & mut self.indexer);
     }
 
@@ -387,7 +413,7 @@ impl<T: Serializable<Item = T>> Store<T> {
      
         Iterates over *all* stored values, returning them in the order they were added to the store. Multiple values may be returned for single id, the last value returned is the valid one. 
      */
-    pub fn iter_all(& mut self) -> StoreIterAll<T> {
+    pub fn iter_all(& mut self) -> StoreIterAll<T, ID> {
         self.f.seek(SeekFrom::Start(0)).unwrap();
         return StoreIterAll{ store : self };
     }
@@ -396,30 +422,30 @@ impl<T: Serializable<Item = T>> Store<T> {
      
         Returns tuple of the id associated with the record and the value stored. 
      */
-    fn read_record(f : & mut File) -> Option<(u64, T)> {
+    fn read_record(f : & mut File) -> Option<(ID, T)> {
         if let Ok(id) = f.read_u64::<LittleEndian>() {
-            return Some((id, T::deserialize(f)));
+            return Some((ID::from(id), T::deserialize(f)));
         } else {
             return None;
         }
     }
 
-    fn write_record(f : & mut File, id : u64, value : & T) -> u64 {
+    fn write_record(f : & mut File, id : ID, value : & T) -> u64 {
         let offset = f.seek(SeekFrom::End(0)).unwrap();
-        f.write_u64::<LittleEndian>(id).unwrap();
+        f.write_u64::<LittleEndian>(id.into()).unwrap();
         T::serialize(f, value);
         return offset;
     }
 }
 
-pub struct StoreIter<'a, T: Serializable<Item = T>> {
+pub struct StoreIter<'a, T: Serializable<Item = T>, ID : Id> {
     f : &'a mut File,
-    iiter : IndexerIterator<'a, u64>,
+    iiter : IndexerIterator<'a, u64,ID>,
     why_oh_why : std::marker::PhantomData<T>,
 }
 
-impl<'a, T : Serializable<Item = T>> StoreIter<'a, T> {
-    fn new(f : &'a mut File, indexer : &'a mut Indexer) -> StoreIter<'a, T> {
+impl<'a, T : Serializable<Item = T>, ID : Id> StoreIter<'a, T, ID> {
+    fn new(f : &'a mut File, indexer : &'a mut Indexer<u64, ID>) -> StoreIter<'a, T, ID> {
         return StoreIter{
             f : f,
             iiter : indexer.iter(),
@@ -428,13 +454,13 @@ impl<'a, T : Serializable<Item = T>> StoreIter<'a, T> {
     }
 }
 
-impl<'a, T : Serializable<Item = T>> Iterator for StoreIter<'a, T> {
-    type Item = (u64, T);
+impl<'a, T : Serializable<Item = T>, ID : Id> Iterator for StoreIter<'a, T, ID> {
+    type Item = (ID, T);
 
-    fn next(& mut self) -> Option<(u64, T)> {
+    fn next(& mut self) -> Option<(ID, T)> {
         if let Some((id, offset)) = self.iiter.next() {
             self.f.seek(SeekFrom::Start(offset)).unwrap();
-            let (store_id, value) = Store::<T>::read_record(self.f).unwrap();
+            let (store_id, value) = Store::<T, ID>::read_record(self.f).unwrap();
             assert_eq!(id, store_id, "Corrupted store or its indexing");
             return Some((id, value)); 
         } else {
@@ -443,15 +469,15 @@ impl<'a, T : Serializable<Item = T>> Iterator for StoreIter<'a, T> {
     }
 }
 
-pub struct StoreIterAll<'a, T : Serializable<Item = T>> {
-    store : &'a mut Store<T>
+pub struct StoreIterAll<'a, T : Serializable<Item = T>, ID : Id> {
+    store : &'a mut Store<T, ID>
 }
 
-impl<'a, T : Serializable<Item = T>> Iterator for StoreIterAll<'a, T> {
-    type Item = (u64, T);
+impl<'a, T : Serializable<Item = T>, ID : Id> Iterator for StoreIterAll<'a, T, ID> {
+    type Item = (ID, T);
 
-    fn next(& mut self) -> Option<(u64, T)> {
-        return Store::<T>::read_record(& mut self.store.f); 
+    fn next(& mut self) -> Option<(ID, T)> {
+        return Store::<T, ID>::read_record(& mut self.store.f); 
     }
 }
 
@@ -461,18 +487,31 @@ impl<'a, T : Serializable<Item = T>> Iterator for StoreIterAll<'a, T> {
 
     TODO add savepoint
  */
-pub struct LinkedStore<T : Serializable<Item = T>> {
-    pub (crate) indexer : Indexer,
+pub struct LinkedStore<T : Serializable<Item = T>, ID : Id = u64> {
+    pub (crate) indexer : Indexer<u64, ID>,
     pub (crate) f : File,
     why_oh_why : std::marker::PhantomData<T>,
 }
 
-impl<T: Serializable<Item = T>> LinkedStore<T> {
+impl<T: Serializable<Item = T>, ID : Id> LinkedStore<T, ID> {
 
-    pub fn new(root : & str, name : & str) -> LinkedStore<T> {
+    pub fn new(root : & str, name : & str) -> LinkedStore<T, ID> {
         let f = OpenOptions::new().read(true).write(true).create(true).open(format!("{}/{}.store", root, name)).unwrap();
         let mut result = LinkedStore{
             indexer : Indexer::new(root, name),
+            f,
+            why_oh_why : std::marker::PhantomData{}
+        };
+        println!("    {}: indices {}, size {}", name, result.indexer.len(), result.f.seek(SeekFrom::End(0)).unwrap());
+        return result;
+    }
+
+    /** Creates a read-only linked store. 
+     */
+    pub fn reader(root : & str, name : & str) -> LinkedStore<T, ID> {
+        let f = OpenOptions::new().read(true).open(format!("{}/{}.store", root, name)).unwrap();
+        let mut result = LinkedStore{
+            indexer : Indexer::reader(root, name),
             f,
             why_oh_why : std::marker::PhantomData{}
         };
@@ -515,22 +554,22 @@ impl<T: Serializable<Item = T>> LinkedStore<T> {
             }
             let id = self.f.read_u64::<LittleEndian>()?;
             if id >= self.indexer.size {
-                return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("LinkedStore id {}, but only {} ids known at offset {}", id, self.indexer.size, offset)));
+                return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("LinkedStore id {:?}, but only {} ids known at offset {}", ID::from(id), self.indexer.size, offset)));
             }
             let previous_offset = self.f.read_u64::<LittleEndian>()?;
             if previous_offset == u64::EMPTY {
                 if latest_mappings.contains_key(& id) {
-                    return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("LinkedStore index id {} at offset {} has empty backlink, but offset {} found", id, offset, latest_mappings[& id])));
+                    return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("LinkedStore index id {:?} at offset {} has empty backlink, but offset {} found", ID::from(id), offset, latest_mappings[& id])));
                 }
             } else {
                 match latest_mappings.get(& id) {
                     Some(found_offset) => {
                         if previous_offset != *found_offset {
-                            return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("LinkedStore index id {} at offset {} has previous offset {} but offset {} found in the store", id, offset, previous_offset, found_offset)));
+                            return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("LinkedStore index id {:?} at offset {} has previous offset {} but offset {} found in the store", ID::from(id), offset, previous_offset, found_offset)));
                         }
                     },
                     None => {
-                        return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("LinkedStore index id {} at offset {} has previous offset {} but no offset found in the store", id, offset, previous_offset)));
+                        return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("LinkedStore index id {:?} at offset {} has previous offset {} but no offset found in the store", ID::from(id), offset, previous_offset)));
                     }
                 }
             }
@@ -541,18 +580,18 @@ impl<T: Serializable<Item = T>> LinkedStore<T> {
         // then check the index's integrity
         for (id, offset) in self.indexer.iter() {
             if offset == u64::EMPTY {
-                if latest_mappings.contains_key(& id) {
-                    return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("LinkedStore index id {}, has empty index, but offset {} found in the store", id, latest_mappings[& id])));
+                if latest_mappings.contains_key(& id.into()) {
+                    return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("LinkedStore index id {:?}, has empty index, but offset {} found in the store", id, latest_mappings[& id.into()])));
                 }
             } else {
-                match latest_mappings.get(& id) {
+                match latest_mappings.get(& id.into()) {
                     Some(found_offset) => {
                         if offset != *found_offset {
-                            return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("LinkedStore index id {}, has indexed offset {}, but offset {} found in store", id, offset, found_offset)));
+                            return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("LinkedStore index id {:?}, has indexed offset {}, but offset {} found in store", id, offset, found_offset)));
                         }
                     },
                     None => {
-                        return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("LinkedStore index id {}, has indexed offset {} but none found", id, offset)));
+                        return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("LinkedStore index id {:?}, has indexed offset {} but none found", id, offset)));
                     }
                 }
             }
@@ -564,7 +603,7 @@ impl<T: Serializable<Item = T>> LinkedStore<T> {
 
     /** Gets the value for given id. 
      */
-    pub fn get(& mut self, id : u64) -> Option<T> {
+    pub fn get(& mut self, id : ID) -> Option<T> {
         if let Some(offset) = self.indexer.get(id) {
             self.f.seek(SeekFrom::Start(offset)).unwrap();
             let (record_id, _, value) = Self::read_record(& mut self.f).unwrap();
@@ -577,7 +616,7 @@ impl<T: Serializable<Item = T>> LinkedStore<T> {
 
     /** Sets the value for given id. 
      */
-    pub fn set(& mut self, id : u64, value : & T) {
+    pub fn set(& mut self, id : ID, value : & T) {
         let previous_offset = self.indexer.get(id);
         self.indexer.set(id, & Self::write_record(& mut self.f, id, previous_offset, value));
     }
@@ -594,7 +633,7 @@ impl<T: Serializable<Item = T>> LinkedStore<T> {
      
         Returns the latest stored value for every id. The ids are guaranteed to be increasing. 
      */
-    pub fn iter(& mut self) -> LinkedStoreIter<T> {
+    pub fn iter(& mut self) -> LinkedStoreIter<T, ID> {
         return LinkedStoreIter::new(& mut self. f, & mut self.indexer);
     }
 
@@ -602,7 +641,7 @@ impl<T: Serializable<Item = T>> LinkedStore<T> {
      
         Iterates over *all* stored values, returning them in the order they were added to the store. Multiple values may be returned for single id, the last value returned is the valid one. 
      */
-    pub fn iter_all(& mut self) -> LinkedStoreIterAll<T> {
+    pub fn iter_all(& mut self) -> LinkedStoreIterAll<T, ID> {
         self.f.seek(SeekFrom::Start(0)).unwrap();
         return LinkedStoreIterAll{ store : self };
     }
@@ -611,7 +650,7 @@ impl<T: Serializable<Item = T>> LinkedStore<T> {
      
         The values are returned in the reverse order they were added, i.e. latest value first. 
      */
-    pub fn iter_id(& mut self, id : u64) -> LinkedStoreIterId<T> {
+    pub fn iter_id(& mut self, id : ID) -> LinkedStoreIterId<T, ID> {
         let offset = self.indexer.get(id);
         return LinkedStoreIterId{ store : self, offset };
     }
@@ -620,18 +659,18 @@ impl<T: Serializable<Item = T>> LinkedStore<T> {
      
         Returns tuple of the id associated with the record, offset of the previous record associated with the id and the value stored. 
      */
-    fn read_record(f : & mut File) -> Option<(u64, Option<u64>, T)> {
+    fn read_record(f : & mut File) -> Option<(ID, Option<u64>, T)> {
         if let Ok(id) = f.read_u64::<LittleEndian>() {
             let previous_offset = f.read_u64::<LittleEndian>().unwrap();
-            return Some((id, if previous_offset == u64::EMPTY { None } else { Some(previous_offset) }, T::deserialize(f)));
+            return Some((ID::from(id), if previous_offset == u64::EMPTY { None } else { Some(previous_offset) }, T::deserialize(f)));
         } else {
             return None;
         }
     }
 
-    fn write_record(f : & mut File, id : u64, previous_offset : Option<u64>, value : & T) -> u64 {
+    fn write_record(f : & mut File, id : ID, previous_offset : Option<u64>, value : & T) -> u64 {
         let offset = f.seek(SeekFrom::End(0)).unwrap();
-        f.write_u64::<LittleEndian>(id).unwrap();
+        f.write_u64::<LittleEndian>(id.into()).unwrap();
         match previous_offset {
             Some(offset) => f.write_u64::<LittleEndian>(offset).unwrap(),
             None => f.write_u64::<LittleEndian>(u64::EMPTY).unwrap(),
@@ -641,14 +680,14 @@ impl<T: Serializable<Item = T>> LinkedStore<T> {
     }
 }
 
-pub struct LinkedStoreIter<'a, T: Serializable<Item = T>> {
+pub struct LinkedStoreIter<'a, T: Serializable<Item = T>, ID : Id> {
     f : &'a mut File,
-    iiter : IndexerIterator<'a, u64>,
+    iiter : IndexerIterator<'a, u64, ID>,
     why_oh_why : std::marker::PhantomData<T>,
 }
 
-impl<'a, T : Serializable<Item = T>> LinkedStoreIter<'a, T> {
-    fn new(f : &'a mut File, indexer : &'a mut Indexer) -> LinkedStoreIter<'a, T> {
+impl<'a, T : Serializable<Item = T>, ID : Id> LinkedStoreIter<'a, T, ID> {
+    fn new(f : &'a mut File, indexer : &'a mut Indexer<u64, ID>) -> LinkedStoreIter<'a, T, ID> {
         return LinkedStoreIter{
             f : f,
             iiter : indexer.iter(),
@@ -657,13 +696,13 @@ impl<'a, T : Serializable<Item = T>> LinkedStoreIter<'a, T> {
     }
 }
 
-impl<'a, T : Serializable<Item = T>> Iterator for LinkedStoreIter<'a, T> {
-    type Item = (u64, T);
+impl<'a, T : Serializable<Item = T>, ID : Id> Iterator for LinkedStoreIter<'a, T, ID> {
+    type Item = (ID, T);
 
-    fn next(& mut self) -> Option<(u64, T)> {
+    fn next(& mut self) -> Option<(ID, T)> {
         if let Some((id, offset)) = self.iiter.next() {
             self.f.seek(SeekFrom::Start(offset)).unwrap();
-            let (store_id, _, value) = LinkedStore::<T>::read_record(self.f).unwrap();
+            let (store_id, _, value) = LinkedStore::<T, ID>::read_record(self.f).unwrap();
             assert_eq!(id, store_id, "Corrupted store or its indexing");
             return Some((id, value)); 
         } else {
@@ -672,15 +711,15 @@ impl<'a, T : Serializable<Item = T>> Iterator for LinkedStoreIter<'a, T> {
     }
 }
 
-pub struct LinkedStoreIterAll<'a, T : Serializable<Item = T>> {
-    store : &'a mut LinkedStore<T>
+pub struct LinkedStoreIterAll<'a, T : Serializable<Item = T>, ID : Id> {
+    store : &'a mut LinkedStore<T, ID>
 }
 
-impl<'a, T : Serializable<Item = T>> Iterator for LinkedStoreIterAll<'a, T> {
-    type Item = (u64, T);
+impl<'a, T : Serializable<Item = T>, ID : Id> Iterator for LinkedStoreIterAll<'a, T, ID> {
+    type Item = (ID, T);
 
-    fn next(& mut self) -> Option<(u64, T)> {
-        match LinkedStore::<T>::read_record(& mut self.store.f) {
+    fn next(& mut self) -> Option<(ID, T)> {
+        match LinkedStore::<T, ID>::read_record(& mut self.store.f) {
             Some((id, _, value)) => Some((id, value)),
             None => None
         }
@@ -688,19 +727,19 @@ impl<'a, T : Serializable<Item = T>> Iterator for LinkedStoreIterAll<'a, T> {
 
 }
 
-pub struct LinkedStoreIterId<'a, T : Serializable<Item = T>> {
-    store : &'a mut LinkedStore<T>,
+pub struct LinkedStoreIterId<'a, T : Serializable<Item = T>, ID : Id> {
+    store : &'a mut LinkedStore<T, ID>,
     offset : Option<u64>,
 }
 
-impl<'a, T : Serializable<Item = T>> Iterator for LinkedStoreIterId<'a, T> {
+impl<'a, T : Serializable<Item = T>, ID : Id> Iterator for LinkedStoreIterId<'a, T, ID> {
     type Item = T;
 
     fn next(& mut self) -> Option<T> {
         match self.offset {
             Some(offset) => {
                 self.store.f.seek(SeekFrom::Start(offset)).unwrap();
-                let (_, previous_offset, value) = LinkedStore::<T>::read_record(& mut self.store.f).unwrap(); 
+                let (_, previous_offset, value) = LinkedStore::<T, ID>::read_record(& mut self.store.f).unwrap(); 
                 self.offset = previous_offset;
                 return Some(value);
             }, 
@@ -713,17 +752,32 @@ impl<'a, T : Serializable<Item = T>> Iterator for LinkedStoreIterId<'a, T> {
  
     Unlike store, mapping does not allow updates to added values. 
  */
-pub struct Mapping<T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone> {
+pub struct Mapping<T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone, ID : Id = u64> {
     name : String,
     f : File,
-    mapping : HashMap<T, u64>,
+    mapping : HashMap<T, ID>,
     size : u64
 }
 
-impl<T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone> Mapping<T> {
+impl<T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone, ID : Id> Mapping<T, ID> {
 
-    pub fn new(root : & str, name : & str) -> Mapping<T> {
+    pub fn new(root : & str, name : & str) -> Mapping<T, ID> {
         let mut f = OpenOptions::new().read(true).write(true).create(true).open(format!("{}/{}.mapping", root, name)).unwrap();
+        let size = f.seek(SeekFrom::End(0)).unwrap() / T::SIZE;
+        let mut result = Mapping{
+            name : name.to_owned(),
+            f, 
+            mapping : HashMap::new(),
+            size
+        };
+        println!("    {}: indices {}, size {}", name, result.size, result.f.seek(SeekFrom::End(0)).unwrap());
+        return result;
+    }
+
+    /** Creates a readonly mapping. 
+     */
+    pub fn reader(root : & str, name : & str) -> Mapping<T, ID> {
+        let mut f = OpenOptions::new().read(true).open(format!("{}/{}.mapping", root, name)).unwrap();
         let size = f.seek(SeekFrom::End(0)).unwrap() / T::SIZE;
         let mut result = Mapping{
             name : name.to_owned(),
@@ -785,18 +839,18 @@ impl<T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone> Mapping<T> {
         self.mapping.shrink_to_fit();
     }
 
-    pub fn get(& mut self, value : & T) -> Option<u64> {
+    pub fn get(& mut self, value : & T) -> Option<ID> {
         match self.mapping.get(value) {
             Some(id) => Some(*id),
             None => None
         }
     }
 
-    pub fn get_or_create(& mut self, value : & T) -> (u64, bool) {
+    pub fn get_or_create(& mut self, value : & T) -> (ID, bool) {
         match self.mapping.get(value) {
             Some(id) => (*id, false),
             None => {
-                let next_id = self.mapping.len() as u64;
+                let next_id = ID::from(self.mapping.len() as u64);
                 self.mapping.insert(value.to_owned(), next_id);
                 // serialize the value and increase size
                 T::serialize(& mut self.f, value);
@@ -806,11 +860,11 @@ impl<T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone> Mapping<T> {
         }
     }
 
-    pub fn get_value(& mut self, id : u64) -> Option<T> {
-        if id >= self.size {
+    pub fn get_value(& mut self, id : ID) -> Option<T> {
+        if id.into() >= self.size {
             return None;
         }
-        let offset = T::SIZE * id;
+        let offset = T::SIZE * id.into();
         self.f.seek(SeekFrom::Start(offset)).unwrap();
         let result = T::deserialize(& mut self.f);
         self.f.seek(SeekFrom::End(0)).unwrap();
@@ -819,9 +873,9 @@ impl<T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone> Mapping<T> {
 
     /** Updates the already stored mapping. 
      */
-    pub fn update(& mut self, id : u64, value : & T) {
-        assert!(id < self.size);
-        let offset = T::SIZE * id;
+    pub fn update(& mut self, id : ID, value : & T) {
+        assert!(id.into() < self.size);
+        let offset = T::SIZE * id.into();
         self.f.seek(SeekFrom::Start(offset)).unwrap();
         T::serialize(& mut self.f, value);
         self.f.seek(SeekFrom::End(0)).unwrap();
@@ -838,28 +892,28 @@ impl<T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone> Mapping<T> {
         return self.mapping.len();
     }
 
-    pub fn iter(& mut self) -> MappingIter<T> {
+    pub fn iter(& mut self) -> MappingIter<T, ID> {
         self.f.seek(SeekFrom::Start(0)).unwrap();
         return MappingIter{f : & mut self.f, index : 0, size : self.size, why_oh_why : std::marker::PhantomData{} };
     }
 }
 
-pub struct MappingIter<'a, T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone> {
+pub struct MappingIter<'a, T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone, ID : Id = u64> {
     f : &'a mut File,
     index : u64,
     size : u64,
-    why_oh_why : std::marker::PhantomData<T>
+    why_oh_why : std::marker::PhantomData<(T, ID)>
 }
 
-impl<'a, T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone> Iterator for MappingIter<'a, T> {
-    type Item = (u64, T);
+impl<'a, T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone, ID : Id> Iterator for MappingIter<'a, T, ID> {
+    type Item = (ID, T);
 
-    fn next(& mut self) -> Option<(u64, T)> {
+    fn next(& mut self) -> Option<(ID, T)> {
         if self.index == self.size {
             return None;
         } else {
             let value = T::deserialize(self.f);
-            let id = self.index;
+            let id = ID::from(self.index);
             self.index += 1;
             return Some((id, value));
         }
@@ -868,18 +922,27 @@ impl<'a, T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone> Iterator for M
 
 /** Mapping from values to ids where the values require indexing. 
  */
-pub struct IndirectMapping<T : Serializable<Item = T> + Eq + Hash + Clone> {
-    store : Store<T>,
-    mapping : HashMap<T, u64>
+pub struct IndirectMapping<T : Serializable<Item = T> + Eq + Hash + Clone, ID : Id = u64> {
+    store : Store<T, ID>,
+    mapping : HashMap<T, ID>
 }
 
-impl<T : Serializable<Item = T> + Eq + Hash + Clone> IndirectMapping<T> {
+impl<T : Serializable<Item = T> + Eq + Hash + Clone, ID : Id> IndirectMapping<T, ID> {
 
     /** Creates new mapping. 
      */
-    pub fn new(root : & str, name : & str) -> IndirectMapping<T> {
+    pub fn new(root : & str, name : & str) -> IndirectMapping<T, ID> {
         return IndirectMapping{
             store : Store::new(root, & format!("{}.mapping", name)),
+            mapping : HashMap::new(),
+        }
+    }
+
+    /** Creates a readonly mapping. 
+     */
+    pub fn reader(root : & str, name : & str) -> IndirectMapping<T, ID> {
+        return IndirectMapping{
+            store : Store::reader(root, & format!("{}.mapping", name)),
             mapping : HashMap::new(),
         }
     }
@@ -915,18 +978,18 @@ impl<T : Serializable<Item = T> + Eq + Hash + Clone> IndirectMapping<T> {
         self.mapping.shrink_to_fit();
     }
 
-    pub fn get(& mut self, value : & T) -> Option<u64> {
+    pub fn get(& mut self, value : & T) -> Option<ID> {
         match self.mapping.get(value) {
             Some(id) => Some(*id),
             None => None
         }
     }
 
-    pub fn get_or_create(& mut self, value : & T) -> (u64, bool) {
+    pub fn get_or_create(& mut self, value : & T) -> (ID, bool) {
         match self.mapping.get(value) {
             Some(id) => (*id, false),
             None => {
-                let next_id = self.mapping.len() as u64;
+                let next_id = ID::from(self.mapping.len() as u64);
                 self.store.set(next_id, value);
                 self.mapping.insert(value.to_owned(), next_id);
                 return (next_id, true);
@@ -934,7 +997,7 @@ impl<T : Serializable<Item = T> + Eq + Hash + Clone> IndirectMapping<T> {
         }
     }
 
-    pub fn get_value(& mut self, id : u64) -> Option<T> {
+    pub fn get_value(& mut self, id : ID) -> Option<T> {
         return self.store.get(id);
     }
 
@@ -946,7 +1009,7 @@ impl<T : Serializable<Item = T> + Eq + Hash + Clone> IndirectMapping<T> {
         return self.mapping.len();
     }
 
-    pub fn iter(& mut self) -> StoreIter<T> {
+    pub fn iter(& mut self) -> StoreIter<T, ID> {
         return self.store.iter();
     }
 
@@ -1040,15 +1103,15 @@ impl<KIND : SplitKind<Item = KIND>> Indexable for SplitOffset<KIND> {
 
 /** Split store contains single index, but multiple files that store the data based on its kind. 
  */
-pub struct SplitStore<T : Serializable<Item = T>, KIND : SplitKind<Item = KIND>> {
+pub struct SplitStore<T : Serializable<Item = T>, KIND : SplitKind<Item = KIND>, ID : Id = u64> {
     name : String,
-    indexer : Indexer<SplitOffset<KIND>>,
+    indexer : Indexer<SplitOffset<KIND>, ID>,
     files : Vec<File>,
     why_oh_why : std::marker::PhantomData<T>
 }
 
-impl<T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>> SplitStore<T, KIND> {
-    pub fn new(root : & str, name : & str) -> SplitStore<T, KIND> {
+impl<T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>, ID : Id> SplitStore<T, KIND, ID> {
+    pub fn new(root : & str, name : & str) -> SplitStore<T, KIND, ID> {
         let mut files = Vec::<File>::new();
         for i in 0..KIND::COUNT {
             let path = format!("{}/{}-{:?}.splitstore", root, name, KIND::from_number(i));
@@ -1064,6 +1127,26 @@ impl<T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>> SplitStore<T, KIN
         println!("    {}: indices {}, splits {}", name, result.indexer.len(), result.files.len());
         return result;
     }
+
+    /** Creates a read-only split store.
+     */
+    pub fn reader(root : & str, name : & str) -> SplitStore<T, KIND, ID> {
+        let mut files = Vec::<File>::new();
+        for i in 0..KIND::COUNT {
+            let path = format!("{}/{}-{:?}.splitstore", root, name, KIND::from_number(i));
+            let f = OpenOptions::new().read(true).open(path).unwrap();
+            files.push(f);
+        }
+        let result = SplitStore{
+            name : name.to_owned(),
+            indexer : Indexer::reader(root, name),
+            files, 
+            why_oh_why : std::marker::PhantomData{}
+        };
+        println!("    {}: indices {}, splits {}", name, result.indexer.len(), result.files.len());
+        return result;
+    }
+
 
     pub fn name<'a>(&'a self) -> &'a str {
         return self.name.as_str();
@@ -1104,7 +1187,7 @@ impl<T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>> SplitStore<T, KIN
                 }
                 let id = f.read_u64::<LittleEndian>()?;
                 if id >= self.indexer.size {
-                    return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("SplitStore id {}, but only {} ids known at offset {} in split {:?}", id, self.indexer.size, offset, KIND::from_number(i))));
+                    return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("SplitStore id {:?}, but only {} ids known at offset {} in split {:?}", ID::from(id), self.indexer.size, offset, KIND::from_number(i))));
                 }
                 let item = T::verify(f)?;
                 checker(item)?;
@@ -1118,20 +1201,20 @@ impl<T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>> SplitStore<T, KIN
             if offset == SplitOffset::<KIND>::EMPTY {
                 let mut i = 0;
                 for mapping in latest_mappings.iter() {
-                    if mapping.contains_key(& id) {
-                        return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("SplitStore index id {}, has empty index, but offset {} found in the split {:?}", id, mapping[& id], KIND::from_number(i))));
+                    if mapping.contains_key(& id.into()) {
+                        return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("SplitStore index id {:?}, has empty index, but offset {} found in the split {:?}", id, mapping[& id.into()], KIND::from_number(i))));
                     }
                     i += 1;
                 }
             } else {
-                match latest_mappings[offset.kind.to_number() as usize].get(& id) {
+                match latest_mappings[offset.kind.to_number() as usize].get(& id.into()) {
                     Some(found_offset) => {
                         if offset.offset != *found_offset {
-                            return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Store index id {}, has indexed offset {} in split {:?}, but offset {} found", id, offset.offset, offset.kind, found_offset)));
+                            return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Store index id {:?}, has indexed offset {} in split {:?}, but offset {} found", id, offset.offset, offset.kind, found_offset)));
                         }
                     },
                     None => {
-                        return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Store index id {}, has indexed offset {} in split {:?} but none found", id, offset.offset, offset.kind)));
+                        return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Store index id {:?}, has indexed offset {} in split {:?} but none found", id, offset.offset, offset.kind)));
                     }
                 }
             }
@@ -1142,13 +1225,13 @@ impl<T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>> SplitStore<T, KIN
 
     /** Determines the file that holds value for given id and returns the stored value. If the value has not been stored, returns None. 
      */
-    pub fn get(& mut self, id : u64) -> Option<T> {
+    pub fn get(& mut self, id : ID) -> Option<T> {
         match self.indexer.get(id) {
             Some(offset) => {
                 let f = self.files.get_mut(offset.kind.to_number() as usize).unwrap();
                 f.seek(SeekFrom::Start(offset.offset)).unwrap();
                 // we can use default store reader
-                let (record_id, value) = Store::<T>::read_record(f).unwrap();
+                let (record_id, value) = Store::<T, ID>::read_record(f).unwrap();
                 assert_eq!(id, record_id, "Corrupted store or index");
                 return Some(value);
             },
@@ -1160,7 +1243,7 @@ impl<T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>> SplitStore<T, KIN
      
         If this is an update, then the kind specified must be the same as the kind the value has already been stored under. In other words, the split store allows updates of the values, but value cannot change its kind. 
      */
-    pub fn set(& mut self, id : u64, kind : KIND, value : & T) {
+    pub fn set(& mut self, id : ID, kind : KIND, value : & T) {
         match self.indexer.get(id) {
             Some(offset) => {
                 assert_eq!(kind, offset.kind, "Cannot change kind of already stored value");
@@ -1169,7 +1252,7 @@ impl<T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>> SplitStore<T, KIN
         }
         let f = self.files.get_mut(kind.to_number() as usize).unwrap();
         self.indexer.set(id, & SplitOffset{
-            offset : Store::<T>::write_record(f, id, value),
+            offset : Store::<T, ID>::write_record(f, id, value),
             kind
         });
     }
@@ -1182,6 +1265,7 @@ impl<T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>> SplitStore<T, KIN
 
 }
 
+/*
 /** Split store contains single index, but multiple files that store the data based on its kind. 
  */
 pub struct SplitLinkedStore<T : Serializable<Item = T>, KIND : SplitKind<Item = KIND>> {
@@ -1205,6 +1289,10 @@ impl<T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>> SplitLinkedStore<
             files, 
             why_oh_why : std::marker::PhantomData{}
         };
+    }
+
+    pub fn reader(_root : & str, _name : & str) -> SplitLinkedStore<T, KIND> {
+        unimplemented!();
     }
 
     pub fn name<'a>(&'a self) -> &'a str {
@@ -1275,16 +1363,14 @@ impl<T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>> SplitLinkedStore<
     // TODO add iterators
 
 }
-
-
-
-
+*/
 
 
 /** ID Prefix trait. 
  
     The idea is that a sequential id can have its prefix, which determines the kind of the id, some category on which we can split the underlying objects responsible for storing objects. These underlying objects are not aware of the prefix part of the id and only use the sequential part for their dealings. 
  */
+/*
 pub trait IDPrefix {
     fn prefix(id : u64) -> Self;
     fn sequential_part(id : u64) -> u64;
@@ -1309,7 +1395,7 @@ impl<T : IDPrefix, W : Serializable, ITER: Iterator<Item = (u64, W)>> Iterator f
             None => None,
         }
     }
-} 
+} */
 
 /** Savepoint for the entire datastore. 
  

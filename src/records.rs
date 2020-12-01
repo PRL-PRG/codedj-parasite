@@ -9,6 +9,12 @@ use num_derive::*;
 use crate::db::*;
 use crate::datastore::*;
 
+pub type ProjectId = u64;
+pub type CommitId = u64;
+pub type HashId = u64;
+pub type PathId = u64;
+pub type UserId = u64;
+
 /** Datastore kinds. 
  
     Up to 1024 datastore kinds are supported. This limitation exists because the datastore kind id is part of the unique identifiers
@@ -671,12 +677,12 @@ impl Serializable for Metadata {
 }
 
 pub struct CommitInfo {
-    pub committer : u64,
+    pub committer : UserId,
     pub committer_time : i64,
-    pub author : u64,
+    pub author : UserId,
     pub author_time : i64,
-    pub parents : Vec<u64>,
-    pub changes : HashMap<u64,u64>,
+    pub parents : Vec<CommitId>,
+    pub changes : HashMap<PathId,HashId>,
     pub message : String,
 }
 

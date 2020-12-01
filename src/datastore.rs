@@ -51,11 +51,11 @@ pub struct Datastore {
         - project metadata
 
      */
-    pub (crate) projects : Mutex<Store<Project>>,
-    project_substores : Mutex<Store<StoreKind>>,
-    project_updates : Mutex<LinkedStore<ProjectUpdateStatus>>,
-    project_heads : Mutex<Store<ProjectHeads>>,
-    project_metadata : Mutex<LinkedStore<Metadata>>,
+    pub (crate) projects : Mutex<Store<Project, ProjectId>>,
+    project_substores : Mutex<Store<StoreKind, ProjectId>>,
+    project_updates : Mutex<LinkedStore<ProjectUpdateStatus, ProjectId>>,
+    project_heads : Mutex<Store<ProjectHeads, ProjectId>>,
+    project_metadata : Mutex<LinkedStore<Metadata, ProjectId>>,
 
     /** Current and past urls for known projects so that when new projects are added we can check for ambiguity.
      */
@@ -400,9 +400,9 @@ pub (crate) struct Substore {
 
     /** Commits stored in the dataset. 
      */
-    commits : Mutex<Mapping<Hash>>,
-    commits_info : Mutex<Store<CommitInfo>>,
-    commits_metadata : Mutex<LinkedStore<Metadata>>,
+    commits : Mutex<Mapping<Hash, CommitId>>,
+    commits_info : Mutex<Store<CommitInfo, CommitId>>,
+    commits_metadata : Mutex<LinkedStore<Metadata, CommitId>>,
 
     /** File hashes and their contents. 
      
@@ -410,23 +410,23 @@ pub (crate) struct Substore {
 
         We use a split store based on the ContentsKind of the file to be stored. The index is kept for *all* file hashes, i.e. there will be a lot of empty holes in it, but these holes will be relatively cheap (20 bytes per hole, 10 bytes for contents and 10 bytes for metadata) and on disk, where it bothers us less. 
      */
-    hashes : Mutex<Mapping<Hash>>,
-    contents : Mutex<SplitStore<FileContents, ContentsKind>>,
-    contents_metadata : Mutex<LinkedStore<Metadata>>,
+    hashes : Mutex<Mapping<Hash, HashId>>,
+    contents : Mutex<SplitStore<FileContents, ContentsKind, HashId>>,
+    contents_metadata : Mutex<LinkedStore<Metadata, HashId>>,
 
     /** Paths. 
      
         Path hash to ids is stored in a mapping at runtime, while path strings are stored separately in an indexable store on disk. 
      */
-    paths : Mutex<Mapping<Hash>>,
-    path_strings : Mutex<Store<String>>,
+    paths : Mutex<Mapping<Hash, PathId>>,
+    path_strings : Mutex<Store<String, PathId>>,
 
     /** Users.
      
         Users are mapped by their email. 
      */
-    users : Mutex<IndirectMapping<String>>,
-    users_metadata : Mutex<LinkedStore<Metadata>>,
+    users : Mutex<IndirectMapping<String, UserId>>,
+    users_metadata : Mutex<LinkedStore<Metadata, UserId>>,
 
 }
 

@@ -3,6 +3,18 @@
     sudo apt-get install libssl-dev libgit2-dev cmake pkg-config libicu-dev zlib1g-dev libcurl4-gnutls-dev ruby-dev cloc
     gem install github-linguist    
 
+# Basics
+
+> TODO basic info about code and data layout.
+
+# Features to be added
+
+- github linguist and cloc to be executed on snapshots
+- db guys should be able to regenerate their indices from the datafiles
+- a datastore should be able to rollback to any given savepoint
+- add helper functions to show savepoints, enumerate items, etc. 
+- add projects from github directly
+- add issues
 
 
 # TODO
@@ -13,15 +25,8 @@
 - add log for on/off of the downloader on the database
 
 
-- to drop substore, all are paused, and we have to wake up one thread... 
-
-- make sure that all dbs first write to the file and only then write the index to the indexer so that if there is an during the write, the indexer won't change to bad contents
-
 - force update should do all commits
 
-- load the counts and then start immediately in command mode
-- utilize alt mode, i.e. output log to the alt mode, have a log in the normal mode
-- threads & tasks
 
 ## Projects
 

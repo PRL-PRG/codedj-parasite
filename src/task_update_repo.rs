@@ -423,7 +423,7 @@ impl<'a> RepoUpdater<'a> {
 
         If the update is forced, all commits are reanalyzed even if they exist in the datastore
      */ 
-    fn add_commit(& mut self, hash : & Hash, substore : & Substore) -> u64 {
+    fn add_commit(& mut self, hash : & Hash, substore : & Substore) -> CommitId {
         if let Some(id) = self.visited_commits.get(hash) {
             if ! self.force {
                 return *id;
@@ -437,7 +437,7 @@ impl<'a> RepoUpdater<'a> {
         return id;
     }
 
-    fn get_or_create_user(& mut self, user : & git2::Signature, substore : & Substore) -> u64 {
+    fn get_or_create_user(& mut self, user : & git2::Signature, substore : & Substore) -> UserId {
         let email = helpers::to_string(user.email_bytes());
         if let Some(id) = self.users.get(& email) {
             return *id;
@@ -450,7 +450,7 @@ impl<'a> RepoUpdater<'a> {
         }
     }
 
-    fn get_commit_changes(& mut self, repo : & git2::Repository, commit : & git2::Commit, substore : & Substore) -> Result<HashMap<u64, u64>, git2::Error> {
+    fn get_commit_changes(& mut self, repo : & git2::Repository, commit : & git2::Commit, substore : & Substore) -> Result<HashMap<PathId, HashId>, git2::Error> {
         // first create the changes map and populate it by changes between the commit and its parents, or the full commit if the commit has no parents
         let mut changes = HashMap::<String, Hash>::new();
         if commit.parent_count() == 0 {
