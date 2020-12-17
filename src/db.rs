@@ -193,19 +193,16 @@ pub struct Indexer<T : Indexable + Serializable<Item = T> = u64, ID : Id = u64 >
 }
 
 impl<T : Indexable + Serializable<Item = T>, ID : Id> Indexer<T, ID> {
-    pub fn new(root : & str, name : & str) -> Indexer<T, ID> {
-        let mut f = OpenOptions::new().read(true).write(true).create(true).open(format!("{}/{}.idx", root, name)).unwrap();
+    pub fn new(root : & str, name : & str, readonly : bool) -> Indexer<T, ID> {
+        let mut f;
+        if readonly {
+            f = OpenOptions::new().read(true).open(format!("{}/{}.idx", root, name)).unwrap();
+        } else {
+            f = OpenOptions::new().read(true).write(true).create(true).open(format!("{}/{}.idx", root, name)).unwrap();
+        }
         let size = f.seek(SeekFrom::End(0)).unwrap() / T::SIZE;
         return Indexer{ name : name.to_owned(), f, size, why_oh_why : std::marker::PhantomData{} };
     } 
-
-    /** Creates a read-only indexer. 
-     */
-    pub fn reader(root : & str, name : & str) -> Indexer<T, ID> {
-        let mut f = OpenOptions::new().read(true).open(format!("{}/{}.idx", root, name)).unwrap();
-        let size = f.seek(SeekFrom::End(0)).unwrap() / T::SIZE;
-        return Indexer{ name : name.to_owned(), f, size, why_oh_why : std::marker::PhantomData{} };
-    }
 
     pub fn get(& mut self, id : ID) -> Option<T> {
         if id.into() < self.size {
@@ -241,14 +238,21 @@ impl<T : Indexable + Serializable<Item = T>, ID : Id> Indexer<T, ID> {
 
     pub fn iter(& mut self) -> IndexerIterator<T, ID> {
         self.f.seek(SeekFrom::Start(0)).unwrap();
-        return IndexerIterator{indexer : self, id : 0};
+        return IndexerIterator{indexer : self, id : 0, max_offset: u64::MAX};
+    }
+
+    pub fn savepoint_iter(& mut self, sp : & Savepoint) -> IndexerIterator<T, ID> {
+        let max_offset = sp.limit_for(& self.name);
+        self.f.seek(SeekFrom::Start(0)).unwrap();
+        return IndexerIterator{indexer : self, id : 0, max_offset };
     }
 
 }
 
 pub struct IndexerIterator<'a, T : Indexable + Serializable<Item = T>, ID : Id = u64> {
     indexer : &'a mut Indexer<T, ID>,
-    id : u64
+    id : u64,
+    max_offset : u64,
 }
 
 impl<'a, T : Indexable + Serializable<Item = T>, ID : Id> Iterator for IndexerIterator<'a, T, ID> {
@@ -256,7 +260,9 @@ impl<'a, T : Indexable + Serializable<Item = T>, ID : Id> Iterator for IndexerIt
 
     fn next(& mut self) -> Option<(ID, T)> {
         loop {
-            if self.id == self.indexer.len() as u64 { 
+            if self.indexer.f.seek(SeekFrom::Current(0)).unwrap() >= self.max_offset {
+                return None;
+            } else if self.id == self.indexer.len() as u64 { 
                 return None;
             } else {
                 let id = ID::from(self.id);
@@ -282,23 +288,15 @@ pub struct Store<T : Serializable<Item = T>, ID : Id = u64> {
 
 impl<T: Serializable<Item = T>, ID : Id> Store<T, ID> {
 
-    pub fn new(root : & str, name : & str) -> Store<T, ID> {
-        let f = OpenOptions::new().read(true).write(true).create(true).open(format!("{}/{}.store", root, name)).unwrap();
+    pub fn new(root : & str, name : & str, readonly : bool) -> Store<T, ID> {
+        let f;
+        if readonly {
+            f = OpenOptions::new().read(true).open(format!("{}/{}.store", root, name)).unwrap();
+        } else {
+            f = OpenOptions::new().read(true).write(true).create(true).open(format!("{}/{}.store", root, name)).unwrap();
+        }
         let mut result = Store{
-            indexer : Indexer::new(root, name),
-            f,
-            why_oh_why : std::marker::PhantomData{}
-        };
-        println!("    {}: indices {}, size {}", name, result.indexer.len(), result.f.seek(SeekFrom::End(0)).unwrap());
-        return result;
-    }
-
-    /** Creates a readonly store.
-     */
-    pub fn reader(root : & str, name : & str) -> Store<T, ID> {
-        let f = OpenOptions::new().read(true).open(format!("{}/{}.store", root, name)).unwrap();
-        let mut result = Store{
-            indexer : Indexer::reader(root, name),
+            indexer : Indexer::new(root, name, readonly),
             f,
             why_oh_why : std::marker::PhantomData{}
         };
@@ -415,7 +413,13 @@ impl<T: Serializable<Item = T>, ID : Id> Store<T, ID> {
      */
     pub fn iter_all(& mut self) -> StoreIterAll<T, ID> {
         self.f.seek(SeekFrom::Start(0)).unwrap();
-        return StoreIterAll{ store : self };
+        return StoreIterAll{ store : self, max_offset : u64::MAX };
+    }
+
+    pub fn savepoint_iter_all(& mut self, sp : & Savepoint) -> StoreIterAll<T, ID> {
+        let max_offset = sp.limit_for(self.name());
+        self.f.seek(SeekFrom::Start(0)).unwrap();
+        return StoreIterAll{ store : self, max_offset };
     }
 
     /** Reads the record from a file. 
@@ -438,6 +442,8 @@ impl<T: Serializable<Item = T>, ID : Id> Store<T, ID> {
     }
 }
 
+/** Latest store iterator does not support savepoints since the indices can be udpated. 
+ */
 pub struct StoreIter<'a, T: Serializable<Item = T>, ID : Id> {
     f : &'a mut File,
     iiter : IndexerIterator<'a, u64,ID>,
@@ -470,14 +476,19 @@ impl<'a, T : Serializable<Item = T>, ID : Id> Iterator for StoreIter<'a, T, ID> 
 }
 
 pub struct StoreIterAll<'a, T : Serializable<Item = T>, ID : Id> {
-    store : &'a mut Store<T, ID>
+    store : &'a mut Store<T, ID>,
+    max_offset : u64,
 }
 
 impl<'a, T : Serializable<Item = T>, ID : Id> Iterator for StoreIterAll<'a, T, ID> {
     type Item = (ID, T);
 
     fn next(& mut self) -> Option<(ID, T)> {
-        return Store::<T, ID>::read_record(& mut self.store.f); 
+        if self.store.f.seek(SeekFrom::Current(0)).unwrap() >= self.max_offset {
+            return None;
+        } else {
+            return Store::<T, ID>::read_record(& mut self.store.f); 
+        }
     }
 }
 
@@ -495,23 +506,15 @@ pub struct LinkedStore<T : Serializable<Item = T>, ID : Id = u64> {
 
 impl<T: Serializable<Item = T>, ID : Id> LinkedStore<T, ID> {
 
-    pub fn new(root : & str, name : & str) -> LinkedStore<T, ID> {
-        let f = OpenOptions::new().read(true).write(true).create(true).open(format!("{}/{}.store", root, name)).unwrap();
+    pub fn new(root : & str, name : & str, readonly : bool) -> LinkedStore<T, ID> {
+        let f;
+        if readonly {
+            f = OpenOptions::new().read(true).open(format!("{}/{}.store", root, name)).unwrap();
+        } else {
+            f = OpenOptions::new().read(true).write(true).create(true).open(format!("{}/{}.store", root, name)).unwrap();
+        }
         let mut result = LinkedStore{
-            indexer : Indexer::new(root, name),
-            f,
-            why_oh_why : std::marker::PhantomData{}
-        };
-        println!("    {}: indices {}, size {}", name, result.indexer.len(), result.f.seek(SeekFrom::End(0)).unwrap());
-        return result;
-    }
-
-    /** Creates a read-only linked store. 
-     */
-    pub fn reader(root : & str, name : & str) -> LinkedStore<T, ID> {
-        let f = OpenOptions::new().read(true).open(format!("{}/{}.store", root, name)).unwrap();
-        let mut result = LinkedStore{
-            indexer : Indexer::reader(root, name),
+            indexer : Indexer::new(root, name, readonly),
             f,
             why_oh_why : std::marker::PhantomData{}
         };
@@ -643,7 +646,13 @@ impl<T: Serializable<Item = T>, ID : Id> LinkedStore<T, ID> {
      */
     pub fn iter_all(& mut self) -> LinkedStoreIterAll<T, ID> {
         self.f.seek(SeekFrom::Start(0)).unwrap();
-        return LinkedStoreIterAll{ store : self };
+        return LinkedStoreIterAll{ store : self, max_offset : u64::MAX };
+    }
+
+    pub fn savepoint_iter_all(& mut self, sp : & Savepoint) -> LinkedStoreIterAll<T, ID> {
+        let max_offset = sp.limit_for(self.name());
+        self.f.seek(SeekFrom::Start(0)).unwrap();
+        return LinkedStoreIterAll{ store : self, max_offset };
     }
 
     /** Given an id, returns an iterator over all values ever stored for it. 
@@ -712,16 +721,21 @@ impl<'a, T : Serializable<Item = T>, ID : Id> Iterator for LinkedStoreIter<'a, T
 }
 
 pub struct LinkedStoreIterAll<'a, T : Serializable<Item = T>, ID : Id> {
-    store : &'a mut LinkedStore<T, ID>
+    store : &'a mut LinkedStore<T, ID>,
+    max_offset : u64,
 }
 
 impl<'a, T : Serializable<Item = T>, ID : Id> Iterator for LinkedStoreIterAll<'a, T, ID> {
     type Item = (ID, T);
 
     fn next(& mut self) -> Option<(ID, T)> {
-        match LinkedStore::<T, ID>::read_record(& mut self.store.f) {
-            Some((id, _, value)) => Some((id, value)),
-            None => None
+        if self.store.f.seek(SeekFrom::Current(0)).unwrap() >= self.max_offset {
+            return None;
+        } else {
+            match LinkedStore::<T, ID>::read_record(& mut self.store.f) {
+                Some((id, _, value)) => Some((id, value)),
+                None => None
+            }
         }
     }
 
@@ -761,23 +775,13 @@ pub struct Mapping<T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone, ID :
 
 impl<T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone, ID : Id> Mapping<T, ID> {
 
-    pub fn new(root : & str, name : & str) -> Mapping<T, ID> {
-        let mut f = OpenOptions::new().read(true).write(true).create(true).open(format!("{}/{}.mapping", root, name)).unwrap();
-        let size = f.seek(SeekFrom::End(0)).unwrap() / T::SIZE;
-        let mut result = Mapping{
-            name : name.to_owned(),
-            f, 
-            mapping : HashMap::new(),
-            size
-        };
-        println!("    {}: indices {}, size {}", name, result.size, result.f.seek(SeekFrom::End(0)).unwrap());
-        return result;
-    }
-
-    /** Creates a readonly mapping. 
-     */
-    pub fn reader(root : & str, name : & str) -> Mapping<T, ID> {
-        let mut f = OpenOptions::new().read(true).open(format!("{}/{}.mapping", root, name)).unwrap();
+    pub fn new(root : & str, name : & str, readonly : bool) -> Mapping<T, ID> {
+        let mut f;
+        if readonly {
+            f = OpenOptions::new().read(true).open(format!("{}/{}.mapping", root, name)).unwrap();
+        } else {
+            f = OpenOptions::new().read(true).write(true).create(true).open(format!("{}/{}.mapping", root, name)).unwrap();
+        }
         let size = f.seek(SeekFrom::End(0)).unwrap() / T::SIZE;
         let mut result = Mapping{
             name : name.to_owned(),
@@ -931,18 +935,9 @@ impl<T : Serializable<Item = T> + Eq + Hash + Clone, ID : Id> IndirectMapping<T,
 
     /** Creates new mapping. 
      */
-    pub fn new(root : & str, name : & str) -> IndirectMapping<T, ID> {
+    pub fn new(root : & str, name : & str, readonly : bool) -> IndirectMapping<T, ID> {
         return IndirectMapping{
-            store : Store::new(root, & format!("{}.mapping", name)),
-            mapping : HashMap::new(),
-        }
-    }
-
-    /** Creates a readonly mapping. 
-     */
-    pub fn reader(root : & str, name : & str) -> IndirectMapping<T, ID> {
-        return IndirectMapping{
-            store : Store::reader(root, & format!("{}.mapping", name)),
+            store : Store::new(root, & format!("{}.mapping", name), readonly),
             mapping : HashMap::new(),
         }
     }
@@ -1111,42 +1106,27 @@ pub struct SplitStore<T : Serializable<Item = T>, KIND : SplitKind<Item = KIND>,
 }
 
 impl<T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>, ID : Id> SplitStore<T, KIND, ID> {
-    pub fn new(root : & str, name : & str) -> SplitStore<T, KIND, ID> {
+    pub fn new(root : & str, name : & str, readonly : bool) -> SplitStore<T, KIND, ID> {
         let mut files = Vec::<File>::new();
         for i in 0..KIND::COUNT {
             let path = format!("{}/{}-{:?}.splitstore", root, name, KIND::from_number(i));
-            let f = OpenOptions::new().read(true).write(true).create(true).open(path).unwrap();
+            let f;
+            if readonly {
+                f = OpenOptions::new().read(true).open(path).unwrap();
+            } else {
+                f = OpenOptions::new().read(true).write(true).create(true).open(path).unwrap();
+            }
             files.push(f);
         }
         let result = SplitStore{
             name : name.to_owned(),
-            indexer : Indexer::new(root, name),
+            indexer : Indexer::new(root, name, readonly),
             files, 
             why_oh_why : std::marker::PhantomData{}
         };
         println!("    {}: indices {}, splits {}", name, result.indexer.len(), result.files.len());
         return result;
     }
-
-    /** Creates a read-only split store.
-     */
-    pub fn reader(root : & str, name : & str) -> SplitStore<T, KIND, ID> {
-        let mut files = Vec::<File>::new();
-        for i in 0..KIND::COUNT {
-            let path = format!("{}/{}-{:?}.splitstore", root, name, KIND::from_number(i));
-            let f = OpenOptions::new().read(true).open(path).unwrap();
-            files.push(f);
-        }
-        let result = SplitStore{
-            name : name.to_owned(),
-            indexer : Indexer::reader(root, name),
-            files, 
-            why_oh_why : std::marker::PhantomData{}
-        };
-        println!("    {}: indices {}, splits {}", name, result.indexer.len(), result.files.len());
-        return result;
-    }
-
 
     pub fn name<'a>(&'a self) -> &'a str {
         return self.name.as_str();

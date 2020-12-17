@@ -19,6 +19,14 @@ mod github;
 
 
 
+/** Datastore view is similar to datastore, but allows only read access. 
+ 
+ */
+pub struct DatastoreView {
+
+}
+
+
 // v3 from here
 
 

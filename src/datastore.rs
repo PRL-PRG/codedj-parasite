@@ -86,7 +86,7 @@ impl Datastore {
      
         If the path does not exist, initializes an empty datastore. 
      */
-    pub fn new(root : & str) -> Datastore {
+    pub fn new(root : & str, readonly : bool) -> Datastore {
         // make sure the paths exist
         let root_path = std::path::Path::new(root);
         if ! root_path.exists() {
@@ -96,22 +96,23 @@ impl Datastore {
         // create the datastore
         let mut ds = Datastore{
             root : root.to_owned(),
-            projects : Mutex::new(Store::new(root, "projects")),
-            project_substores : Mutex::new(Store::new(root, "project-substores")),
-            project_updates : Mutex::new(LinkedStore::new(root, "project-updates")),
-            project_heads : Mutex::new(Store::new(root, "project-heads")),
-            project_metadata : Mutex::new(LinkedStore::new(root, "project-metadata")),
+            projects : Mutex::new(Store::new(root, "projects", readonly)),
+            project_substores : Mutex::new(Store::new(root, "project-substores", readonly)),
+            project_updates : Mutex::new(LinkedStore::new(root, "project-updates", readonly)),
+            project_heads : Mutex::new(Store::new(root, "project-heads", readonly)),
+            project_metadata : Mutex::new(LinkedStore::new(root, "project-metadata", readonly)),
             project_urls : Mutex::new(HashSet::new()),
 
             substores : Vec::new(),
 
-            savepoints : Mutex::new(LinkedStore::new(root, "savepoints")),
+            savepoints : Mutex::new(LinkedStore::new(root, "savepoints", readonly)),
         };
         // initialize the substores
         for store_kind in SplitKindIter::<StoreKind>::new() {
             ds.substores.push(Substore::new(
                 & root_path.join(format!("{:?}", store_kind)),
-                store_kind
+                store_kind,
+                readonly
             ));
         }
         return ds;
@@ -432,7 +433,7 @@ pub (crate) struct Substore {
 
 impl Substore {
 
-    pub fn new(root_path : & Path, kind : StoreKind) -> Substore {
+    pub fn new(root_path : & Path, kind : StoreKind, readonly : bool) -> Substore {
         //if the path root path does not exist, create it
         if ! root_path.exists() {
             std::fs::create_dir_all(root_path).unwrap();
@@ -446,19 +447,19 @@ impl Substore {
             loaded : AtomicBool::new(false),
             load_mutex : Mutex::new(()), 
 
-            commits : Mutex::new(Mapping::new(root, & format!("{:?}-commits", kind))),
-            commits_info : Mutex::new(Store::new(root, & format!("{:?}-commits-info", kind))),
-            commits_metadata : Mutex::new(LinkedStore::new(root, & format!("{:?}-commits-metadata", kind))),
+            commits : Mutex::new(Mapping::new(root, & format!("{:?}-commits", kind), readonly)),
+            commits_info : Mutex::new(Store::new(root, & format!("{:?}-commits-info", kind), readonly)),
+            commits_metadata : Mutex::new(LinkedStore::new(root, & format!("{:?}-commits-metadata", kind), readonly)),
 
-            hashes : Mutex::new(Mapping::new(root, & format!("{:?}-hashes", kind))),
-            contents : Mutex::new(SplitStore::new(root, & format!("{:?}-contents", kind))),
-            contents_metadata : Mutex::new(LinkedStore::new(root, & format!("{:?}-contents-metadata", kind))),
+            hashes : Mutex::new(Mapping::new(root, & format!("{:?}-hashes", kind), readonly)),
+            contents : Mutex::new(SplitStore::new(root, & format!("{:?}-contents", kind), readonly)),
+            contents_metadata : Mutex::new(LinkedStore::new(root, & format!("{:?}-contents-metadata", kind), readonly)),
 
-            paths : Mutex::new(Mapping::new(root, & format!("{:?}-paths", kind))),
-            path_strings : Mutex::new(Store::new(root, & format!("{:?}-path-strings", kind))),
+            paths : Mutex::new(Mapping::new(root, & format!("{:?}-paths", kind), readonly)),
+            path_strings : Mutex::new(Store::new(root, & format!("{:?}-path-strings", kind), readonly)),
 
-            users : Mutex::new(IndirectMapping::new(root, & format!("{:?}-users", kind))),
-            users_metadata : Mutex::new(LinkedStore::new(root, & format!("{:?}-users-metadata", kind))),
+            users : Mutex::new(IndirectMapping::new(root, & format!("{:?}-users", kind), readonly)),
+            users_metadata : Mutex::new(LinkedStore::new(root, & format!("{:?}-users-metadata", kind), readonly)),
 
         };
         // add sentinels (0 index values) for commits, hashes, paths and users

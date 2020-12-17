@@ -41,7 +41,7 @@ fn main() {
     }
     println!("    datastore root: {}", datastore_root);
     println!("    command: {}", command);
-    let ds = Datastore::new(& datastore_root);
+    let ds = Datastore::new(& datastore_root, false);
     let u = Updater::new(ds);
     u.run(command);
     println!("DCD terminated normally. Good bye!");
