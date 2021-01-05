@@ -52,10 +52,10 @@ pub struct Datastore {
 
      */
     pub (crate) projects : Mutex<Store<Project, ProjectId>>,
-    project_substores : Mutex<Store<StoreKind, ProjectId>>,
-    project_updates : Mutex<LinkedStore<ProjectUpdateStatus, ProjectId>>,
-    project_heads : Mutex<Store<ProjectHeads, ProjectId>>,
-    project_metadata : Mutex<LinkedStore<Metadata, ProjectId>>,
+    pub (crate) project_substores : Mutex<Store<StoreKind, ProjectId>>,
+    pub (crate) project_updates : Mutex<LinkedStore<ProjectUpdateStatus, ProjectId>>,
+    pub (crate) project_heads : Mutex<Store<ProjectHeads, ProjectId>>,
+    pub (crate) project_metadata : Mutex<LinkedStore<Metadata, ProjectId>>,
 
     /** Current and past urls for known projects so that when new projects are added we can check for ambiguity.
      */

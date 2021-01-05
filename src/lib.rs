@@ -1,4 +1,5 @@
 use std::hash::Hash;
+use std::collections::HashMap;
 
 mod helpers;
 
@@ -22,6 +23,9 @@ mod github;
 pub type Savepoint = db::Savepoint;
 pub type StoreKind = records::StoreKind;
 pub type SHA = records::Hash;
+pub type ProjectId = records::ProjectId;
+pub type ProjectUrl = records::Project;
+pub type ProjectHeads = records::ProjectHeads;
 pub type CommitId = records::CommitId;
 pub type HashId = records::HashId;
 pub type PathId = records::PathId;
@@ -32,6 +36,9 @@ pub type FileContents = records::FileContents;
 pub type ContentsKind = records::ContentsKind;
 
 
+pub struct Project {
+
+}
 
 /** Datastore view is similar to datastore, but allows only read access. 
  
@@ -106,11 +113,40 @@ impl DatastoreView {
             .map(|(_, sp)| sp);
     }
 
-    /* Projects
+    /* Low-level project API
 
-       
+       Projects may change substores in their lifetime (and theoretically not just once), there may be errors in their updates and every update creates its own new set of project heads, combined with savepoints, which render any random access into their properties impossible. The low level API below is useful for getting the project specification parts in their entirety as they only provide views into the datastore records.
+
+       Note however that this data has to be heavily preprocessed to become really usable. Consider using the higher level projects api described below in the function projects:
+
      */
+    pub fn project_urls(& self) -> StoreView<ProjectUrl, ProjectId> {
+        let guard = self.ds.projects.lock().unwrap();
+        return StoreView{ guard };
+    }
 
+    pub fn project_substores(& self) -> StoreView<StoreKind, ProjectId> {
+        let guard = self.ds.project_substores.lock().unwrap();
+        return StoreView{ guard };
+    }
+
+    pub fn project_heads(& self) -> StoreView<ProjectHeads, ProjectId> {
+        let guard = self.ds.project_heads.lock().unwrap();
+        return StoreView{ guard };
+    }
+
+    pub fn project_metadata(& self) -> LinkedStoreView<Metadata, ProjectId> {
+        let guard = self.ds.project_metadata.lock().unwrap();
+        return LinkedStoreView{ guard };
+    }
+
+    /** High-level project API
+     
+        This function loads all the parts that form a project and assembles them in memory to provide a useful view into the dataset. 
+     */
+    pub fn projects(& self, sp : & Savepoint) -> HashMap<ProjectId, Project> {
+        return self.assemble_projects(sp, None);
+    }
 
     /* Substores
      */
@@ -126,6 +162,11 @@ impl DatastoreView {
          };
      }
 
+
+
+     fn assemble_projects(& self, sp : & Savepoint, substore : Option<StoreKind>) -> HashMap<ProjectId, Project> {
+         unimplemented!();
+     }
 }
 
 /** A view into a substore. 
@@ -141,6 +182,13 @@ impl<'a> SubstoreView<'a> {
 
     pub fn kind(& self) -> StoreKind {
         return self.ss.prefix;
+    }
+
+    /** Loads all projects belonging to the substore at given savepoint and returns their hashmap.
+     
+     */
+    pub fn projects(& self, sp : & Savepoint) -> HashMap<ProjectId, Project> {
+        return self.ds.assemble_projects(sp, Some(self.ss.prefix));
     }
 
     /* Commits
@@ -255,6 +303,10 @@ pub struct SplitStoreView<'a, T : db::Serializable<Item = T>, KIND : db::SplitKi
 
 impl<'a, T : db::Serializable<Item = T>, KIND : db::SplitKind<Item = KIND>, ID : db::Id> SplitStoreView<'a, T, KIND, ID> {
     // TODO add the iterators here!!!!!
+
+    pub fn get(& mut self, id : ID) -> Option<T> {
+        return self.guard.get(id);
+    }
 }
 
 pub struct SavepointsView<'a> {
@@ -266,230 +318,3 @@ impl<'a> SavepointsView<'a> {
         return self.guard.iter_all();
     }
 }
-
-
-
-
-
-// v3 from here
-
-
-
-
-/*
-
-
-// v2 from here:
-
-use std::sync::*;
-use std::io::*;
-use std::str;
-use byteorder::*;
-use db::*;
-use datastore::*;
-use records::*;
-
-type Commit = records::CommitInfo;
-
-/** View into the datastore at a particular time. 
- 
-    - projects 
-    - project updates
-    - project heads
-    - project metadata
-    
-    - commit hashes
-    - commit info
-    - commits metadata
-
-    - users
-    - users_metadata
-
-    - paths
-    - paths metadata
-
-    - hashes (hash to id)
-    - contents (hash id to contents id)
-    - contents data
-    - contents metadata
-
- */
-pub struct DatastoreView {
-    ds : Datastore,
-    sp : Savepoint,
-}
-
-impl DatastoreView {
-    pub fn new(root : & str, time : i64) -> DatastoreView {
-        let ds = Datastore::from(root);
-        let sp = ds.get_savepoint(time);
-        return DatastoreView{ds, sp};
-    }
-
-    pub fn commit_hashes(& self) -> HashMappingIterator {
-        let mut g = self.ds.commits.lock().unwrap();
-        g.writer.f.seek(SeekFrom::Start(0)).unwrap();
-        return HashMappingIterator{
-            g,
-            limit : self.sp.limit_for("commits"),
-            id : 0,
-            buffer : vec![0; 20]            
-        };
-    }
-
-    pub fn hashes(& self) -> HashMappingIterator {
-        let mut g = self.ds.hashes.lock().unwrap();
-        g.writer.f.seek(SeekFrom::Start(0)).unwrap();
-        return HashMappingIterator{
-            g,
-            limit : self.sp.limit_for("hashes"),
-            id : 0,
-            buffer : vec![0; 20]            
-        };
-    }
-
-    pub fn users(& self) -> StringMappingIterator {
-        let mut g = self.ds.users.lock().unwrap();
-        g.writer.f.seek(SeekFrom::Start(0)).unwrap();
-        return StringMappingIterator{
-            g,
-            limit : self.sp.limit_for("users"),
-            id : 0,
-        };
-    }
-
-    pub fn paths(& self) -> StringMappingIterator {
-        let mut g = self.ds.paths.lock().unwrap();
-        g.writer.f.seek(SeekFrom::Start(0)).unwrap();
-        return StringMappingIterator{
-            g,
-            limit : self.sp.limit_for("paths"),
-            id : 0,
-        };
-    }
-
-    pub fn commits(& self) -> PropertyStoreIterator<Commit> {
-        let mut g = self.ds.commits_info.lock().unwrap();
-        g.f.seek(SeekFrom::Start(0)).unwrap();
-        return PropertyStoreIterator{g, limit : self.sp.limit_for("commits_info")};
-    }
-
-    /*
-    pub fn contents(& self) -> PropertyStoreIterator<ContentsData> {
-        let mut g = self.ds.contents_data.lock().unwrap();
-        g.f.seek(SeekFrom::Start(0)).unwrap();
-        return PropertyStoreIterator{g, limit : self.sp.limit_for("contents_data")};
-    }
-    */
-
-}
-
-/** Iterator into hashed mappings. 
- */
-pub struct HashMappingIterator<'a> {
-    g : MutexGuard<'a, DirectMapping<git2::Oid>>,
-    limit : u64, 
-    id : u64,
-    buffer : Vec<u8>,
-}
-
-impl<'a> Iterator for HashMappingIterator<'a> {
-    type Item = (u64, git2::Oid);
-
-    fn next(& mut self) -> Option<Self::Item> {
-        let offset = self.g.writer.f.seek(SeekFrom::Current(0)).unwrap();
-        if offset >= self.limit {
-            return None;
-        }
-        // TODO this is a bit ugly, would be nice if this was part of the API? 
-        if let Ok(20) = self.g.writer.f.read(& mut self.buffer) {
-            let id = self.id;
-            self.id += 1;
-            return Some((id, git2::Oid::from_bytes(& self.buffer).unwrap()));
-        } else {
-            return None;
-        }
-    }
-}
-
-/** Iterator into string mappings.
- */
-
-pub struct StringMappingIterator<'a> {
-    g : MutexGuard<'a, Mapping<String>>,
-    limit : u64, 
-    id : u64,
-}
-
-impl<'a> Iterator for StringMappingIterator<'a> {
-    type Item = (u64, String);
-
-    fn next(& mut self) -> Option<Self::Item> {
-        let offset = self.g.writer.f.seek(SeekFrom::Current(0)).unwrap();
-        if offset >= self.limit {
-            return None;
-        }
-        // TODO this is a bit ugly, would be nice if this was part of the API? 
-        if let Ok(len) = self.g.writer.f.read_u32::<LittleEndian>() {
-            let mut buf = vec![0; len as usize];
-            if self.g.writer.f.read(& mut buf).unwrap() as u32 != len {
-                panic!("Corrupted binary format");
-            }
-            let id = self.id;
-            self.id += 1;
-            return Some((id, String::from_utf8(buf).unwrap()));
-        } else {
-            return None;
-        }
-    }
-}
-
-pub struct PropertyStoreIterator<'a, T : FileWriter<T>> {
-    g : MutexGuard<'a, PropertyStore<T>>,
-    limit : u64,
-}
-
-impl<'a, T : FileWriter<T>> Iterator for PropertyStoreIterator<'a, T> {
-    type Item = (u64, T);
-
-    fn next(& mut self) -> Option<Self::Item> {
-        let offset = self.g.f.seek(SeekFrom::Current(0)).unwrap();
-        if offset >= self.limit {
-            return None;
-        }
-        if let Ok(id) = self.g.f.read_u64::<LittleEndian>() {
-            let value = T::read(& mut self.g.f);
-            return Some((id, value));
-        } else {
-            return None;
-        }
-    }
-}
-
-/*
-/** Iterator into commits information. 
- */
-pub struct CommitsIterator<'a> {
-    g : MutexGuard<'a, PropertyStore<CommitInfo>>,
-    limit : u64,
-}
-
-impl<'a> Iterator for CommitsIterator<'a> {
-    type Item = (u64, Commit);
-
-    fn next(& mut self) -> Option<Self::Item> {
-        let offset = self.g.f.seek(SeekFrom::Current(0)).unwrap();
-        if offset >= self.limit {
-            return None;
-        }
-        if let Ok(id) = self.g.f.read_u64::<LittleEndian>() {
-            let value = Commit::read(& mut self.g.f);
-            return Some((id, value));
-        } else {
-            return None;
-        }
-    }
-}
-*/
-
-*/
