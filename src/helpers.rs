@@ -1,4 +1,4 @@
-use std::time::SystemTime;
+use std::time::{SystemTime, UNIX_EPOCH, Duration};
 use std::str;
 
 pub fn pct(value : usize, max : usize) -> String {
@@ -45,7 +45,13 @@ pub fn to_string(bytes : & [u8]) -> String {
     }
 }
 
-pub fn pretty_time(mut seconds : i64) -> String {
+/** Trivial pretty printer for unix epoch */
+pub fn pretty_timestamp(ts : i64) -> String {
+    let d = UNIX_EPOCH + Duration::from_secs(ts as u64);
+    return format!("{:?}", d);    
+}
+
+pub fn pretty_duration(mut seconds : i64) -> String {
     let d = seconds / (24 * 3600);
     seconds = seconds % (24 * 3600);
     let h = seconds / 3600;

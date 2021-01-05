@@ -900,6 +900,12 @@ impl<T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone, ID : Id> Mapping<T
         self.f.seek(SeekFrom::Start(0)).unwrap();
         return MappingIter{f : & mut self.f, index : 0, size : self.size, why_oh_why : std::marker::PhantomData{} };
     }
+
+    pub fn savepoint_iter(& mut self, sp : & Savepoint) -> MappingIter<T, ID> {
+        let max_offset = sp.limit_for(self.name());
+        self.f.seek(SeekFrom::Start(0)).unwrap();
+        return MappingIter{f : & mut self.f, index : 0, size : max_offset / (std::mem::size_of::<T>() as u64), why_oh_why : std::marker::PhantomData{} };
+    }
 }
 
 pub struct MappingIter<'a, T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone, ID : Id = u64> {
@@ -1004,8 +1010,12 @@ impl<T : Serializable<Item = T> + Eq + Hash + Clone, ID : Id> IndirectMapping<T,
         return self.mapping.len();
     }
 
-    pub fn iter(& mut self) -> StoreIter<T, ID> {
-        return self.store.iter();
+    pub fn iter(& mut self) -> StoreIterAll<T, ID> {
+        return self.store.iter_all();
+    }
+
+    pub fn savepoint_iter(& mut self, sp : & Savepoint) -> StoreIterAll<T, ID> {
+        return self.store.savepoint_iter_all(sp);
     }
 
 }
@@ -1416,6 +1426,26 @@ impl Savepoint {
         return self.sizes.iter().map(|(_, size)| size).sum();
     }
 
+    /** Returns the time at which the savepoint has been created. 
+     */    
+    pub fn time(& self) -> i64 {
+        return self.time;
+    }
+}
+
+/** Simple formatter for a savepoint. 
+ 
+    Displays the name and time as well as the sizes for all stored files
+ */
+impl std::fmt::Display for Savepoint {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        writeln!(f, "Savepoint: {}, time: {} ({})", self.name, helpers::pretty_timestamp(self.time), self.time)?;
+        writeln!(f, "    files: {}", self.sizes.len())?;
+        for (file, size) in self.sizes.iter() {
+            writeln!(f, "    {} {}", size, file)?;
+        }
+        return Ok(());
+    }
 }
 
 impl Serializable for Savepoint {

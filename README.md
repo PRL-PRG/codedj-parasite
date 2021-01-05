@@ -9,6 +9,9 @@
 
 # Features to be added
 
+
+- can we do a templated iterator that takes stuff wraps reference to it and then acts as the iterator? ????
+
 - github linguist and cloc to be executed on snapshots
 - db guys should be able to regenerate their indices from the datafiles
 - a datastore should be able to rollback to any given savepoint

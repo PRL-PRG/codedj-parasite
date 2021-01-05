@@ -67,7 +67,7 @@ pub struct Datastore {
      */
     substores : Vec<Substore>,
 
-    savepoints : Mutex<LinkedStore<Savepoint>>,
+    pub (crate) savepoints : Mutex<LinkedStore<Savepoint>>,
 }
 
 impl Datastore {
@@ -190,7 +190,7 @@ impl Datastore {
 
     /** Creates new savepoint and stores it in the datastore. 
      */
-    pub (crate) fn create_savepoint(& self, name : String) -> Savepoint {
+    pub (crate) fn create_savepoint(& self, name : String, save : bool) -> Savepoint {
         let mut savepoint = Savepoint::new(name);
         self.projects.lock().unwrap().savepoint(& mut savepoint);
         self.project_substores.lock().unwrap().savepoint(& mut savepoint);
@@ -201,7 +201,9 @@ impl Datastore {
         for substore in self.substores.iter() {
             substore.savepoint(& mut savepoint);
         }
-        self.savepoints.lock().unwrap().set(0, & savepoint);
+        if save {
+            self.savepoints.lock().unwrap().set(0, & savepoint);
+        }
         return savepoint;
     }
 
@@ -390,7 +392,7 @@ pub (crate) struct Substore {
     root : String,
     /** The prefix of the dataset. 
      */
-    prefix : StoreKind,
+    pub (crate) prefix : StoreKind,
 
     /** Determines whether the substore's mappings are loaded in memory and therefore new items can be added to it. 
      
@@ -401,9 +403,9 @@ pub (crate) struct Substore {
 
     /** Commits stored in the dataset. 
      */
-    commits : Mutex<Mapping<Hash, CommitId>>,
-    commits_info : Mutex<Store<CommitInfo, CommitId>>,
-    commits_metadata : Mutex<LinkedStore<Metadata, CommitId>>,
+    pub (crate) commits : Mutex<Mapping<Hash, CommitId>>,
+    pub (crate) commits_info : Mutex<Store<CommitInfo, CommitId>>,
+    pub (crate) commits_metadata : Mutex<LinkedStore<Metadata, CommitId>>,
 
     /** File hashes and their contents. 
      
@@ -411,23 +413,23 @@ pub (crate) struct Substore {
 
         We use a split store based on the ContentsKind of the file to be stored. The index is kept for *all* file hashes, i.e. there will be a lot of empty holes in it, but these holes will be relatively cheap (20 bytes per hole, 10 bytes for contents and 10 bytes for metadata) and on disk, where it bothers us less. 
      */
-    hashes : Mutex<Mapping<Hash, HashId>>,
-    contents : Mutex<SplitStore<FileContents, ContentsKind, HashId>>,
-    contents_metadata : Mutex<LinkedStore<Metadata, HashId>>,
+    pub (crate) hashes : Mutex<Mapping<Hash, HashId>>,
+    pub (crate) contents : Mutex<SplitStore<FileContents, ContentsKind, HashId>>,
+    pub (crate) contents_metadata : Mutex<LinkedStore<Metadata, HashId>>,
 
     /** Paths. 
      
         Path hash to ids is stored in a mapping at runtime, while path strings are stored separately in an indexable store on disk. 
      */
-    paths : Mutex<Mapping<Hash, PathId>>,
-    path_strings : Mutex<Store<String, PathId>>,
+    pub (crate) paths : Mutex<Mapping<Hash, PathId>>,
+    pub (crate) path_strings : Mutex<Store<String, PathId>>,
 
     /** Users.
      
         Users are mapped by their email. 
      */
-    users : Mutex<IndirectMapping<String, UserId>>,
-    users_metadata : Mutex<LinkedStore<Metadata, UserId>>,
+    pub (crate) users : Mutex<IndirectMapping<String, UserId>>,
+    pub (crate) users_metadata : Mutex<LinkedStore<Metadata, UserId>>,
 
 }
 

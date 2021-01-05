@@ -319,7 +319,7 @@ impl Updater {
             println!("{} DCD v3 (datastore version {}), uptime [ {} ], threads [ {}r, {}i, {}p ], status: [ {} ] \x1b[K",
                 info.get_tick_symbol(), 
                 Datastore::VERSION, 
-                helpers::pretty_time(helpers::now() - info.start_time), 
+                helpers::pretty_duration(helpers::now() - info.start_time), 
                 threads.running_workers, threads.idle_workers, threads.paused_workers, 
                 threads.status());
             queue_size = threads.queue.len();
@@ -563,7 +563,7 @@ impl Updater {
                 if cmd.len() != 2 {
                     self.display_error("Invalid arguments");
                 } else {
-                    let sp = self.ds.create_savepoint(cmd[1].to_owned());
+                    let sp = self.ds.create_savepoint(cmd[1].to_owned(), true);
                     self.display_prompt(format!("Created savepoint {}, total size {}", sp.name(), helpers::pretty_size(sp.size())));
                 }
             },
@@ -789,7 +789,7 @@ impl TaskInfo {
         println!(" {}: {} elapsed [ {} ], progress [ {}% ({}/{}) ]\x1b[K",
             name,
             self.extra,
-            helpers::pretty_time(helpers::now() - self.start_time),
+            helpers::pretty_duration(helpers::now() - self.start_time),
             helpers::pct(self.progress, self.progress_max),
             self.progress,
             self.progress_max
