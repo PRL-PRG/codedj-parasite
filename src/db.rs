@@ -1070,9 +1070,9 @@ impl<T : SplitKind> Iterator for SplitKindIter<T> {
     Each kind has its own store. The SplitOffset is serializable with fixed size calculated from the offset (8 bytes) and serialized kind size. 
  */
 #[derive(Eq, PartialEq)]
-struct SplitOffset<KIND : SplitKind<Item = KIND>> {
-    offset : u64,
-    kind : KIND, 
+pub (crate) struct SplitOffset<KIND : SplitKind<Item = KIND>> {
+    pub (crate) offset : u64,
+    pub (crate) kind : KIND, 
 }
 
 impl<KIND : SplitKind<Item = KIND>> Serializable for SplitOffset<KIND> {
@@ -1110,7 +1110,7 @@ impl<KIND : SplitKind<Item = KIND>> Indexable for SplitOffset<KIND> {
  */
 pub struct SplitStore<T : Serializable<Item = T>, KIND : SplitKind<Item = KIND>, ID : Id = u64> {
     name : String,
-    indexer : Indexer<SplitOffset<KIND>, ID>,
+    pub (crate) indexer : Indexer<SplitOffset<KIND>, ID>,
     files : Vec<File>,
     why_oh_why : std::marker::PhantomData<T>
 }

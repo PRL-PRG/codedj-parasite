@@ -13,10 +13,14 @@ use dcd::*;
     And arguments can be: 
  */
 fn main() {
-    let ds = DatastoreView::new("/foo/bar");
 
-    
+    let args : Vec<String> = std::env::args().collect();
+    let ds = DatastoreView::new(& args[1]);
+    summary(& ds);
+}
 
+fn summary(ds : & DatastoreView) {
+    println!("{}", ds.summary());
 }
 
 fn savepoints(ds : & DatastoreView) {
@@ -28,6 +32,8 @@ fn savepoints(ds : & DatastoreView) {
     }
     println!("Total {} savepoints found.", num);
 }
+
+
 
 
 

@@ -65,7 +65,7 @@ pub struct Datastore {
      
         Stored in vector since we know their ids from the IDSplit based on the SubstoreKind. Does not have to be protected as the substores protect their data with mutexes themselves and all substores are cratead when the datastore is instantiated. 
      */
-    substores : Vec<Substore>,
+    pub (crate) substores : Vec<Substore>,
 
     pub (crate) savepoints : Mutex<LinkedStore<Savepoint>>,
 }

@@ -20,6 +20,8 @@ mod task_drop_substore;
 mod task_verify_substore;
 mod github;
 
+use crate::db::Indexable;
+
 pub type Savepoint = db::Savepoint;
 pub type StoreKind = records::StoreKind;
 pub type SHA = records::Hash;
@@ -34,6 +36,52 @@ pub type Metadata = records::Metadata;
 pub type CommitInfo = records::CommitInfo;
 pub type FileContents = records::FileContents;
 pub type ContentsKind = records::ContentsKind;
+
+pub struct Summary {
+    pub projects : usize,
+    pub commits : usize,
+    pub paths : usize,
+    pub users : usize,
+    pub hashes : usize,
+    pub contents : usize,
+}
+
+impl Summary {
+    pub fn new() -> Summary {
+        return Summary{ projects : 0, commits : 0, paths : 0, users : 0, hashes : 0, contents : 0 };
+    }
+}
+
+impl std::ops::Add<Summary> for Summary {
+    type Output = Summary;
+
+    fn add(self, rhs: Summary) -> Summary {
+        return Summary{
+            projects : self.projects + rhs.projects,
+            commits : self.commits + rhs.commits,
+            paths : self.paths + rhs.paths,
+            users : self.users + rhs.users,
+            hashes : self.hashes + rhs.hashes,
+            contents : self.contents + rhs.contents,
+        };
+    }
+}
+
+/** Simple formatter that writes the summary in a csv format.
+ */
+impl std::fmt::Display for Summary {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        writeln!(f, "size,kind")?;
+        writeln!(f, "{},projects", self.projects)?;
+        writeln!(f, "{},commits", self.commits)?;
+        writeln!(f, "{},paths", self.paths)?;
+        writeln!(f, "{},users", self.users)?;
+        writeln!(f, "{},hashes", self.hashes)?;
+        writeln!(f, "{},contents", self.contents)?;
+        return Ok(());
+    }
+}
+
 
 
 pub struct Project {
@@ -151,22 +199,38 @@ impl DatastoreView {
     /* Substores
      */
 
-    //pub fn substores(& self) -> Iter {
-    //
-    //}
+    pub fn substores(& self) -> SubstoreViewIterator {
+        return SubstoreViewIterator{
+            ds : self,
+            i : self.ds.substores.iter(),
+        };
+    }
 
-     pub fn get_substore(& self, substore : StoreKind) -> SubstoreView {
-         return SubstoreView{
-             ds : self, 
-             ss : self.ds.substore(substore)
-         };
-     }
+    pub fn get_substore(& self, substore : StoreKind) -> SubstoreView {
+        return SubstoreView{
+            ds : self, 
+            ss : self.ds.substore(substore)
+        };
+    }
 
 
 
-     fn assemble_projects(& self, sp : & Savepoint, substore : Option<StoreKind>) -> HashMap<ProjectId, Project> {
-         unimplemented!();
-     }
+    fn assemble_projects(& self, sp : & Savepoint, substore : Option<StoreKind>) -> HashMap<ProjectId, Project> {
+        unimplemented!();
+    }
+
+
+    /** A simple function that returns the summary of the dataset. 
+     */
+    pub fn summary(& self) -> Summary {
+        println!("Calculating summary for entire datastore...");
+        let mut result = Summary::new();
+        result.projects = self.ds.projects.lock().unwrap().len();
+        for ss in self.substores() {
+            result = result + ss.summary();
+        }
+        return result;
+    }
 }
 
 /** A view into a substore. 
@@ -252,6 +316,37 @@ impl<'a> SubstoreView<'a> {
         return LinkedStoreView{ guard };
     }
 
+    pub fn summary(& self) -> Summary {
+        println!("calculating summary for substore {:?}", self.kind());
+        let mut result = Summary::new();
+        result.commits = self.ss.commits.lock().unwrap().len();
+        result.hashes = self.ss.hashes.lock().unwrap().len();
+        result.paths = self.ss.paths.lock().unwrap().len();
+        result.users = self.ss.users.lock().unwrap().len();
+        // getting the actual contents saved is more complex as there is no way to determine how many we have unless we actually iterate over them
+        result.contents = self.ss.contents.lock().unwrap().indexer.iter()
+            .filter(|(_,index)| { index != & db::SplitOffset::<records::ContentsKind>::EMPTY })
+            .count();
+        return result;
+    }
+
+}
+
+
+pub struct SubstoreViewIterator<'a> {
+    ds : &'a DatastoreView,
+    i : std::slice::Iter<'a, datastore::Substore>,
+}
+
+impl<'a> Iterator for SubstoreViewIterator<'a> {
+    type Item = SubstoreView<'a>;
+
+    fn next(& mut self) -> Option<Self::Item> {
+        match self.i.next() {
+            Some(x) => return Some(SubstoreView{ds : self.ds, ss : x}),
+            None => return None,
+        }
+    }
 }
 
 
@@ -318,3 +413,6 @@ impl<'a> SavepointsView<'a> {
         return self.guard.iter_all();
     }
 }
+
+
+
