@@ -16,11 +16,21 @@ fn main() {
 
     let args : Vec<String> = std::env::args().collect();
     let ds = DatastoreView::new(& args[1]);
-    summary(& ds);
+    datastore_size(& ds);
 }
 
 fn summary(ds : & DatastoreView) {
     println!("{}", ds.summary());
+}
+
+fn datastore_size(ds : & DatastoreView) {
+    println!("Savepoints:\n{}", ds.savepoints_size());
+    println!("Projects:\n{}", ds.projects_size());
+    println!("Commits:\n{}", ds.commits_size());
+    println!("Contents:\n{}", ds.contents_size());
+    println!("Paths:\n{}", ds.paths_size());
+    println!("Users:\n{}", ds.users_size());
+    println!("Total:\n{}", ds.datastore_size());
 }
 
 fn savepoints(ds : & DatastoreView) {
@@ -32,9 +42,3 @@ fn savepoints(ds : & DatastoreView) {
     }
     println!("Total {} savepoints found.", num);
 }
-
-
-
-
-
-

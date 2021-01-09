@@ -277,8 +277,6 @@ impl<'a, T : Indexable + Serializable<Item = T>, ID : Id> Iterator for IndexerIt
 /** Store implementation. 
  
     Store is an indexed updatable container that keeps history of updates.
-
-    TODO add savepoint
  */
 pub struct Store<T : Serializable<Item = T>, ID : Id = u64> {
     pub (crate) indexer : Indexer<u64, ID>,
@@ -933,7 +931,7 @@ impl<'a, T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone, ID : Id> Itera
 /** Mapping from values to ids where the values require indexing. 
  */
 pub struct IndirectMapping<T : Serializable<Item = T> + Eq + Hash + Clone, ID : Id = u64> {
-    store : Store<T, ID>,
+    pub (crate) store : Store<T, ID>,
     mapping : HashMap<T, ID>
 }
 
@@ -1111,7 +1109,7 @@ impl<KIND : SplitKind<Item = KIND>> Indexable for SplitOffset<KIND> {
 pub struct SplitStore<T : Serializable<Item = T>, KIND : SplitKind<Item = KIND>, ID : Id = u64> {
     name : String,
     pub (crate) indexer : Indexer<SplitOffset<KIND>, ID>,
-    files : Vec<File>,
+    pub (crate) files : Vec<File>,
     why_oh_why : std::marker::PhantomData<T>
 }
 

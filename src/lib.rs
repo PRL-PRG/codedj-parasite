@@ -1,5 +1,6 @@
 use std::hash::Hash;
 use std::collections::HashMap;
+use std::io::{Seek, SeekFrom, Read, Write};
 
 mod helpers;
 
@@ -37,6 +38,88 @@ pub type CommitInfo = records::CommitInfo;
 pub type FileContents = records::FileContents;
 pub type ContentsKind = records::ContentsKind;
 
+/** Datastore size broken up into actual database contents and the redundant indexing files. 
+ */
+pub struct DatastoreSize {
+    pub contents : usize,
+    pub indices : usize,
+}
+
+impl std::ops::Add<DatastoreSize> for DatastoreSize {
+    type Output = DatastoreSize;
+
+    fn add(self, rhs: DatastoreSize) -> DatastoreSize {
+        return DatastoreSize{
+            contents : self.contents + rhs.contents,
+            indices : self.indices + rhs.indices,
+        };
+    }
+}
+
+impl std::fmt::Display for DatastoreSize {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        writeln!(f, "size,kind")?;
+        writeln!(f, "{},contents", self.contents)?;
+        writeln!(f, "{},indices", self.indices)?;
+        return Ok(());
+    }
+}
+
+trait DatastoreSizeGetter {
+    fn datastore_size(& mut self) -> DatastoreSize;
+}
+
+impl<T : db::Indexable + db::Serializable<Item = T>, ID : db::Id> DatastoreSizeGetter for db::Indexer<T, ID> {
+    fn datastore_size(& mut self) -> DatastoreSize {
+        return DatastoreSize{
+            contents : 0, 
+            indices : self.len() * (T::SIZE as usize),
+        };
+    }
+}
+
+impl<T: db::Serializable<Item = T>, ID : db::Id> DatastoreSizeGetter for db::Store<T, ID> {
+    fn datastore_size(& mut self) -> DatastoreSize {
+        let contents = self.f.seek(SeekFrom::End(0)).unwrap() as usize;
+        return self.indexer.datastore_size() + DatastoreSize{ contents, indices : 0 };
+    }
+}
+
+impl<T: db::Serializable<Item = T>, ID : db::Id> DatastoreSizeGetter for db::LinkedStore<T, ID> {
+    fn datastore_size(& mut self) -> DatastoreSize {
+        let contents = self.f.seek(SeekFrom::End(0)).unwrap() as usize;
+        return self.indexer.datastore_size() + DatastoreSize{ contents, indices : 0 };
+    }
+}
+
+impl<T: db::FixedSizeSerializable<Item = T> + Eq + Hash + Clone, ID : db::Id> DatastoreSizeGetter for db::Mapping<T, ID> {
+    fn datastore_size(& mut self) -> DatastoreSize {
+        return DatastoreSize{ contents : self.len() * (T::SIZE as usize), indices : 0 };
+    }
+}
+
+impl<T: db::Serializable<Item = T> + Eq + Hash + Clone, ID : db::Id> DatastoreSizeGetter for db::IndirectMapping<T, ID> {
+    fn datastore_size(& mut self) -> DatastoreSize {
+        return self.store.datastore_size();
+    }
+}
+
+impl<T: db::Serializable<Item = T>, KIND : db::SplitKind<Item = KIND>, ID : db::Id> DatastoreSizeGetter for db::SplitStore<T, KIND, ID> {
+    fn datastore_size(& mut self) -> DatastoreSize {
+        let mut result = self.indexer.datastore_size();
+        for f in self.files.iter_mut() {
+            let contents = f.seek(SeekFrom::End(0)).unwrap() as usize;
+            result = result + DatastoreSize{ contents, indices : 0 };
+        }
+        return result;
+    }
+}
+
+
+
+
+/** Summary of the datastore in terms of stored elements. 
+ */
 pub struct Summary {
     pub projects : usize,
     pub commits : usize,
@@ -231,6 +314,57 @@ impl DatastoreView {
         }
         return result;
     }
+
+    pub fn projects_size(& self) -> DatastoreSize {
+        let mut result = DatastoreSize{ contents : 0, indices : 0 };
+        result = result + self.ds.projects.lock().unwrap().datastore_size();
+        result = result + self.ds.project_substores.lock().unwrap().datastore_size();
+        result = result + self.ds.project_updates.lock().unwrap().datastore_size();
+        result = result + self.ds.project_heads.lock().unwrap().datastore_size();
+        result = result + self.ds.project_metadata.lock().unwrap().datastore_size();
+        return result;
+    }
+
+    pub fn savepoints_size(& self) -> DatastoreSize {
+        return self.ds.savepoints.lock().unwrap().datastore_size();
+    }
+
+    pub fn commits_size(& self) -> DatastoreSize {
+        let mut result = DatastoreSize{ contents : 0, indices : 0 };
+        for ss in self.substores() {
+            result = result + ss.commits_size();
+        }
+        return result;
+    }
+
+    pub fn contents_size(& self) -> DatastoreSize {
+        let mut result = DatastoreSize{ contents : 0, indices : 0 };
+        for ss in self.substores() {
+            result = result + ss.contents_size();
+        }
+        return result;
+    }
+
+    pub fn paths_size(& self) -> DatastoreSize {
+        let mut result = DatastoreSize{ contents : 0, indices : 0 };
+        for ss in self.substores() {
+            result = result + ss.paths_size();
+        }
+        return result;
+    }
+
+    pub fn users_size(& self) -> DatastoreSize {
+        let mut result = DatastoreSize{ contents : 0, indices : 0 };
+        for ss in self.substores() {
+            result = result + ss.users_size();
+        }
+        return result;
+    }
+
+    pub fn datastore_size(& self) -> DatastoreSize {
+        return self.projects_size() + self.savepoints_size() + self.commits_size() + self.contents_size() + self.paths_size() + self.users_size();
+    }
+
 }
 
 /** A view into a substore. 
@@ -328,6 +462,22 @@ impl<'a> SubstoreView<'a> {
             .filter(|(_,index)| { index != & db::SplitOffset::<records::ContentsKind>::EMPTY })
             .count();
         return result;
+    }
+
+    pub fn commits_size(& self) -> DatastoreSize {
+        return self.ss.commits.lock().unwrap().datastore_size() + self.ss.commits_info.lock().unwrap().datastore_size() + self.ss.commits_metadata.lock().unwrap().datastore_size();
+    }
+
+    pub fn contents_size(& self) -> DatastoreSize {
+        return self.ss.hashes.lock().unwrap().datastore_size() + self.ss.contents.lock().unwrap().datastore_size() + self.ss.contents_metadata.lock().unwrap().datastore_size();
+    }
+
+    pub fn paths_size(& self) -> DatastoreSize {
+        return self.ss.paths.lock().unwrap().datastore_size() + self.ss.path_strings.lock().unwrap().datastore_size();
+    }
+
+    pub fn users_size(& self) -> DatastoreSize {
+        return self.ss.users.lock().unwrap().datastore_size() + self.ss.users_metadata.lock().unwrap().datastore_size();
     }
 
 }
