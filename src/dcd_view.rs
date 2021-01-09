@@ -16,7 +16,7 @@ fn main() {
 
     let args : Vec<String> = std::env::args().collect();
     let ds = DatastoreView::new(& args[1]);
-    datastore_size(& ds);
+    project_updates(& ds);
 }
 
 fn summary(ds : & DatastoreView) {
@@ -41,4 +41,14 @@ fn savepoints(ds : & DatastoreView) {
         num += 1;
     }
     println!("Total {} savepoints found.", num);
+}
+
+fn project_updates(ds : & DatastoreView) {
+    let sp = ds.get_savepoint("after_emery").unwrap();
+    for (id, log) in ds.project_log().iter(& sp) {
+        match log {
+            ProjectLog::Ok{time, version: _} => println!("{:?},{},ok", id, time),
+            _ => {},
+        }
+    }
 }

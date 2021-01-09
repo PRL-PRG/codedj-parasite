@@ -37,6 +37,7 @@ pub type Metadata = records::Metadata;
 pub type CommitInfo = records::CommitInfo;
 pub type FileContents = records::FileContents;
 pub type ContentsKind = records::ContentsKind;
+pub type ProjectLog = records::ProjectUpdateStatus;
 
 /** Datastore size broken up into actual database contents and the redundant indexing files. 
  */
@@ -268,6 +269,11 @@ impl DatastoreView {
 
     pub fn project_metadata(& self) -> LinkedStoreView<Metadata, ProjectId> {
         let guard = self.ds.project_metadata.lock().unwrap();
+        return LinkedStoreView{ guard };
+    }
+
+    pub fn project_log(& self) -> LinkedStoreView<ProjectLog, ProjectId> {
+        let guard = self.ds.project_updates.lock().unwrap();
         return LinkedStoreView{ guard };
     }
 
