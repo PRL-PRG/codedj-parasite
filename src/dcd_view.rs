@@ -16,7 +16,7 @@ fn main() {
 
     let args : Vec<String> = std::env::args().collect();
     let ds = DatastoreView::new(& args[1]);
-    project_updates(& ds);
+    contents_compression(& ds);
 }
 
 fn summary(ds : & DatastoreView) {
@@ -51,4 +51,25 @@ fn project_updates(ds : & DatastoreView) {
             _ => {},
         }
     }
+}
+
+/** Calculates the compression rate for the file contents. 
+ */
+fn contents_compression(ds : & DatastoreView) {
+    let sp = ds.latest();
+    let mut compressed : usize = 0;
+    let mut uncompressed : usize = 0;
+    for ss in ds.substores() {
+        let mut comp = ss.contents_size().contents;
+        compressed = compressed + comp;
+        let mut uncomp = 0;
+        for (id, _, contents) in ss.contents().iter(& sp) {
+            uncomp = uncomp + 16 + contents.len(); // id + size
+        }
+        uncompressed += uncomp;
+        println!("{:?}: compressed : {}, uncompressed : {}", ss.kind(), comp, uncomp);
+    }
+    println!("TOTAL: compressed : {}, uncompressed : {}", compressed, uncompressed);
+
+
 }

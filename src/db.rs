@@ -1249,9 +1249,43 @@ impl<T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>, ID : Id> SplitSto
         return self.indexer.len();
     }
 
+    pub fn savepoint_iter(& mut self, sp : & Savepoint) -> SplitStoreIterAll<T,KIND,ID> {
+        let mut max_offsets = Vec::new();
+        let mut i = 0;
+        for f in self.files.iter_mut() {
+            max_offsets.push(sp.limit_for(& format!("{}-{}", self.name, i)));
+            i += 1;
+        }
+        self.files[0].seek(SeekFrom::Start(0)).unwrap();
+        return SplitStoreIterAll{ store : self, max_offsets, split : 0 }
+    }
+
     // TODO add iterators
 
 }
+
+pub struct SplitStoreIterAll<'a, T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>, ID : Id> {
+    store: &'a mut SplitStore<T, KIND, ID>,
+    max_offsets : Vec<u64>,
+    split : usize,
+}
+
+impl<'a, T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>, ID : Id> Iterator for SplitStoreIterAll<'a, T, KIND, ID> {
+    type Item = (ID, KIND, T);
+
+    fn next(& mut self) -> Option<(ID, KIND, T)> {
+        if self.store.files[self.split].seek(SeekFrom::Current(0)).unwrap() >= self.max_offsets[self.split] {
+            self.split += 1;
+            if self.split >= self.max_offsets.len() {
+                return None;
+            }
+            self.store.files[self.split].seek(SeekFrom::Start(0)).unwrap();
+        } 
+        let (id, value) = Store::<T, ID>::read_record(self.store.files.get_mut(self.split).unwrap()).unwrap();
+        return Some((id, KIND::from_number(self.split as u64), value));
+    }
+}
+
 
 /*
 /** Split store contains single index, but multiple files that store the data based on its kind. 

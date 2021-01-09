@@ -558,6 +558,10 @@ impl<'a, T : db::Serializable<Item = T>, KIND : db::SplitKind<Item = KIND>, ID :
     pub fn get(& mut self, id : ID) -> Option<T> {
         return self.guard.get(id);
     }
+
+    pub fn iter(& mut self, sp : & Savepoint) -> db::SplitStoreIterAll<T, KIND, ID> {
+        return self.guard.savepoint_iter(sp);
+    }
 }
 
 pub struct SavepointsView<'a> {
