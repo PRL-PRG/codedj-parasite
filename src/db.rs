@@ -1274,15 +1274,19 @@ impl<'a, T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>, ID : Id> Iter
     type Item = (ID, KIND, T);
 
     fn next(& mut self) -> Option<(ID, KIND, T)> {
-        if self.store.files[self.split].seek(SeekFrom::Current(0)).unwrap() >= self.max_offsets[self.split] {
-            self.split += 1;
-            if self.split >= self.max_offsets.len() {
-                return None;
+        loop {
+            if self.store.files[self.split].seek(SeekFrom::Current(0)).unwrap() >= self.max_offsets[self.split] {
+                self.split += 1;
+                if self.split >= self.max_offsets.len() {
+                    return None;
+                }
+                self.store.files[self.split].seek(SeekFrom::Start(0)).unwrap();
+            } 
+            // there might be empty splits too
+            if let Some((id, value)) = Store::<T, ID>::read_record(self.store.files.get_mut(self.split).unwrap()) {
+                return Some((id, KIND::from_number(self.split as u64), value));
             }
-            self.store.files[self.split].seek(SeekFrom::Start(0)).unwrap();
-        } 
-        let (id, value) = Store::<T, ID>::read_record(self.store.files.get_mut(self.split).unwrap()).unwrap();
-        return Some((id, KIND::from_number(self.split as u64), value));
+        }
     }
 }
 
