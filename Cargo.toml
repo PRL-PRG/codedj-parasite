@@ -1,20 +1,20 @@
 [package]
-name = "dcd"
-version = "0.1.0"
+name = "parasite"
+version = "0.3.0"
 authors = ["peta <peta.maj82@gmail.com>"]
 edition = "2018"
 
 [lib]
-name = "dcd"
+name = "parasite"
 path = "src/lib.rs"
 
 [[bin]]
-name = "dcd"
+name = "parasite"
 path = "src/main.rs"
 
-[[bin]]
-name = "dcd-view"
-path = "src/dcd_view.rs"
+#[[bin]]
+#name = "dcd-view"
+#path = "src/dcd_view.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

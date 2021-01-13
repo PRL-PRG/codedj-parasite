@@ -3,14 +3,17 @@
     sudo apt-get install libssl-dev libgit2-dev cmake pkg-config libicu-dev zlib1g-dev libcurl4-gnutls-dev ruby-dev cloc
     gem install github-linguist    
 
+
+# Usage
+
+
+
+
 # Basics
 
 > TODO basic info about code and data layout.
 
 # Features to be added
-
-
-- can we do a templated iterator that takes stuff wraps reference to it and then acts as the iterator? ????
 
 - github linguist and cloc to be executed on snapshots
 - db guys should be able to regenerate their indices from the datafiles
@@ -18,7 +21,6 @@
 - add helper functions to show savepoints, enumerate items, etc. 
 - add projects from github directly
 - add issues
-
 
 # TODO
 

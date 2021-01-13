@@ -1,6 +1,6 @@
 use std::hash::Hash;
 use std::collections::HashMap;
-use std::io::{Seek, SeekFrom, Read, Write};
+use std::io::{Seek, SeekFrom};
 
 mod helpers;
 
@@ -23,6 +23,11 @@ mod github;
 
 use crate::db::Indexable;
 
+/* Exported types.
+
+   TODO there are some renamings here, would be nice to unify. 
+ */
+
 pub type Savepoint = db::Savepoint;
 pub type StoreKind = records::StoreKind;
 pub type SHA = records::Hash;
@@ -38,134 +43,6 @@ pub type CommitInfo = records::CommitInfo;
 pub type FileContents = records::FileContents;
 pub type ContentsKind = records::ContentsKind;
 pub type ProjectLog = records::ProjectUpdateStatus;
-
-/** Datastore size broken up into actual database contents and the redundant indexing files. 
- */
-pub struct DatastoreSize {
-    pub contents : usize,
-    pub indices : usize,
-}
-
-impl std::ops::Add<DatastoreSize> for DatastoreSize {
-    type Output = DatastoreSize;
-
-    fn add(self, rhs: DatastoreSize) -> DatastoreSize {
-        return DatastoreSize{
-            contents : self.contents + rhs.contents,
-            indices : self.indices + rhs.indices,
-        };
-    }
-}
-
-impl std::fmt::Display for DatastoreSize {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        writeln!(f, "size,kind")?;
-        writeln!(f, "{},contents", self.contents)?;
-        writeln!(f, "{},indices", self.indices)?;
-        return Ok(());
-    }
-}
-
-trait DatastoreSizeGetter {
-    fn datastore_size(& mut self) -> DatastoreSize;
-}
-
-impl<T : db::Indexable + db::Serializable<Item = T>, ID : db::Id> DatastoreSizeGetter for db::Indexer<T, ID> {
-    fn datastore_size(& mut self) -> DatastoreSize {
-        return DatastoreSize{
-            contents : 0, 
-            indices : self.len() * (T::SIZE as usize),
-        };
-    }
-}
-
-impl<T: db::Serializable<Item = T>, ID : db::Id> DatastoreSizeGetter for db::Store<T, ID> {
-    fn datastore_size(& mut self) -> DatastoreSize {
-        let contents = self.f.seek(SeekFrom::End(0)).unwrap() as usize;
-        return self.indexer.datastore_size() + DatastoreSize{ contents, indices : 0 };
-    }
-}
-
-impl<T: db::Serializable<Item = T>, ID : db::Id> DatastoreSizeGetter for db::LinkedStore<T, ID> {
-    fn datastore_size(& mut self) -> DatastoreSize {
-        let contents = self.f.seek(SeekFrom::End(0)).unwrap() as usize;
-        return self.indexer.datastore_size() + DatastoreSize{ contents, indices : 0 };
-    }
-}
-
-impl<T: db::FixedSizeSerializable<Item = T> + Eq + Hash + Clone, ID : db::Id> DatastoreSizeGetter for db::Mapping<T, ID> {
-    fn datastore_size(& mut self) -> DatastoreSize {
-        return DatastoreSize{ contents : self.len() * (T::SIZE as usize), indices : 0 };
-    }
-}
-
-impl<T: db::Serializable<Item = T> + Eq + Hash + Clone, ID : db::Id> DatastoreSizeGetter for db::IndirectMapping<T, ID> {
-    fn datastore_size(& mut self) -> DatastoreSize {
-        return self.store.datastore_size();
-    }
-}
-
-impl<T: db::Serializable<Item = T>, KIND : db::SplitKind<Item = KIND>, ID : db::Id> DatastoreSizeGetter for db::SplitStore<T, KIND, ID> {
-    fn datastore_size(& mut self) -> DatastoreSize {
-        let mut result = self.indexer.datastore_size();
-        for f in self.files.iter_mut() {
-            let contents = f.seek(SeekFrom::End(0)).unwrap() as usize;
-            result = result + DatastoreSize{ contents, indices : 0 };
-        }
-        return result;
-    }
-}
-
-
-
-
-/** Summary of the datastore in terms of stored elements. 
- */
-pub struct Summary {
-    pub projects : usize,
-    pub commits : usize,
-    pub paths : usize,
-    pub users : usize,
-    pub hashes : usize,
-    pub contents : usize,
-}
-
-impl Summary {
-    pub fn new() -> Summary {
-        return Summary{ projects : 0, commits : 0, paths : 0, users : 0, hashes : 0, contents : 0 };
-    }
-}
-
-impl std::ops::Add<Summary> for Summary {
-    type Output = Summary;
-
-    fn add(self, rhs: Summary) -> Summary {
-        return Summary{
-            projects : self.projects + rhs.projects,
-            commits : self.commits + rhs.commits,
-            paths : self.paths + rhs.paths,
-            users : self.users + rhs.users,
-            hashes : self.hashes + rhs.hashes,
-            contents : self.contents + rhs.contents,
-        };
-    }
-}
-
-/** Simple formatter that writes the summary in a csv format.
- */
-impl std::fmt::Display for Summary {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        writeln!(f, "size,kind")?;
-        writeln!(f, "{},projects", self.projects)?;
-        writeln!(f, "{},commits", self.commits)?;
-        writeln!(f, "{},paths", self.paths)?;
-        writeln!(f, "{},users", self.users)?;
-        writeln!(f, "{},hashes", self.hashes)?;
-        writeln!(f, "{},contents", self.contents)?;
-        return Ok(());
-    }
-}
-
 
 
 pub struct Project {
@@ -304,7 +181,7 @@ impl DatastoreView {
 
 
 
-    fn assemble_projects(& self, sp : & Savepoint, substore : Option<StoreKind>) -> HashMap<ProjectId, Project> {
+    fn assemble_projects(& self, _sp : & Savepoint, _substore : Option<StoreKind>) -> HashMap<ProjectId, Project> {
         unimplemented!();
     }
 
@@ -505,9 +382,6 @@ impl<'a> Iterator for SubstoreViewIterator<'a> {
     }
 }
 
-
-
-
 pub struct StoreView<'a, T : db::Serializable<Item = T>, ID : db::Id = u64> {
     guard : std::sync::MutexGuard<'a, db::Store<T,ID>>,
 }
@@ -553,7 +427,6 @@ pub struct SplitStoreView<'a, T : db::Serializable<Item = T>, KIND : db::SplitKi
 }
 
 impl<'a, T : db::Serializable<Item = T>, KIND : db::SplitKind<Item = KIND>, ID : db::Id> SplitStoreView<'a, T, KIND, ID> {
-    // TODO add the iterators here!!!!!
 
     pub fn get(& mut self, id : ID) -> Option<T> {
         return self.guard.get(id);
@@ -574,5 +447,135 @@ impl<'a> SavepointsView<'a> {
     }
 }
 
+
+/* ====================================================================================================================
+   Helper classes for various statistics about the datastore. 
+   ====================================================================================================================
+ */
+
+
+/** Datastore size broken up into actual database contents and the redundant indexing files. 
+ */
+pub struct DatastoreSize {
+    pub contents : usize,
+    pub indices : usize,
+}
+
+impl std::ops::Add<DatastoreSize> for DatastoreSize {
+    type Output = DatastoreSize;
+
+    fn add(self, rhs: DatastoreSize) -> DatastoreSize {
+        return DatastoreSize{
+            contents : self.contents + rhs.contents,
+            indices : self.indices + rhs.indices,
+        };
+    }
+}
+
+impl std::fmt::Display for DatastoreSize {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        return write!(f, "{},{}", self.contents, self.indices);
+    }
+}
+
+trait DatastoreSizeGetter {
+    fn datastore_size(& mut self) -> DatastoreSize;
+}
+
+impl<T : db::Indexable + db::Serializable<Item = T>, ID : db::Id> DatastoreSizeGetter for db::Indexer<T, ID> {
+    fn datastore_size(& mut self) -> DatastoreSize {
+        return DatastoreSize{
+            contents : 0, 
+            indices : self.len() * (T::SIZE as usize),
+        };
+    }
+}
+
+impl<T: db::Serializable<Item = T>, ID : db::Id> DatastoreSizeGetter for db::Store<T, ID> {
+    fn datastore_size(& mut self) -> DatastoreSize {
+        let contents = self.f.seek(SeekFrom::End(0)).unwrap() as usize;
+        return self.indexer.datastore_size() + DatastoreSize{ contents, indices : 0 };
+    }
+}
+
+impl<T: db::Serializable<Item = T>, ID : db::Id> DatastoreSizeGetter for db::LinkedStore<T, ID> {
+    fn datastore_size(& mut self) -> DatastoreSize {
+        let contents = self.f.seek(SeekFrom::End(0)).unwrap() as usize;
+        return self.indexer.datastore_size() + DatastoreSize{ contents, indices : 0 };
+    }
+}
+
+impl<T: db::FixedSizeSerializable<Item = T> + Eq + Hash + Clone, ID : db::Id> DatastoreSizeGetter for db::Mapping<T, ID> {
+    fn datastore_size(& mut self) -> DatastoreSize {
+        return DatastoreSize{ contents : self.len() * (T::SIZE as usize), indices : 0 };
+    }
+}
+
+impl<T: db::Serializable<Item = T> + Eq + Hash + Clone, ID : db::Id> DatastoreSizeGetter for db::IndirectMapping<T, ID> {
+    fn datastore_size(& mut self) -> DatastoreSize {
+        return self.store.datastore_size();
+    }
+}
+
+impl<T: db::Serializable<Item = T>, KIND : db::SplitKind<Item = KIND>, ID : db::Id> DatastoreSizeGetter for db::SplitStore<T, KIND, ID> {
+    fn datastore_size(& mut self) -> DatastoreSize {
+        let mut result = self.indexer.datastore_size();
+        for f in self.files.iter_mut() {
+            let contents = f.seek(SeekFrom::End(0)).unwrap() as usize;
+            result = result + DatastoreSize{ contents, indices : 0 };
+        }
+        return result;
+    }
+}
+
+
+
+
+/** Summary of the datastore in terms of stored elements. 
+ */
+pub struct Summary {
+    pub projects : usize,
+    pub commits : usize,
+    pub paths : usize,
+    pub users : usize,
+    pub hashes : usize,
+    pub contents : usize,
+}
+
+impl Summary {
+    pub fn new() -> Summary {
+        return Summary{ projects : 0, commits : 0, paths : 0, users : 0, hashes : 0, contents : 0 };
+    }
+}
+
+impl std::ops::Add<Summary> for Summary {
+    type Output = Summary;
+
+    fn add(self, rhs: Summary) -> Summary {
+        return Summary{
+            projects : self.projects + rhs.projects,
+            commits : self.commits + rhs.commits,
+            paths : self.paths + rhs.paths,
+            users : self.users + rhs.users,
+            hashes : self.hashes + rhs.hashes,
+            contents : self.contents + rhs.contents,
+        };
+    }
+}
+
+/** Simple formatter that writes the summary in a csv format.
+ */
+impl std::fmt::Display for Summary {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        writeln!(f, "size,kind")?;
+        writeln!(f, "{},projects", self.projects)?;
+        writeln!(f, "{},commits", self.commits)?;
+        writeln!(f, "{},paths", self.paths)?;
+        writeln!(f, "{},users", self.users)?;
+        writeln!(f, "{},hashes", self.hashes)?;
+        writeln!(f, "{},contents", self.contents)?;
+        return Ok(());
+    }
+}
 
 

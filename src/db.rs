@@ -1252,7 +1252,7 @@ impl<T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>, ID : Id> SplitSto
     pub fn savepoint_iter(& mut self, sp : & Savepoint) -> SplitStoreIterAll<T,KIND,ID> {
         let mut max_offsets = Vec::new();
         let mut i = 0;
-        for f in self.files.iter_mut() {
+        for _f in self.files.iter_mut() {
             max_offsets.push(sp.limit_for(& format!("{}-{}", self.name, i)));
             i += 1;
         }
