@@ -52,9 +52,22 @@ pub type ContentsKind = records::ContentsKind;
 pub type ProjectLog = records::ProjectUpdateStatus;
 
 
+/** The assembled project information. 
+ */
 pub struct Project {
+    pub url : ProjectUrl, 
+    pub substore : StoreKind,
+    pub heads : ProjectHeads,
+}
 
-
+impl Project {
+    fn new(url : ProjectUrl, substore : StoreKind) -> Project {
+        return Project{
+            url,
+            substore,
+            heads : ProjectHeads::new(),
+        };
+    }
 }
 
 /** Datastore view is similar to datastore, but allows only read access. 
@@ -189,8 +202,34 @@ impl DatastoreView {
 
 
 
-    fn assemble_projects(& self, _sp : & Savepoint, _substore : Option<StoreKind>) -> HashMap<ProjectId, Project> {
-        unimplemented!();
+    fn assemble_projects(& self, sp : & Savepoint, substore : Option<StoreKind>) -> HashMap<ProjectId, Project> {
+        let mut projects = HashMap::<ProjectId, Project>::new();
+        let mut valid_ids = HashMap::<ProjectId, StoreKind>::new();
+        LOG!("Loading project substores...");
+        for (id, kind) in self.ds.project_substores.lock().unwrap().savepoint_iter_all(sp) {
+            if let Some(expected) = substore {
+                if expected != kind {
+                    valid_ids.remove(& id);
+                    continue;
+                } 
+            }
+            valid_ids.insert(id, kind);
+        }
+        LOG!("    {} projects with matching store {:?} found", valid_ids.len(), substore);
+        LOG!("Loading latest project urls...");
+        for (id, url) in self.ds.projects.lock().unwrap().savepoint_iter_all(sp) {
+            if let Some(store) = valid_ids.get(&id) {
+                projects.insert(id, Project::new(url, *store));
+            }
+        }
+        LOG!("    {} project urls found", projects.len());
+        assert_eq!(projects.len(),  valid_ids.len(), "OUCH: project substores and urls allocations are corrupted");
+        // TODO add heads and stuff
+
+
+
+        
+        return projects;
     }
 
 

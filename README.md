@@ -92,6 +92,8 @@ Refer to `main.rs` and various of the CLI commands for detailed code examples.
 
 > The following are current items that are being worked on or that must be checked are already finished:
 
+- add project heads and metadata extraction for the assembled projects ? 
+
 - and how to stop them threads that are updating (purge the queue should do it, the task would then end once all other threads will become idle)
 - add log for commands entered
 - add log for on/off of the downloader on the database

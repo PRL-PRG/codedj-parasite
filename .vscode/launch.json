@@ -9,7 +9,7 @@
             "type": "lldb",
             "request": "launch",
             "program": "${workspaceFolder}/target/debug/parasite",
-            "args": ["--verbose", "size"],
+            "args": ["--verbose", "debug"],
             "cwd": "${workspaceFolder}",
             "env" : {
                 "RUST_BACKTRACE" : "1"

@@ -26,9 +26,6 @@ use parasite::*;
 
 use settings::SETTINGS;
 
-
-
-
 /** The incremental downloader and command-line interface
  
  */
@@ -70,6 +67,7 @@ fn execute_command() {
         "summary" => datastore_summary(),
         "savepoints" => datastore_savepoints(),
         "contents-compression" => datastore_contents_compression(),
+        "debug" => datastore_debug(),
         _ => println!("ERROR: Unknown command {}", SETTINGS.command[0]),
     }
 }
@@ -118,6 +116,11 @@ fn datastore_contents_compression() {
         println!("{:?}: compressed : {}, uncompressed : {}", ss.kind(), comp, uncomp);
     }
     println!("TOTAL: compressed : {}, uncompressed : {}", compressed, uncompressed);
+}
+fn datastore_debug() {
+    let ds = DatastoreView::new(& SETTINGS.datastore_root);
+    let sp = ds.latest();
+    ds.projects(& sp);
 }
 
 
