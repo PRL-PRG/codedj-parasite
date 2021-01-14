@@ -20,6 +20,8 @@ mod task_load_substore;
 mod task_drop_substore;
 mod task_verify_substore;
 mod github;
+#[allow(dead_code)]
+mod settings;
 
 use crate::db::Indexable;
 

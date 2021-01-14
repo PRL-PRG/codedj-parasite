@@ -17,6 +17,8 @@ use crate::task_load_substore::*;
 use crate::task_drop_substore::*;
 use crate::task_verify_substore::*;
 
+use crate::settings::Settings;
+
 pub type Tx = crossbeam_channel::Sender<TaskMessage>;
 
 /** Convenience struct that brings together the tx end of a channel, task name and task itself and exposes the sending of task messages via a simple api. 
@@ -74,7 +76,7 @@ pub (crate) struct Updater {
 
     /** Incremental updater
      */
-    num_workers : u64, 
+    num_workers : usize, 
     pub (crate) pool : Mutex<Pool>,
     cv_workers : Condvar,
 
@@ -94,14 +96,11 @@ impl Updater {
 
     /** Updater is initialized with an existing datastore. 
      */
-    pub fn new(ds : Datastore) -> Updater {
+    pub fn new(ds : Datastore, settings : & Settings) -> Updater {
         return Updater {
             ds, 
-            // TODO do not hardcode!!!!!!!!    
-            github : Github::new("/mnt/data/github-tokens.csv"),
-
-            // TODO do not hardcode!!!!!!!!
-            num_workers : 16,
+            github : Github::new(& settings.github_tokens),
+            num_workers : settings.num_threads,
             pool : Mutex::new(Pool::new()),
             cv_workers : Condvar::new(),
 

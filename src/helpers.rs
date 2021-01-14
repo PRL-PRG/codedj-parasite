@@ -1,6 +1,7 @@
 use std::time::{SystemTime, UNIX_EPOCH, Duration};
 use std::str;
 
+
 pub fn pct(value : usize, max : usize) -> String {
     if max == 0 {
         return "??".to_owned();
