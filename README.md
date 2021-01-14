@@ -84,11 +84,9 @@ Displays a large csv that displays per substore and total number of projects, va
 
 The API provides various view wrappers around the internal parasite objects. These are all defined in the `lib.rs` file. Notably these are `DatastoreView` and `SubstoreView` for the whole datastore and its substores respectively. The datastore provides information about projects, savepoints and substores, while the substores provide wrappers around everything else. These wrappers (`StoreView`, `LinkedStoreView`, etc.) then wrap around actual database records, one file each and provide iterators to its elements. 
 
+For more details, look at `lib.rs`.
+
 > To see the actual use, have a look at the `example_` prefixed commands in `main.rs`. 
-
-### Examples
-
-Refer to `main.rs` and various of the CLI commands for detailed code examples. 
 
 # Appendix A - TODO
 

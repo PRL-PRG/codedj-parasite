@@ -34,7 +34,6 @@ use crate::db::Indexable;
 
    TODO there are some renamings here, would be nice to unify. 
  */
-
 pub type Savepoint = db::Savepoint;
 pub type StoreKind = records::StoreKind;
 pub type SHA = records::Hash;
@@ -432,11 +431,8 @@ impl<'a> SubstoreView<'a> {
 
 }
 
-
-pub trait RandomAccessView<'a, T : db::ReadOnly, ID : db::Id> {
-    fn get(& mut self, id : ID) -> Option<T>;
-}
-
+/** A helper class that iterates over all substores in a datastore and returns substore views to them. 
+ */
 pub struct SubstoreViewIterator<'a> {
     ds : &'a DatastoreView,
     i : std::slice::Iter<'a, datastore::Substore>,
@@ -453,6 +449,19 @@ impl<'a> Iterator for SubstoreViewIterator<'a> {
     }
 }
 
+/** A helper trait that defines a random access capability for a view. 
+ 
+    Under the hood, the random access view utilizes the index files built by the updater and so is only available for ReadOnly records as these can never be updated once written, so the index must be valid even for older savepoints. 
+ */
+pub trait RandomAccessView<'a, T : db::ReadOnly, ID : db::Id> {
+    fn get(& mut self, id : ID) -> Option<T>;
+}
+
+
+/** A view into a Store. 
+ 
+    Provides iterator for all elements within given savepoint and if the store holds ReadOnly records, provides random access as well. 
+ */
 pub struct StoreView<'a, T : db::Serializable<Item = T>, ID : db::Id = u64> {
     guard : std::sync::MutexGuard<'a, db::Store<T,ID>>,
 }
@@ -469,6 +478,10 @@ impl<'a, T : db::Serializable<Item = T> + db::ReadOnly, ID : db::Id> RandomAcces
     }
 }
 
+/** A view into a LinkedStore. 
+ 
+    Provides iterator for all elements within given savepoint and if the store holds ReadOnly records, provides random access as well. 
+ */
 pub struct LinkedStoreView<'a, T : db::Serializable<Item = T>, ID : db::Id> {
     guard : std::sync::MutexGuard<'a, db::LinkedStore<T,ID>>,
 }
@@ -485,6 +498,12 @@ impl<'a, T : db::Serializable<Item = T> + db::ReadOnly, ID : db::Id> RandomAcces
     }
 }
 
+/** Provides a view into a mapping. 
+
+    TODO add the getter, determine how this will be checked with a savepoint.
+
+    Since mappings are always ReadOnly, provides an iterator as well. Note however that the random access is reversed, i.e. for given value returns its index. 
+ */
 pub struct MappingView<'a, T : db::FixedSizeSerializable<Item = T> + Eq + Hash + Clone, ID : db::Id> {
     guard : std::sync::MutexGuard<'a, db::Mapping<T,ID>>,
 }
@@ -493,8 +512,15 @@ impl<'a, T : db::FixedSizeSerializable<Item = T> + Eq + Hash + Clone, ID : db::I
     pub fn iter(& mut self, sp : & Savepoint) -> db::MappingIter<T, ID> {
         return self.guard.savepoint_iter(sp);
     }
+
 }
 
+/** Provides a view into a indirect mapping. 
+
+    TODO add the getter, determine how this will be checked with a savepoint.
+
+    Since mappings are always ReadOnly, provides an iterator as well. Note however that the random access is reversed, i.e. for given value returns its index. 
+ */
 pub struct IndirectMappingView<'a, T : db::Serializable<Item = T> + Eq + Hash + Clone, ID : db::Id> {
     guard : std::sync::MutexGuard<'a, db::IndirectMapping<T,ID>>,
 }
@@ -505,6 +531,13 @@ impl<'a, T : db::Serializable<Item = T> + Eq + Hash + Clone, ID : db::Id> Indire
     }
 }
 
+/** Provides a view into a SplitStore. 
+ 
+    Provides iterator for all elements within given savepoint and if the store holds ReadOnly records, provides random access as well. 
+
+    TODO add iterator based on kind. 
+    
+ */
 pub struct SplitStoreView<'a, T : db::Serializable<Item = T>, KIND : db::SplitKind<Item = KIND>, ID : db::Id> {
     guard : std::sync::MutexGuard<'a, db::SplitStore<T,KIND, ID>>,
 }
@@ -522,6 +555,8 @@ impl<'a, T : db::Serializable<Item = T> + db::ReadOnly, KIND : db::SplitKind<Ite
     }
 }
 
+/** Special case for iterator into savepoints as savepoints are not savepointed actually so the savepoint taking api of LinkedStore is useless.
+ */
 pub struct SavepointsView<'a> {
     guard : std::sync::MutexGuard<'a, db::LinkedStore<Savepoint,u64>>,
 }
