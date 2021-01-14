@@ -1,3 +1,5 @@
+#[macro_use]
+extern crate lazy_static;
 
 mod helpers;
 #[allow(dead_code)]
@@ -22,6 +24,8 @@ use updater::*;
 
 use parasite::*;
 
+use settings::SETTINGS;
+
 
 
 
@@ -29,18 +33,18 @@ use parasite::*;
  
  */
 fn main() {
-    let command = settings::parse_command_line_args(std::env::args().collect());
+    // this also initializes the settings from the commandline implicitly, meh....
     LOG!("Parasite v. 0.3");
-    LOG!("    interactive :    {}", settings::interactive());
-    LOG!("    verbose :        {}", settings::verbose());
-    LOG!("    threads :        {}", settings::num_threads());
-    LOG!("    datastore root : {}", settings::datastore_root());
-    LOG!("    command :        {}", command.join(" "));
+    LOG!("    interactive :    {}", SETTINGS.interactive);
+    LOG!("    verbose :        {}", SETTINGS.verbose);
+    LOG!("    threads :        {}", SETTINGS.num_threads);
+    LOG!("    datastore root : {}", SETTINGS.datastore_root);
+    LOG!("    command :        {}", SETTINGS.command.join(" "));
     // execute either the interactive updater, or the command line tool
-    if settings::interactive() {
-        start_interactive(command);
+    if SETTINGS.interactive {
+        start_interactive();
     } else {
-        execute_command(command);
+        execute_command();
     }
 }
 
@@ -49,34 +53,34 @@ fn main() {
 
     If a command was given on the command line it will be automatically executed in the interactive mode. Otherwise the application will wait for a command to be entered. 
  */
-fn start_interactive(command : Vec<String>) {
-    let ds = Datastore::new(& settings::datastore_root(), false);
+fn start_interactive() {
+    let ds = Datastore::new(& SETTINGS.datastore_root, false);
     let u = Updater::new(ds);
-    u.run(command.join(" "));
+    u.run(SETTINGS.command.join(" "));
 }
 
 /** Executes given command in a non-interactive mode.
  */
-fn execute_command(command : Vec<String>) {
-    if command.is_empty() {
+fn execute_command() {
+    if SETTINGS.command.is_empty() {
         return datastore_size();
     }
-    match command[0].as_str() {
+    match SETTINGS.command[0].as_str() {
         "size" => datastore_size(),
         "summary" => datastore_summary(),
         "savepoints" => datastore_savepoints(),
         "contents-compression" => datastore_contents_compression(),
-        _ => println!("ERROR: Unknown command {}", command[0]),
+        _ => println!("ERROR: Unknown command {}", SETTINGS.command[0]),
     }
 }
 
 fn datastore_summary() {
-    let ds = DatastoreView::new(& settings::datastore_root());
+    let ds = DatastoreView::new(& SETTINGS.datastore_root);
     println!("{}", ds.summary());
 }
 
 fn datastore_size() {
-    let ds = DatastoreView::new(& settings::datastore_root());
+    let ds = DatastoreView::new(& SETTINGS.datastore_root);
     println!("kind,contents,indices");
     println!("savepoints,{}", ds.savepoints_size());
     println!("projects,{}", ds.projects_size());
@@ -88,7 +92,7 @@ fn datastore_size() {
 }
 
 fn datastore_savepoints() {
-    let ds = DatastoreView::new(& settings::datastore_root());
+    let ds = DatastoreView::new(& SETTINGS.datastore_root);
     let mut s = ds.savepoints();
     let mut num = 0;
     for (_, sp) in s.iter() {
@@ -99,7 +103,7 @@ fn datastore_savepoints() {
 }
 
 fn datastore_contents_compression() {
-    let ds = DatastoreView::new(& settings::datastore_root());
+    let ds = DatastoreView::new(& SETTINGS.datastore_root);
     let sp = ds.latest();
     let mut compressed : usize = 0;
     let mut uncompressed : usize = 0;

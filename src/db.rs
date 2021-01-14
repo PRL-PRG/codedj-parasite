@@ -23,7 +23,7 @@ use std::hash::*;
 use std::fmt::{Debug};
 use std::convert::From;
 use crate::helpers;
-use crate::settings;
+use crate::settings::SETTINGS;
 use crate::LOG;
 
 pub (crate) const MAX_BUFFER_LENGTH : u64 = 10 * 1024 * 1024 * 1024; // 10GB

@@ -556,6 +556,7 @@ dependencies = [
  "flate2",
  "git2",
  "json",
+ "lazy_static",
  "num",
  "num-derive",
  "num-traits",

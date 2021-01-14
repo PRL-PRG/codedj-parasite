@@ -8,7 +8,7 @@ use crate::db::*;
 use crate::records::*;
 use crate::helpers;
 use crate::updater;
-use crate::settings;
+use crate::settings::SETTINGS;
 
 use crate::LOG;
 

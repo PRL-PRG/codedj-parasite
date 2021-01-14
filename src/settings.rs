@@ -1,19 +1,36 @@
 
-static mut SETTINGS_ : Option<Settings> = None;
-
-struct Settings {
-    interactive : bool,
-    verbose : bool,
-    datastore_root : String, 
-    github_tokens : String,
-    num_threads : usize
+lazy_static! {
+    pub static ref SETTINGS : Settings = Settings::parse_from_commandline();
 }
 
-/** Parses the commandline arguments into the global settings and returns the remaining command. 
- */
-pub fn parse_command_line_args(args : Vec<String>) -> Vec<String> {
-    unsafe {
+pub struct Settings {
+    pub interactive : bool,
+    pub verbose : bool,
+    pub datastore_root : String, 
+    pub github_tokens : String,
+    pub num_threads : usize,
+    pub command : Vec<String>,
+}
+
+impl Settings {
+    fn default() -> Settings {
+        return Settings{
+            interactive : false,
+            verbose : false,
+            //datastore_root : ".".to_owned(),
+            //github_tokens : Some("github-tokens.csv".to_owned());
+            datastore_root : "/dejavuii/dcd3".to_owned(),
+            github_tokens : "/mnt/data/github-tokens.csv".to_owned(),
+            num_threads : 16,
+            command : Vec::new(),
+        };
+    }
+
+    /** Parses the commandline arguments into the global settings and returns the remaining command. 
+     */
+    fn parse_from_commandline() -> Settings {
         let mut settings = Settings::default();
+        let args : Vec<String> = std::env::args().collect();
         let mut arg_i = 1;
         while arg_i < args.len() {
             let arg = & args[arg_i];
@@ -36,81 +53,15 @@ pub fn parse_command_line_args(args : Vec<String>) -> Vec<String> {
                 break;
             }
         }
-        SETTINGS_ = Some(settings);
         // the rest of arguments form the command (or commands)
-        return args[arg_i..].iter().map(|x| { x.to_owned() }).collect();
-    }
-}
-
-
-
-pub fn github_tokens() -> String {
-    unsafe {
-        if let Some(settings) = & SETTINGS_ {
-            return settings.github_tokens.to_owned();
-        }
-        unreachable!();
-    }
-}
-
-pub fn datastore_root() -> String {
-    unsafe {
-        if let Some(settings) = & SETTINGS_ {
-            return settings.datastore_root.to_owned();
-        }
-        unreachable!();
-    }
-}
-
-pub fn verbose() -> bool {
-    unsafe {
-        let raw_ptr = & SETTINGS_ as *const Option<Settings>;        
-        println!("Address: {:?}", raw_ptr);
-        if let Some(settings) = & SETTINGS_ {
-            return settings.verbose;
-        }
-        unreachable!();
-    }
-}
-
-pub fn interactive() -> bool {
-    unsafe {
-        if let Some(settings) = & SETTINGS_ {
-            return settings.interactive;
-        }
-        unreachable!();
-    }
-}
-
-pub fn num_threads() -> usize {
-    unsafe {
-        if let Some(settings) = & SETTINGS_ {
-            return settings.num_threads;
-        }
-        unreachable!();
-    }
-}
-
-
-
-impl Settings {
-    fn default() -> Settings {
-        return Settings{
-            interactive : false,
-            verbose : false,
-            //datastore_root : ".".to_owned(),
-            //github_tokens : Some("github-tokens.csv".to_owned());
-            datastore_root : "/dejavuii/dcd3".to_owned(),
-            github_tokens : "/mnt/data/github-tokens.csv".to_owned(),
-            num_threads : 16,
-        };
-
+        settings.command = args[arg_i..].iter().map(|x| { x.to_owned() }).collect();
+        return settings;
     }
 }
 
 #[macro_export]
 macro_rules! LOG {
     ($($tts:tt)*) => { {
-        if (settings::verbose()) { println!($($tts)*) };
+        if SETTINGS.verbose { println!($($tts)*) };
     } }
 }

@@ -2,6 +2,10 @@ use std::hash::Hash;
 use std::collections::HashMap;
 use std::io::{Seek, SeekFrom};
 
+#[macro_use]
+extern crate lazy_static;
+
+
 mod helpers;
 
 #[allow(dead_code)]
@@ -23,6 +27,7 @@ mod github;
 #[allow(dead_code)]
 mod settings;
 
+use crate::settings::SETTINGS;
 use crate::db::Indexable;
 
 /* Exported types.

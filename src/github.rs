@@ -1,7 +1,7 @@
 use std::sync::*;
 
 use crate::helpers;
-use crate::settings;
+use crate::settings::SETTINGS;
 use crate::updater::*;
 use crate::LOG;
 

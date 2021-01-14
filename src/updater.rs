@@ -17,7 +17,7 @@ use crate::task_load_substore::*;
 use crate::task_drop_substore::*;
 use crate::task_verify_substore::*;
 
-use crate::settings;
+use crate::settings::SETTINGS;
 
 pub type Tx = crossbeam_channel::Sender<TaskMessage>;
 
@@ -99,8 +99,8 @@ impl Updater {
     pub fn new(ds : Datastore) -> Updater {
         return Updater {
             ds, 
-            github : Github::new(& settings::github_tokens()),
-            num_workers : settings::num_threads(),
+            github : Github::new(& SETTINGS.github_tokens),
+            num_workers : SETTINGS.num_threads,
             pool : Mutex::new(Pool::new()),
             cv_workers : Condvar::new(),
 
