@@ -1,3 +1,5 @@
+use std::collections::*;
+
 #[macro_use]
 extern crate lazy_static;
 
@@ -63,9 +65,15 @@ fn execute_command() {
         return datastore_size();
     }
     match SETTINGS.command[0].as_str() {
+        // maintenance commands 
         "size" => datastore_size(),
         "summary" => datastore_summary(),
         "savepoints" => datastore_savepoints(),
+        // example commands
+        "active-projects" => example_active_projects(
+            SETTINGS.command.get(1).map(|x| { x.parse::<i64>().unwrap() }).unwrap_or(90 * 24 * 3600)
+        ),
+        // debug commands
         "contents-compression" => datastore_contents_compression(),
         "debug" => datastore_debug(),
         _ => println!("ERROR: Unknown command {}", SETTINGS.command[0]),
@@ -98,6 +106,61 @@ fn datastore_savepoints() {
         num += 1;
     }
     println!("Total {} savepoints found.", num);
+}
+
+/** Displays active projects per substore. 
+ 
+    A simple example of the library interface. 
+ */
+fn example_active_projects(max_age : i64) {
+    // create the datastore view with latest info (the latest savepoint is created ad hoc for the current state of the datastore)
+    let ds = DatastoreView::new(& SETTINGS.datastore_root);
+    let sp = ds.latest();
+    // get all projects 
+    let projects = ds.projects(& sp);
+    let mut total_valid = 0;
+    let mut total_active = 0;
+    println!("value,name");
+    // on a per substore basis, determine the heads, then get their times from the substore and report
+    for substore in ds.substores() {
+        let mut heads = HashMap::<CommitId, i64>::new();
+        let mut valid = 0;
+        let mut total = 0;
+        for (_id, p) in projects.iter().filter(|(_, p)| { p.substore == substore.kind() }) {
+            total += 1;
+            if let Some(_) = p.latest_valid_update_time() {
+                for (_branch, (commit_id, _hash)) in p.heads.iter() {
+                    heads.insert(*commit_id, 0);
+                }
+                valid += 1;
+            }
+        }
+        // now we have the commits
+        for (id, commit) in substore.commits_info().iter(& sp) {
+            if let Some(time) = heads.get_mut(&id) {
+                *time = commit.committer_time;
+            }
+        }
+        // calculate which projects are active
+        let active = projects.iter().filter(|(_, p)| { p.substore == substore.kind() }).filter(|(_id, p)| {
+            for (_branch, (commit_id, _hash)) in p.heads.iter() {
+                if let Some(time) = heads.get(& commit_id) {
+                    if sp.time() - time <= max_age {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }).count();
+        println!("{}, {:?}_projects", total, substore.kind());
+        println!("{}, {:?}_valid_projects", valid, substore.kind());
+        println!("{}, {:?}_active_projects", active, substore.kind());
+        total_valid += total;
+        total_active += active;
+    }
+    println!("{}, total_projects", projects.len());
+    println!("{}, total_valid_projects", total_valid);
+    println!("{}, total_active_projects", total_active);
 }
 
 fn datastore_contents_compression() {

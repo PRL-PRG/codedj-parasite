@@ -69,6 +69,10 @@ Displays the summary of the datastore that prints the number of stored entities 
 
 Lists the information about all available savepoints in the datastore.
 
+### `active-projects` [days = 90]
+
+Displays a large csv that displays per substore and total number of projects, valid projects and active projects. Project is considered active if it has at least one commit no older than `days` before now.
+
 ## Interactive Mode
 
 
@@ -80,9 +84,7 @@ Lists the information about all available savepoints in the datastore.
 
 The API provides various view wrappers around the internal parasite objects. These are all defined in the `lib.rs` file. Notably these are `DatastoreView` and `SubstoreView` for the whole datastore and its substores respectively. The datastore provides information about projects, savepoints and substores, while the substores provide wrappers around everything else. These wrappers (`StoreView`, `LinkedStoreView`, etc.) then wrap around actual database records, one file each and provide iterators to its elements. 
 
-> TODO add information about how the things can actually be used. 
-
-
+> To see the actual use, have a look at the `example_` prefixed commands in `main.rs`. 
 
 ### Examples
 

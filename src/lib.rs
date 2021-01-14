@@ -57,6 +57,7 @@ pub type ProjectLog = records::ProjectUpdateStatus;
 pub struct Project {
     pub url : ProjectUrl, 
     pub substore : StoreKind,
+    pub latest_status : ProjectLog,
     pub heads : ProjectHeads,
 }
 
@@ -65,8 +66,17 @@ impl Project {
         return Project{
             url,
             substore,
+            latest_status : ProjectLog::Error{time : 0, version : datastore::Datastore::VERSION, error : "no_data".to_owned()},
             heads : ProjectHeads::new(),
         };
+    }
+
+    pub fn latest_valid_update_time(& self) -> Option<i64> {
+        match self.latest_status {
+            ProjectLog::NoChange{time, version : _} => return Some(time),
+            ProjectLog::Ok{time, version : _} => return Some(time),
+            _ => return None,
+        }
     }
 }
 
@@ -88,6 +98,10 @@ impl DatastoreView {
         return DatastoreView{
             ds : datastore::Datastore::new(root, false),
         };
+    }
+
+    pub fn version(& self) -> u16 {
+        return datastore::Datastore::VERSION;
     }
 
     /** Returns the threshold for projects to belong to the small projects substore.
@@ -204,31 +218,37 @@ impl DatastoreView {
 
     fn assemble_projects(& self, sp : & Savepoint, substore : Option<StoreKind>) -> HashMap<ProjectId, Project> {
         let mut projects = HashMap::<ProjectId, Project>::new();
-        let mut valid_ids = HashMap::<ProjectId, StoreKind>::new();
+        // we have to start with urls as these are the only ones guaranteed to exist
+        LOG!("Loading latest project urls...");
+        for (id, url) in self.ds.projects.lock().unwrap().savepoint_iter_all(sp) {
+            projects.insert(id, Project::new(url, StoreKind::Unspecified));
+        }
+        LOG!("    {} projects found", projects.len());
         LOG!("Loading project substores...");
         for (id, kind) in self.ds.project_substores.lock().unwrap().savepoint_iter_all(sp) {
             if let Some(expected) = substore {
                 if expected != kind {
-                    valid_ids.remove(& id);
                     continue;
                 } 
             }
-            valid_ids.insert(id, kind);
+            projects.get_mut(&id).unwrap().substore = kind;
         }
-        LOG!("    {} projects with matching store {:?} found", valid_ids.len(), substore);
-        LOG!("Loading latest project urls...");
-        for (id, url) in self.ds.projects.lock().unwrap().savepoint_iter_all(sp) {
-            if let Some(store) = valid_ids.get(&id) {
-                projects.insert(id, Project::new(url, *store));
+        if let Some(expected) = substore {
+            projects.retain(|_, p| { p.substore == expected });
+        }
+        LOG!("    {} projects with matching store {:?} found", projects.len(), substore);
+        LOG!("Loading project state...");
+        for (id, status) in self.ds.project_updates.lock().unwrap().savepoint_iter_all(sp) {
+            if let Some(p) = projects.get_mut(& id) {
+                p.latest_status = status;
             }
         }
-        LOG!("    {} project urls found", projects.len());
-        assert_eq!(projects.len(),  valid_ids.len(), "OUCH: project substores and urls allocations are corrupted");
-        // TODO add heads and stuff
-
-
-
-        
+        LOG!("Loading project heads...");
+        for (id, heads) in self.ds.project_heads.lock().unwrap().savepoint_iter_all(sp) {
+            if let Some(p) = projects.get_mut(& id) {
+                p.heads = heads;
+            }
+        }
         return projects;
     }
 
