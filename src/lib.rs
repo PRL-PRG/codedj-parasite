@@ -49,6 +49,7 @@ pub type ProjectLog = records::ProjectUpdateStatus;
 
 pub struct Project {
 
+
 }
 
 /** Datastore view is similar to datastore, but allows only read access. 
@@ -191,7 +192,7 @@ impl DatastoreView {
     /** A simple function that returns the summary of the dataset. 
      */
     pub fn summary(& self) -> Summary {
-        println!("Calculating summary for entire datastore...");
+        LOG!("Calculating summary for entire datastore...");
         let mut result = Summary::new();
         result.projects = self.ds.projects.lock().unwrap().len();
         for ss in self.substores() {

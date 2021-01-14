@@ -8,6 +8,10 @@ use crate::db::*;
 use crate::records::*;
 use crate::helpers;
 use crate::updater;
+use crate::settings;
+
+use crate::LOG;
+
 
 /** The global datastore. 
  
@@ -92,7 +96,7 @@ impl Datastore {
         if ! root_path.exists() {
             std::fs::create_dir_all(& root_path).unwrap();
         }
-        println!("* Loading datastore in {}", root);
+        LOG!("* Loading datastore in {}", root);
         // create the datastore
         let mut ds = Datastore{
             root : root.to_owned(),
@@ -442,7 +446,7 @@ impl Substore {
         }
         // and create the store
         let root = root_path.to_str().unwrap();
-        println!("** Loading substore {:?}", kind);
+        LOG!("** Loading substore {:?}", kind);
         let result = Substore{
             root : root.to_owned(),
             prefix : kind,

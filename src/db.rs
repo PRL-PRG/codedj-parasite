@@ -23,6 +23,8 @@ use std::hash::*;
 use std::fmt::{Debug};
 use std::convert::From;
 use crate::helpers;
+use crate::settings;
+use crate::LOG;
 
 pub (crate) const MAX_BUFFER_LENGTH : u64 = 10 * 1024 * 1024 * 1024; // 10GB
 
@@ -298,7 +300,7 @@ impl<T: Serializable<Item = T>, ID : Id> Store<T, ID> {
             f,
             why_oh_why : std::marker::PhantomData{}
         };
-        println!("    {}: indices {}, size {}", name, result.indexer.len(), result.f.seek(SeekFrom::End(0)).unwrap());
+        LOG!("    {}: indices {}, size {}", name, result.indexer.len(), result.f.seek(SeekFrom::End(0)).unwrap());
         return result;
     }
 
@@ -516,7 +518,7 @@ impl<T: Serializable<Item = T>, ID : Id> LinkedStore<T, ID> {
             f,
             why_oh_why : std::marker::PhantomData{}
         };
-        println!("    {}: indices {}, size {}", name, result.indexer.len(), result.f.seek(SeekFrom::End(0)).unwrap());
+        LOG!("    {}: indices {}, size {}", name, result.indexer.len(), result.f.seek(SeekFrom::End(0)).unwrap());
         return result;
     }
 
@@ -787,7 +789,7 @@ impl<T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone, ID : Id> Mapping<T
             mapping : HashMap::new(),
             size
         };
-        println!("    {}: indices {}, size {}", name, result.size, result.f.seek(SeekFrom::End(0)).unwrap());
+        LOG!("    {}: indices {}, size {}", name, result.size, result.f.seek(SeekFrom::End(0)).unwrap());
         return result;
     }
 
@@ -1132,7 +1134,7 @@ impl<T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>, ID : Id> SplitSto
             files, 
             why_oh_why : std::marker::PhantomData{}
         };
-        println!("    {}: indices {}, splits {}", name, result.indexer.len(), result.files.len());
+        LOG!("    {}: indices {}, splits {}", name, result.indexer.len(), result.files.len());
         return result;
     }
 
@@ -1289,139 +1291,6 @@ impl<'a, T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>, ID : Id> Iter
         }
     }
 }
-
-
-/*
-/** Split store contains single index, but multiple files that store the data based on its kind. 
- */
-pub struct SplitLinkedStore<T : Serializable<Item = T>, KIND : SplitKind<Item = KIND>> {
-    name : String,
-    indexer : Indexer<SplitOffset<KIND>>,
-    files : Vec<File>,
-    why_oh_why : std::marker::PhantomData<T>
-}
-
-impl<T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>> SplitLinkedStore<T, KIND> {
-    pub fn new(root : & str, name : & str) -> SplitLinkedStore<T, KIND> {
-        let mut files = Vec::<File>::new();
-        for i in 0..KIND::COUNT {
-            let path = format!("{}/{}-{:?}.splitstore", root, name, KIND::from_number(i));
-            let f = OpenOptions::new().read(true).write(true).create(true).open(path).unwrap();
-            files.push(f);
-        }
-        return SplitLinkedStore{
-            name : name.to_owned(),
-            indexer : Indexer::new(root, name),
-            files, 
-            why_oh_why : std::marker::PhantomData{}
-        };
-    }
-
-    pub fn reader(_root : & str, _name : & str) -> SplitLinkedStore<T, KIND> {
-        unimplemented!();
-    }
-
-    pub fn name<'a>(&'a self) -> &'a str {
-        return self.name.as_str();
-    }
-
-    /** Updates the savepoint with own information. 
-     */
-    pub fn savepoint(& mut self, savepoint : & mut Savepoint) {
-        let mut i = 0;
-        for f in self.files.iter_mut() {
-            savepoint.add_entry(
-                format!("{}-{}", self.name, i),
-                f.seek(SeekFrom::End(0)).unwrap()
-            );
-            i += 1;
-        }
-    }
-
-    // TODO do we really need split linked store for now?
-    pub fn verify(& mut self, _checker : & mut dyn FnMut(T) -> Result<(), std::io::Error>) -> Result<(), std::io::Error> {
-        unimplemented!();
-    }
-
-    /** Determines the file that holds value for given id and returns the stored value. If the value has not been stored, returns None. 
-     */
-    pub fn get(& mut self, id : u64) -> Option<T> {
-        match self.indexer.get(id) {
-            Some(offset) => {
-                let f = self.files.get_mut(offset.kind.to_number() as usize).unwrap();
-                f.seek(SeekFrom::Start(offset.offset)).unwrap();
-                // we can use default store reader
-                let (record_id, _, value) = LinkedStore::<T>::read_record(f).unwrap();
-                assert_eq!(id, record_id, "Corrupted store or index");
-                return Some(value);
-            },
-            None => None
-        }
-    }
-
-    /** Sets the value for given id in a file specified by given kind.  
-     
-        If this is an update, then the kind specified must be the same as the kind the value has already been stored under. In other words, the split store allows updates of the values, but value cannot change its kind. 
-     */
-    pub fn set(& mut self, id : u64, value : & T, kind : KIND) {
-        let f = self.files.get_mut(kind.to_number() as usize).unwrap();
-        match self.indexer.get(id) {
-            Some(previous_offset) => {
-                assert_eq!(kind, previous_offset.kind, "Cannot change kind of already stored value");
-                self.indexer.set(id, & SplitOffset{
-                    offset : LinkedStore::<T>::write_record(f, id, Some(previous_offset.offset), value),
-                    kind
-                });
-            },
-            None => {
-                self.indexer.set(id, & SplitOffset{
-                    offset : LinkedStore::<T>::write_record(f, id, None, value),
-                    kind
-                });
-            }
-        }
-    }
-
-    pub fn len(&self) -> usize {
-        return self.indexer.len();
-    }
-
-    // TODO add iterators
-
-}
-*/
-
-
-/** ID Prefix trait. 
- 
-    The idea is that a sequential id can have its prefix, which determines the kind of the id, some category on which we can split the underlying objects responsible for storing objects. These underlying objects are not aware of the prefix part of the id and only use the sequential part for their dealings. 
- */
-/*
-pub trait IDPrefix {
-    fn prefix(id : u64) -> Self;
-    fn sequential_part(id : u64) -> u64;
-
-    fn augment(& self, sequential_part : u64) -> u64;
-}
-
-
-
-pub struct SplitIterator<T : IDPrefix, W : Serializable, ITER : Iterator<Item = (u64, W)>> {
-    pub (crate) iter : ITER,
-    pub (crate) prefix : T,
-} 
-
-
-impl<T : IDPrefix, W : Serializable, ITER: Iterator<Item = (u64, W)>> Iterator for SplitIterator<T, W, ITER> {
-    type Item = (u64, W);
-
-    fn next(& mut self) -> Option<(u64, W)> {
-        match self.iter.next() {
-            Some((id, value)) => Some((self.prefix.augment(id), value)),
-            None => None,
-        }
-    }
-} */
 
 /** Savepoint for the entire datastore. 
  

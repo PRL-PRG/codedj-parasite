@@ -5,11 +5,11 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "(gdb) dcd",
+            "name": "(gdb) parasite",
             "type": "lldb",
             "request": "launch",
-            "program": "${workspaceFolder}/target/debug/dcd",
-            "args": ["-ds", "/dejavuii/dcd3"],
+            "program": "${workspaceFolder}/target/debug/parasite",
+            "args": ["--verbose", "size"],
             "cwd": "${workspaceFolder}",
             "env" : {
                 "RUST_BACKTRACE" : "1"

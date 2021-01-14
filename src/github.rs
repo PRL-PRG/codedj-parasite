@@ -1,7 +1,9 @@
 use std::sync::*;
 
 use crate::helpers;
+use crate::settings;
 use crate::updater::*;
+use crate::LOG;
 
 /** Access to github api. 
  
@@ -95,7 +97,7 @@ struct TokensManager {
 
 impl TokensManager {
     fn new(filename : & str) -> TokensManager {
-        println!("Loading github access tokens from {}", filename);
+        LOG!("Loading github access tokens from {}", filename);
         let mut reader = csv::ReaderBuilder::new()
             .has_headers(true)
             .double_quote(false)
@@ -105,7 +107,7 @@ impl TokensManager {
         for x in reader.records() {
             tokens.push(String::from(& x.unwrap()[0]));
         }
-        println!("    {} tokens found", tokens.len());
+        LOG!("    {} tokens found", tokens.len());
         return TokensManager{
             tokens, 
             current : 0,

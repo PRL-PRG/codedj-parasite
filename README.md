@@ -21,11 +21,11 @@ Parasite can be executed using the `parasite` command and expects the following 
 
 The following global arguments are supported
 
-`--datastore` or `-ds`
+### `--datastore` or `-ds`
 
 Specifies the root for the datastore parasite should operate on. Defaults to current directory. If the provided path does not exist, it will be created and a new empty datastore will be ininitialized. 
 
-`-ght` or `--github-tokens`
+### `-ght` or `--github-tokens`
 
 Specifies path to a file containing github access tokens. If not specified, assumes `github-tokens.csv` in current directory. The file is expected to be a CSV file with one column and header row, such as:
 
@@ -33,19 +33,19 @@ Specifies path to a file containing github access tokens. If not specified, assu
     fa56454....
     hj73647....
 
-`--num-threads` or `-n`
+### `--num-threads` or `-n`
 
 The number of threads parasite can use. For the updater this means the number of simultaneous project updates. Defaults to 16.
 
-`--verbose` or `-v`
+### `--verbose` or `-v`
 
 Displays verbose information about the tasks executed. 
 
-`--interactive` or `-i`
+### `--interactive` or `-i`
 
 Launches parasite in interactive mode that allows real-time interaction and monitoring of the performed tasks. For more information about the interactive mode, see the appropriate section below. 
 
-The command is either the the command to be executed on the command line mode (details below), or the first command to be executed in the interactive mode. If empty, `summary` command will be executed in command-line mode while the interactive mode will do nothing and wait for a command to be entered interactively. 
+The command is either the the command to be executed on the command line mode (details below), or the first command to be executed in the interactive mode. If empty, `size` command will be executed in command-line mode while the interactive mode will do nothing and wait for a command to be entered interactively. 
 
 Example:
 
@@ -57,13 +57,13 @@ The following commands can be executed:
 
 > Other comannds that we used at some point but are not deemed too useful are listed in appendix A. 
 
-### `summary`
-
-Displays the summary of the datastore that prints the number of stored entities in all substores without any deduplication being performed. 
-
 ### `size`
 
 Displays the size of the dataset in bytes. The size is given per recorded entities (projects, commits, contents, etc.) and a total. Size is split between the mandatory contents files and the index files, which can be deleted and regenerated. 
+
+### `summary`
+
+Displays the summary of the datastore that prints the number of stored entities in all substores without any deduplication being performed. 
 
 ### `savepoints`
 
