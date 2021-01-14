@@ -517,26 +517,6 @@ impl Serializable for ProjectHeads {
     }
 }
 
-/*
-impl IDPrefix for StoreKind {
-    fn prefix(id : u64) -> StoreKind {
-        return StoreKind::SmallProjects;
-    }
-
-    fn sequential_part(id : u64) -> u64 {
-        return id;
-    }
-
-    fn augment(& self, sequential_part : u64) -> u64 {
-        return sequential_part;
-    }
-} */
-
-/** Hash type for SHA-1 hashes used throughout the downloader. 
- 
-    Based on the Oid from git2, since we are already using that crate anyways. 
- */
-
 pub type Hash = git2::Oid;
 
 impl Serializable for Hash {
@@ -710,6 +690,9 @@ impl FixedSizeSerializable for ContentsKind {
 
 pub type FileContents = Vec<u8>;
 
+impl ReadOnly for FileContents {
+}
+
 impl Serializable for FileContents {
     type Item = FileContents;
     fn serialize(f : & mut File, value : & FileContents) {
@@ -801,6 +784,9 @@ impl CommitInfo {
             message : String::new(),
         };
     }
+}
+
+impl ReadOnly for CommitInfo {
 }
 
 impl Serializable for CommitInfo {

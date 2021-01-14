@@ -433,6 +433,10 @@ impl<'a> SubstoreView<'a> {
 }
 
 
+pub trait RandomAccessView<'a, T : db::ReadOnly, ID : db::Id> {
+    fn get(& mut self, id : ID) -> Option<T>;
+}
+
 pub struct SubstoreViewIterator<'a> {
     ds : &'a DatastoreView,
     i : std::slice::Iter<'a, datastore::Substore>,
@@ -459,6 +463,12 @@ impl<'a, T : db::Serializable<Item = T>, ID : db::Id > StoreView<'a, T, ID> {
     }
 }
 
+impl<'a, T : db::Serializable<Item = T> + db::ReadOnly, ID : db::Id> RandomAccessView<'a, T, ID> for StoreView<'a, T, ID> {
+    fn get(& mut self, id : ID) -> Option<T> {
+        return self.guard.get(id);
+    }
+}
+
 pub struct LinkedStoreView<'a, T : db::Serializable<Item = T>, ID : db::Id> {
     guard : std::sync::MutexGuard<'a, db::LinkedStore<T,ID>>,
 }
@@ -466,6 +476,12 @@ pub struct LinkedStoreView<'a, T : db::Serializable<Item = T>, ID : db::Id> {
 impl<'a, T : db::Serializable<Item = T>, ID : db::Id > LinkedStoreView<'a, T, ID> {
     pub fn iter(& mut self, sp : & Savepoint) -> db::LinkedStoreIterAll<T,ID> {
         return self.guard.savepoint_iter_all(sp);
+    }
+}
+
+impl<'a, T : db::Serializable<Item = T> + db::ReadOnly, ID : db::Id> RandomAccessView<'a, T, ID> for LinkedStoreView<'a, T, ID> {
+    fn get(& mut self, id : ID) -> Option<T> {
+        return self.guard.get(id);
     }
 }
 
@@ -495,12 +511,14 @@ pub struct SplitStoreView<'a, T : db::Serializable<Item = T>, KIND : db::SplitKi
 
 impl<'a, T : db::Serializable<Item = T>, KIND : db::SplitKind<Item = KIND>, ID : db::Id> SplitStoreView<'a, T, KIND, ID> {
 
-    pub fn get(& mut self, id : ID) -> Option<T> {
-        return self.guard.get(id);
-    }
-
     pub fn iter(& mut self, sp : & Savepoint) -> db::SplitStoreIterAll<T, KIND, ID> {
         return self.guard.savepoint_iter(sp);
+    }
+}
+
+impl<'a, T : db::Serializable<Item = T> + db::ReadOnly, KIND : db::SplitKind<Item = KIND>, ID : db::Id> RandomAccessView<'a, T, ID> for SplitStoreView<'a, T, KIND, ID> {
+    fn get(& mut self, id : ID) -> Option<T> {
+        return self.guard.get(id);
     }
 }
 

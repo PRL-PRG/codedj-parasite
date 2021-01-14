@@ -126,19 +126,16 @@ fn example_active_projects(max_age : i64) {
         let mut heads = HashMap::<CommitId, i64>::new();
         let mut valid = 0;
         let mut total = 0;
+        let mut commits = substore.commits_info();
         for (_id, p) in projects.iter().filter(|(_, p)| { p.substore == substore.kind() }) {
             total += 1;
             if let Some(_) = p.latest_valid_update_time() {
                 for (_branch, (commit_id, _hash)) in p.heads.iter() {
-                    heads.insert(*commit_id, 0);
+                    heads.entry(*commit_id).or_insert_with(|| { 
+                        return commits.get(*commit_id).unwrap().committer_time;
+                    });
                 }
                 valid += 1;
-            }
-        }
-        // now we have the commits
-        for (id, commit) in substore.commits_info().iter(& sp) {
-            if let Some(time) = heads.get_mut(&id) {
-                *time = commit.committer_time;
             }
         }
         // calculate which projects are active

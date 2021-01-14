@@ -28,6 +28,16 @@ use crate::LOG;
 
 pub (crate) const MAX_BUFFER_LENGTH : u64 = 10 * 1024 * 1024 * 1024; // 10GB
 
+
+/** Marker trait for readonly datastore records. 
+ 
+    A record is readonly if it does not support updates, such as CommitInfo - once we have it, there is no way to overwrite its value, unlike for instance project heads.
+
+    This is useful because readonly records can reuse indices for random access even when savepoints are used as the ids are guaranteed not to change. 
+ */
+pub trait ReadOnly {
+}
+
 pub trait Id : From<u64> + Into<u64> + std::marker::Copy + std::fmt::Debug + std::cmp::PartialEq + std::cmp::Eq + std::hash::Hash {}
 
 impl Id for u64 {}
