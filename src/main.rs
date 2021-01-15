@@ -73,6 +73,10 @@ fn execute_command() {
         "active-projects" => example_active_projects(
             SETTINGS.command.get(1).map(|x| { x.parse::<i64>().unwrap() }).unwrap_or(90 * 24 * 3600)
         ),
+        "show-project" => example_show_project(
+            SETTINGS.command.get(1).unwrap(),
+            SETTINGS.command.get(2).map(|x| x.as_str())
+        ),
         // debug commands
         "contents-compression" => datastore_contents_compression(),
         "debug" => datastore_debug(),
@@ -115,7 +119,7 @@ fn datastore_savepoints() {
 fn example_active_projects(max_age : i64) {
     // create the datastore view with latest info (the latest savepoint is created ad hoc for the current state of the datastore)
     let ds = DatastoreView::new(& SETTINGS.datastore_root);
-    let sp = ds.latest();
+    let sp = ds.current_savepoint();
     // get all projects 
     let projects = ds.projects(& sp);
     let mut total_valid = 0;
@@ -160,9 +164,65 @@ fn example_active_projects(max_age : i64) {
     println!("{}, total_active_projects", total_active);
 }
 
+/** Shows full information about given project. 
+ */
+fn example_show_project(url : & str, savepoint : Option<& str>) {
+    // create the datastore and savepoint
+    let ds = DatastoreView::new(& SETTINGS.datastore_root);
+    let sp = ds.get_savepoint(savepoint).unwrap();
+    // determine the ID of the project
+    let p = ds.project_urls().iter(& sp).filter(|(_, p)| p.matches_url(url)).next();
+    if let Some((id, _)) = p {
+        // get the project
+        let projects = ds.projects(& sp);
+        let p = projects.get(& id).unwrap(); // must be valid
+        println!("Project id: {}, url: {}", id, p.url.clone_url());
+        // now get all log entries and filter those of our project
+        let log : Vec<ProjectLog> = ds.project_log().iter(& sp).filter(|(log_id, _)| id == *log_id ).map(|(_, p)| p).collect();
+        println!("log: {} entries", log.len());
+        for l in log {
+            println!("    {}", l);
+        }
+        // print the heads too
+        println!("heads: {} entries", p.heads.len());
+        for (name, (id, hash)) in p.heads.iter() {
+            println!("    {}: {} (id {})", name, p.url.get_commit_terminal_link(*hash), id);
+        }
+        // and get all commits, for which we have a convenience function in the API, because why not 
+        let commits = ds.project_commits(&p);
+        let ss = ds.get_substore(p.substore);
+        let mut commit_hashes = ss.commits();
+        let mut users = ss.users();
+        let mut paths = ss.paths_strings();
+        let mut hashes = ss.hashes();
+        println!("commits: {} entries", commits.len());
+        for (id, commit) in commits {
+            let commit_hash = commit_hashes.get(id).unwrap();
+            println!("    {}", p.url.get_commit_terminal_link(commit_hash));
+            println!("        committer: {} (id {}), time {}", users.get(commit.committer).unwrap(), commit.committer, helpers::pretty_timestamp(commit.committer_time));
+            println!("        author: {} (id {}), time {}", users.get(commit.author).unwrap(), commit.author, helpers::pretty_timestamp(commit.author_time));
+            print!("        parents:");
+            for pid in commit.parents {
+                print!(" {} (id {})", p.url.get_commit_terminal_link(commit_hashes.get(pid).unwrap()), pid);
+            }
+            println!("");
+            println!("        message: {}", commit.message);
+            println!("        changes:");
+            for (path_id, hash_id) in commit.changes {
+                let hash = hashes.get(hash_id).unwrap();
+                println!("            {} : {} (id {} : id {})", p.url.get_change_terminal_link(commit_hash, & paths.get(path_id).unwrap(), hash), hash, path_id, hash_id);
+            }
+            println!("");
+        }
+
+    } else {
+        println!("ERROR: No project matches the given url {}", url);
+    }
+}
+
 fn datastore_contents_compression() {
     let ds = DatastoreView::new(& SETTINGS.datastore_root);
-    let sp = ds.latest();
+    let sp = ds.current_savepoint();
     let mut compressed : usize = 0;
     let mut uncompressed : usize = 0;
     for ss in ds.substores() {
@@ -179,7 +239,7 @@ fn datastore_contents_compression() {
 }
 fn datastore_debug() {
     let ds = DatastoreView::new(& SETTINGS.datastore_root);
-    let sp = ds.latest();
+    let sp = ds.current_savepoint();
     ds.projects(& sp);
 }
 

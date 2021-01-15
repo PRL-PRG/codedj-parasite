@@ -9,7 +9,7 @@
             "type": "lldb",
             "request": "launch",
             "program": "${workspaceFolder}/target/debug/parasite",
-            "args": ["--verbose", "active-projects"],
+            "args": ["show-project", "alari/play-mongo"],
             "cwd": "${workspaceFolder}",
             "env" : {
                 "RUST_BACKTRACE" : "1"

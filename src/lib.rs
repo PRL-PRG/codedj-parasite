@@ -1,5 +1,5 @@
 use std::hash::Hash;
-use std::collections::HashMap;
+use std::collections::{HashMap};
 use std::io::{Seek, SeekFrom};
 
 #[macro_use]
@@ -43,6 +43,7 @@ pub type ProjectHeads = records::ProjectHeads;
 pub type CommitId = records::CommitId;
 pub type HashId = records::HashId;
 pub type PathId = records::PathId;
+pub type PathString = records::PathString;
 pub type UserId = records::UserId;
 pub type Metadata = records::Metadata;
 pub type CommitInfo = records::CommitInfo;
@@ -57,6 +58,7 @@ pub struct Project {
     pub url : ProjectUrl, 
     pub substore : StoreKind,
     pub latest_status : ProjectLog,
+    pub latest_valid_status : ProjectLog,
     pub heads : ProjectHeads,
 }
 
@@ -66,12 +68,22 @@ impl Project {
             url,
             substore,
             latest_status : ProjectLog::Error{time : 0, version : datastore::Datastore::VERSION, error : "no_data".to_owned()},
+            latest_valid_status : ProjectLog::Error{time : 0, version : datastore::Datastore::VERSION, error : "no_data".to_owned()},
             heads : ProjectHeads::new(),
         };
     }
 
-    pub fn latest_valid_update_time(& self) -> Option<i64> {
+    pub fn is_valid(& self) -> bool {
         match self.latest_status {
+            ProjectLog::NoChange{time : _, version : _} => return true,
+            ProjectLog::Ok{time : _, version : _} => return true,
+            _ => return false,
+        }
+
+    }
+
+    pub fn latest_valid_update_time(& self) -> Option<i64> {
+        match self.latest_valid_status {
             ProjectLog::NoChange{time, version : _} => return Some(time),
             ProjectLog::Ok{time, version : _} => return Some(time),
             _ => return None,
@@ -133,7 +145,7 @@ impl DatastoreView {
         return SavepointsView{ guard };
     }
 
-    pub fn latest(& self) -> Savepoint {
+    pub fn current_savepoint(& self) -> Savepoint {
         return self.ds.create_savepoint("latest".to_owned(), false);
     }
 
@@ -148,12 +160,21 @@ impl DatastoreView {
         }
         return result;
     }
-
-    pub fn get_savepoint(& self, name : & str) -> Option<Savepoint> {
-        let mut guard = self.ds.savepoints.lock().unwrap();
-        return guard.iter()
-            .find(|(_, sp)| sp.name() == name)
-            .map(|(_, sp)| sp);
+    
+    /** Returns a specified savepoint. 
+     
+        If no name is given, always succeeds and returns the current savepoint. Otherwise returns a savepoint with given name, or None if no such savepoint found. 
+     */
+    pub fn get_savepoint(& self, name : Option<& str>) -> Option<Savepoint> {
+        match name {
+            None => return Some(self.current_savepoint()),
+            Some(savepoint_name) => {
+                let mut guard = self.ds.savepoints.lock().unwrap();
+                return guard.iter()
+                    .find(|(_, sp)| sp.name() == savepoint_name)
+                    .map(|(_, sp)| sp);
+            },
+        }
     }
 
     /* Low-level project API
@@ -194,6 +215,26 @@ impl DatastoreView {
      */
     pub fn projects(& self, sp : & Savepoint) -> HashMap<ProjectId, Project> {
         return self.assemble_projects(sp, None);
+    }
+
+    pub fn project_commits(& self, p : & Project) -> HashMap<CommitId, CommitInfo> {
+        let ss = self.get_substore(p.substore);
+        let mut commits = ss.commits_info();
+        let mut result = HashMap::new();
+        let mut q = Vec::<CommitId>::new();
+        q.extend(p.heads.iter().map(|(_, (id, _))| id));
+        while let Some(id) = q.pop() {
+            match result.entry(id) {
+                std::collections::hash_map::Entry::Vacant(e) => {
+                    let commit_info = commits.get(id).unwrap();
+                    q.extend(commit_info.parents.iter());
+                    e.insert(commit_info);
+                },
+                // if we already have the commit, do nothing
+                _ => {},
+            }
+        }
+        return result;
     }
 
     /* Substores
@@ -382,7 +423,7 @@ impl<'a> SubstoreView<'a> {
         return MappingView{ guard };
     }
 
-    pub fn paths_stings(& self) -> StoreView<String, PathId> {
+    pub fn paths_strings(& self) -> StoreView<String, PathId> {
         let guard = self.ss.path_strings.lock().unwrap();
         return StoreView{ guard };
     }
@@ -500,9 +541,7 @@ impl<'a, T : db::Serializable<Item = T> + db::ReadOnly, ID : db::Id> RandomAcces
 
 /** Provides a view into a mapping. 
 
-    TODO add the getter, determine how this will be checked with a savepoint.
-
-    Since mappings are always ReadOnly, provides an iterator as well. Note however that the random access is reversed, i.e. for given value returns its index. 
+    Since mappings are always ReadOnly, provides random access as well.
  */
 pub struct MappingView<'a, T : db::FixedSizeSerializable<Item = T> + Eq + Hash + Clone, ID : db::Id> {
     guard : std::sync::MutexGuard<'a, db::Mapping<T,ID>>,
@@ -513,13 +552,15 @@ impl<'a, T : db::FixedSizeSerializable<Item = T> + Eq + Hash + Clone, ID : db::I
         return self.guard.savepoint_iter(sp);
     }
 
+    pub fn get(& mut self, id : ID) -> Option<T> {
+        return self.guard.get_value(id);
+    } 
+
 }
 
 /** Provides a view into a indirect mapping. 
 
-    TODO add the getter, determine how this will be checked with a savepoint.
-
-    Since mappings are always ReadOnly, provides an iterator as well. Note however that the random access is reversed, i.e. for given value returns its index. 
+    Since mappings are always ReadOnly, provides random access as well.
  */
 pub struct IndirectMappingView<'a, T : db::Serializable<Item = T> + Eq + Hash + Clone, ID : db::Id> {
     guard : std::sync::MutexGuard<'a, db::IndirectMapping<T,ID>>,
@@ -529,6 +570,10 @@ impl<'a, T : db::Serializable<Item = T> + Eq + Hash + Clone, ID : db::Id> Indire
     pub fn iter(& mut self, sp : & Savepoint) -> db::StoreIterAll<T, ID> {
         return self.guard.savepoint_iter(sp);
     }
+
+    pub fn get(& mut self, id : ID) -> Option<T> {
+        return self.guard.get_value(id);
+    } 
 }
 
 /** Provides a view into a SplitStore. 

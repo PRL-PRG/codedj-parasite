@@ -426,7 +426,7 @@ pub (crate) struct Substore {
         Path hash to ids is stored in a mapping at runtime, while path strings are stored separately in an indexable store on disk. 
      */
     pub (crate) paths : Mutex<Mapping<Hash, PathId>>,
-    pub (crate) path_strings : Mutex<Store<String, PathId>>,
+    pub (crate) path_strings : Mutex<Store<PathString, PathId>>,
 
     /** Users.
      

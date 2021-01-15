@@ -8,6 +8,7 @@ use num_derive::*;
 
 use crate::db::*;
 use crate::datastore::*;
+use crate::helpers;
 
 #[derive(std::fmt::Debug, std::cmp::PartialEq, std::cmp::Eq, std::hash::Hash, std::marker::Copy, std::clone::Clone)]
 pub struct ProjectId {
@@ -25,7 +26,14 @@ impl std::convert::From<ProjectId> for u64 {
         return value.id;
     }
 }
+
 impl Id for ProjectId {}
+
+impl std::fmt::Display for ProjectId {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        return write!(f, "{}", self.id);
+    }
+}
 
 #[derive(std::fmt::Debug, std::cmp::PartialEq, std::cmp::Eq, std::hash::Hash, std::marker::Copy, std::clone::Clone)]
 pub struct CommitId {
@@ -47,7 +55,14 @@ impl std::convert::From<CommitId> for u64 {
         return value.id;
     }
 }
+
 impl Id for CommitId {}
+
+impl std::fmt::Display for CommitId {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        return write!(f, "{}", self.id);
+    }
+}
 
 #[derive(std::fmt::Debug, std::cmp::PartialEq, std::cmp::Eq, std::hash::Hash, std::marker::Copy, std::clone::Clone)]
 pub struct HashId {
@@ -72,6 +87,13 @@ impl std::convert::From<HashId> for u64 {
 
 impl Id for HashId {}
 
+impl std::fmt::Display for HashId {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        return write!(f, "{}", self.id);
+    }
+}
+
+
 #[derive(std::fmt::Debug, std::cmp::PartialEq, std::cmp::Eq, std::hash::Hash, std::marker::Copy, std::clone::Clone)]
 pub struct PathId {
     id : u64,
@@ -95,6 +117,12 @@ impl std::convert::From<PathId> for u64 {
 
 impl Id for PathId {}
 
+impl std::fmt::Display for PathId {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        return write!(f, "{}", self.id);
+    }
+}
+
 #[derive(std::fmt::Debug, std::cmp::PartialEq, std::cmp::Eq, std::hash::Hash, std::marker::Copy, std::clone::Clone)]
 pub struct UserId {
     id : u64,
@@ -117,6 +145,13 @@ impl std::convert::From<UserId> for u64 {
 }
 
 impl Id for UserId {}
+
+impl std::fmt::Display for UserId {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        return write!(f, "{}", self.id);
+    }
+}
+
 
 /** Datastore kinds. 
  
@@ -281,6 +316,68 @@ impl Project {
             return Some(Project::Git{ url : url[8..(url.len() - 4)].to_owned() });
         } else {
             return None;
+        }
+    }
+
+    /** Determines whether the given project url matches the provided one. 
+     
+        
+     */
+    pub fn matches_url(& self, mut url : & str) -> bool {
+        match self {
+            Project::Git{url : git_url} => {
+                if url.ends_with(".git") {
+                    url = & url[0..url.len()-4];
+                }
+                if url.starts_with("https://") {
+                    url = & url[8..url.len()];
+                } else if url.starts_with("http://") {
+                    url = & url[7..url.len()];
+                }
+                return git_url == url;
+            },
+            Project::GitHub{user_and_repo} => {
+                if url.ends_with(".git") {
+                    url = & url[0..url.len()-4];
+                }
+                if url.starts_with("https://github.com/") {
+                    url = & url[19..url.len()];
+                } else if url.starts_with("http://github.com/") {
+                    url = & url[18..url.len()];
+                } else if url.starts_with("https://api.github.com/repos/") {
+                    url = & url[29..url.len()];
+                }
+                return user_and_repo == url;
+            }
+        }
+    }
+
+    /* A helper function that given the project and a commit hash returns the commit hash formatted as a terminal link, if the project supports it. 
+
+       Currently only github projects will return a link. Terminals that do not support the link feature will still show the hash properly. 
+    */
+    pub fn get_commit_terminal_link(& self, commit_hash : Hash) -> String {
+        match self {
+            Project::Git{url : _ } => 
+                return format!("{}", commit_hash),
+            Project::GitHub{user_and_repo} => 
+                return format!("\x1b]8;;https://github.com/{}/commit/{}\x07{}\x1b]8;;\x07", user_and_repo, commit_hash, commit_hash),
+        }
+    }
+
+    /* A helper function that given the project, commit hash, path and contents hash returns the path formatted as a terminal link, if the project supports it. 
+
+       Currently only github projects will return a link. Terminals that do not support the link feature will still show the hash properly. 
+    */
+    pub fn get_change_terminal_link(& self, commit_hash : Hash, path : & str, contents_hash : Hash) -> String {
+        if contents_hash == Hash::zero() {
+            return path.to_owned();
+        }
+        match self {
+            Project::Git{url : _ } => 
+                return path.to_owned(),
+            Project::GitHub{user_and_repo} => 
+                return format!("\x1b]8;;https://github.com/{}/blob/{}/{}\x07{}\x1b]8;;\x07", user_and_repo, commit_hash, path, path),
         }
     }
 }
@@ -465,6 +562,28 @@ impl Serializable for ProjectUpdateStatus {
             },
             _ => return Err(std::io::Error::new(std::io::ErrorKind::Other, "Invalid project update status id")),
         };
+    }
+}
+
+impl std::fmt::Display for ProjectUpdateStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            ProjectUpdateStatus::NoChange{time , version } => {
+                return write!(f, "{}: no change (v {})", helpers::pretty_timestamp(*time), version);
+            },
+            ProjectUpdateStatus::Ok{time , version} =>  {
+                return write!(f, "{}: ok (v {})", helpers::pretty_timestamp(*time), version);
+            },
+            ProjectUpdateStatus::Rename{time , version, old_offset : _} =>  {
+                return write!(f, "{}: project renamed (v {})", helpers::pretty_timestamp(*time), version);
+            },
+            ProjectUpdateStatus::ChangeStore{time , version, new_kind } =>  {
+                return write!(f, "{}: substore: {:?} (v {})", helpers::pretty_timestamp(*time), new_kind, version);
+            },
+            ProjectUpdateStatus::Error{time , version, error } =>  {
+                return write!(f, "{}: error: {} (v {})", helpers::pretty_timestamp(*time), error, version);
+            },
+        }
     }
 }
 
@@ -681,6 +800,11 @@ impl Serializable for ContentsKind {
 
 impl FixedSizeSerializable for ContentsKind {
     const SIZE : u64 = 2;
+}
+
+pub type PathString = String;
+
+impl ReadOnly for PathString {
 }
 
 /** The contents of a file. 

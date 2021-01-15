@@ -405,6 +405,8 @@ impl<'a> RepoUpdater<'a> {
             let author = commit.author();
             commit_info.author = self.get_or_create_user(& author, substore);
             commit_info.author_time = author.when().seconds();
+            // get commit message
+            commit_info.message = helpers::to_string(commit.message_bytes());
             // get parent ids and add parents to the queue
             commit_info.parents = commit.parents().map(|x| self.add_commit(& x.id(), substore)).collect();
             // and finally, calculate the changes

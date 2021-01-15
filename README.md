@@ -84,9 +84,7 @@ Displays a large csv that displays per substore and total number of projects, va
 
 The API provides various view wrappers around the internal parasite objects. These are all defined in the `lib.rs` file. Notably these are `DatastoreView` and `SubstoreView` for the whole datastore and its substores respectively. The datastore provides information about projects, savepoints and substores, while the substores provide wrappers around everything else. These wrappers (`StoreView`, `LinkedStoreView`, etc.) then wrap around actual database records, one file each and provide iterators to its elements. 
 
-For more details, look at `lib.rs`.
-
-> To see the actual use, have a look at the `example_` prefixed commands in `main.rs`. 
+> To see the actual use, have a look at the `example_` prefixed commands in `main.rs` and definitely at `lib.rs`, which actually provides all the API.
 
 # Appendix A - TODO
 
@@ -114,7 +112,7 @@ For more details, look at `lib.rs`.
 
 Calculates and displays the compression ratio for contents. This takes some time as all substore's contents are walked, read and decompressed to analyze the decompressed size. Compressed and decompressed data size is reported for each substore and a total. The sizes already take into account the overhead of the storage format (id and compressed size). 
 
-# Appendix C - Version History
+# Appendix D - Version History
 
 The datastore keeps its own version counter, which signifies the internal version of the datastore. The versions described here are binary incompatible versions of parasite, stored here only for historic purposes and context:
 
