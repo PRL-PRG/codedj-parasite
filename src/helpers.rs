@@ -49,7 +49,8 @@ pub fn to_string(bytes : & [u8]) -> String {
 /** Trivial pretty printer for unix epoch */
 pub fn pretty_timestamp(ts : i64) -> String {
     let d = UNIX_EPOCH + Duration::from_secs(ts as u64);
-    return format!("{:?}", d);    
+    let dt : chrono::DateTime<chrono::offset::Utc> = d.into();
+    return dt.format("%F %T").to_string();
 }
 
 pub fn pretty_duration(mut seconds : i64) -> String {

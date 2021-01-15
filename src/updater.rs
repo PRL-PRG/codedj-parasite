@@ -702,7 +702,8 @@ pub (crate) enum State {
 impl Pool {
     fn new() -> Pool {
         return Pool {
-            state : State::Paused,
+            // start running, threads will have nothing to do and go to idle immediately, but that is expected
+            state : State::Running,
             running_workers : 0,
             idle_workers : 0,
             paused_workers : 0,
