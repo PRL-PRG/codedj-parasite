@@ -12,7 +12,7 @@ mod datastore;
 mod records;
 #[allow(dead_code)]
 mod updater;
-mod task_add_projects;
+mod datastore_maintenance_tasks;
 mod task_update_repo;
 mod task_update_substore;
 mod task_load_substore;
@@ -72,6 +72,7 @@ fn execute_command() {
         "summary" => datastore_summary(),
         "savepoints" => datastore_savepoints(),
         "add" => datastore_add(SETTINGS.command.get(1).unwrap()),
+        "create-savepoint" => datastore_create_savepoint(SETTINGS.command.get(1).unwrap()),
         // example commands
         "active-projects" => example_active_projects(
             SETTINGS.command.get(1).map(|x| { x.parse::<i64>().unwrap() }).unwrap_or(90 * 24 * 3600)
@@ -121,7 +122,18 @@ fn datastore_add(url_or_file : & str) {
     TerminalReporter::report(|reporter : & TerminalReporter| {
         let ds = Datastore::new(& SETTINGS.datastore_root, false);
         reporter.run_task(Task::AddProjects{source : url_or_file.to_owned()}, |ts| {
-            return task_add_projects::task_add_projects(& ds, url_or_file.to_owned(), ts);
+            return datastore_maintenance_tasks::task_add_projects(& ds, url_or_file.to_owned(), ts);
+        });
+    });
+}
+
+/** Creates a savepoint of given name from the current datastore state. 
+ */
+fn datastore_create_savepoint(name : & str) {
+    TerminalReporter::report(|reporter : & TerminalReporter| {
+        let ds = Datastore::new(& SETTINGS.datastore_root, false);
+        reporter.run_task(Task::CreateSavepoint{name : name.to_owned()}, |ts| {
+            return datastore_maintenance_tasks::task_create_savepoint(& ds, ts);
         });
     });
 }

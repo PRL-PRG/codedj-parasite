@@ -17,7 +17,7 @@ mod datastore;
 #[allow(dead_code)]
 mod updater;
 #[allow(dead_code)]
-mod task_add_projects;
+mod datastore_maintenance_tasks;
 mod task_update_repo;
 mod task_update_substore;
 mod task_load_substore;

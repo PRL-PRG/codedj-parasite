@@ -75,6 +75,12 @@ Adds project with given url to the datastore, or if instead of url, local csv fi
 
 > This command is also available in the interactive mode.
 
+### `create-savepoint` name
+
+Creates savepoint of given name from current state of the datastore. 
+
+> This command is also available in the interactive mode.
+
 ### `active-projects` [days = 90]
 
 Displays a large csv that displays per substore and total number of projects, valid projects and active projects. Project is considered active if it has at least one commit no older than `days` before now.

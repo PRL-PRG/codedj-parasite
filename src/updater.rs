@@ -10,7 +10,7 @@ use crate::github::*;
 use crate::helpers;
 use crate::db::*;
 
-use crate::task_add_projects::*;
+use crate::datastore_maintenance_tasks::*;
 use crate::task_update_repo::*;
 use crate::task_update_substore::*;
 use crate::task_load_substore::*;
@@ -172,6 +172,9 @@ impl Updater {
                     }
                     Task::VerifyDatastore{} => {
                         return task_verify_datastore(self, TaskStatus::new(& tx, task));
+                    }
+                    Task::CreateSavepoint{name : _} => {
+                        return task_create_savepoint(& self.ds, TaskStatus::new(& tx, task));
                     }
                 }
             });
@@ -557,12 +560,12 @@ impl Updater {
                     self.display_prompt("Verifying main datastore, see task progress...");
                 }
             },
-            "savepoint" => {
+            "create-savepoint" => {
                 if cmd.len() != 2 {
                     self.display_error("Invalid arguments");
                 } else {
-                    let sp = self.ds.create_savepoint(cmd[1].to_owned(), true);
-                    self.display_prompt(format!("Created savepoint {}, total size {}", sp.name(), helpers::pretty_size(sp.size())));
+                    self.schedule(Task::CreateSavepoint{name : cmd[1].to_owned()});
+                    self.display_prompt("Creating savepoint, see task progress...");
                 }
             },
             // debug stuffz
@@ -640,6 +643,7 @@ pub enum Task {
     DropSubstore{store: StoreKind},
     VerifySubstore{store : StoreKind, mode : UpdateMode},
     VerifyDatastore{},
+    CreateSavepoint{name : String},
 }
 
 impl Task {
@@ -659,6 +663,7 @@ impl Task {
             Task::DropSubstore{store} => format!("drop {:?}", store),
             Task::VerifySubstore{store, mode} => format!("verify {:?} {:?}", store, mode),
             Task::VerifyDatastore{} => format!("verify datastore"),
+            Task::CreateSavepoint{name} => format!("create savepoint {}", name),
         }
     }
 }

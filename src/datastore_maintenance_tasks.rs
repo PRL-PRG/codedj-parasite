@@ -95,3 +95,17 @@ fn find_repo_url_column(row : & csv::StringRecord) -> Option<usize> {
         return None;
     }
 }
+
+/** Creates new savepoint of given name. 
+ 
+    TODO make sure that savepoint with given name does not exist yet
+ */
+pub (crate) fn task_create_savepoint(ds : & Datastore, task : TaskStatus) -> Result<(), std::io::Error> {
+    if let Task::CreateSavepoint{name} = & task.task {
+        let sp = ds.create_savepoint(name.to_owned(), true);
+        task.info(format!("Created savepoint {}, total size {}", sp.name(), helpers::pretty_size(sp.size())));
+     } else {
+        panic!("Invalid task kind");
+    }
+    return Ok(());
+}
