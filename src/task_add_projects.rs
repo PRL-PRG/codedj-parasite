@@ -1,31 +1,32 @@
 use crate::updater::*;
 use crate::records::*;
 use crate::helpers;
+use crate::datastore::*;
 
 /** Adds projects to the datastore. 
  
     To do this we must check the project urls for which the datastore needs to load all urls it knows. If the hashmap is not populated, it is loaded first. Then projects from the source can be added. 
  */
-pub (crate) fn task_add_projects(updater : & Updater, source : String,  task : TaskStatus) -> Result<(), std::io::Error> {
-    updater.ds.load_project_urls(| progress | {
+pub (crate) fn task_add_projects(ds : & Datastore, source : String,  task : TaskStatus) -> Result<(), std::io::Error> {
+    ds.load_project_urls(| progress | {
         task.info(format!("loading datastore project urls ({}) ", helpers::pretty_value(progress)));
     });
     let mut added = 0;
     let mut existing = 0;
     let mut invalid = 0;
     if source.ends_with(".csv") {
-        add_projects_from_csv(updater, source, & task, & mut added, & mut existing, & mut invalid)?;
+        add_projects_from_csv(ds, source, & task, & mut added, & mut existing, & mut invalid)?;
     } else {
-        add_project(updater, & source, & mut added, & mut existing, & mut invalid);
+        add_project(ds, & source, & mut added, & mut existing, & mut invalid);
     }
     task.info(format!("Finished: {} added, {} existing, {} invalid", added, existing, invalid));
     return Ok(());
 }
 
-fn add_project(updater : & Updater, url : & str, added : & mut usize, existing : & mut usize, invalid : & mut usize) {
+fn add_project(ds : & Datastore, url : & str, added : & mut usize, existing : & mut usize, invalid : & mut usize) {
     match Project::from_url(url) {
         Some(project) => {
-            match updater.ds.add_project(& project) {
+            match ds.add_project(& project) {
                 Some(_id) => {
                     // don't actually schedule the update, it has to be explicitly enabled by the user
                     //updater.schedule(Task::UpdateRepo{ id, last_update_time : Updater::NEVER });
@@ -40,7 +41,7 @@ fn add_project(updater : & Updater, url : & str, added : & mut usize, existing :
     }
 } 
 
-fn add_projects_from_csv(updater : & Updater, source : String, task : & TaskStatus, added : & mut usize, existing : & mut usize, invalid : & mut usize) -> Result<(), std::io::Error>{
+fn add_projects_from_csv(ds : & Datastore, source : String, task : & TaskStatus, added : & mut usize, existing : & mut usize, invalid : & mut usize) -> Result<(), std::io::Error>{
     let mut reader = csv::ReaderBuilder::new()
         .has_headers(true)
         .double_quote(false)
@@ -48,7 +49,7 @@ fn add_projects_from_csv(updater : & Updater, source : String, task : & TaskStat
         .from_path(source)?;
     let headers = reader.headers()?;
     let mut col_id = if let Some(id) = find_repo_url_column(& headers) {
-        add_project(updater, & headers[id], added, existing, invalid);
+        add_project(ds, & headers[id], added, existing, invalid);
         id
     } else {
         std::usize::MAX
@@ -62,7 +63,7 @@ fn add_projects_from_csv(updater : & Updater, source : String, task : & TaskStat
                 return Err(std::io::Error::new(std::io::ErrorKind::Other, "Cannot determine column containing project urls"));
             }
         }
-        add_project(updater, & record[col_id], added, existing, invalid);
+        add_project(ds, & record[col_id], added, existing, invalid);
         if (*added + *existing + *invalid) % 1000 == 0 {
             task.info(format!("{} added, {} existing, {} invalid, using column {}", added, existing, invalid, col_id));
         }

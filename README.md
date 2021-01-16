@@ -69,6 +69,12 @@ Displays the summary of the datastore that prints the number of stored entities 
 
 Lists the information about all available savepoints in the datastore.
 
+### `add` url_or_csv
+
+Adds project with given url to the datastore, or if instead of url, local csv file is given, analyzes the columns of the file for git urls and if found, adds all projects from the file to the datastore. When adding the projects, checks for duplicates. Note that the projects are only added to the datastore, but not actually updated. 
+
+> This command is also available in the interactive mode.
+
 ### `active-projects` [days = 90]
 
 Displays a large csv that displays per substore and total number of projects, valid projects and active projects. Project is considered active if it has at least one commit no older than `days` before now.

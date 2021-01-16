@@ -20,11 +20,13 @@ mod task_drop_substore;
 mod task_verify_substore;
 mod github;
 mod settings;
+mod reporter;
 
 use datastore::*;
 use updater::*;
 
 use parasite::*;
+use reporter::*;
 
 use settings::SETTINGS;
 
@@ -69,6 +71,7 @@ fn execute_command() {
         "size" => datastore_size(),
         "summary" => datastore_summary(),
         "savepoints" => datastore_savepoints(),
+        "add" => datastore_add(SETTINGS.command.get(1).unwrap()),
         // example commands
         "active-projects" => example_active_projects(
             SETTINGS.command.get(1).map(|x| { x.parse::<i64>().unwrap() }).unwrap_or(90 * 24 * 3600)
@@ -112,9 +115,20 @@ fn datastore_savepoints() {
     println!("Total {} savepoints found.", num);
 }
 
+/** Adds the given project or projects specified in a csv file to the datastore. 
+ */
+fn datastore_add(url_or_file : & str) {
+    TerminalReporter::report(|reporter : & TerminalReporter| {
+        let ds = Datastore::new(& SETTINGS.datastore_root, false);
+        reporter.run_task(Task::AddProjects{source : url_or_file.to_owned()}, |ts| {
+            return task_add_projects::task_add_projects(& ds, url_or_file.to_owned(), ts);
+        });
+    });
+}
+
 /** Displays active projects per substore. 
  
-    A simple example of the library interface. 
+    A simple example of the library interface. Looks at heads of all projects on a per substore basis as the commit information is in a substore and calculates which active projects, which is projects whose latest commit has happened `max_age` before the savepoint time.
  */
 fn example_active_projects(max_age : i64) {
     // create the datastore view with latest info (the latest savepoint is created ad hoc for the current state of the datastore)
@@ -165,6 +179,12 @@ fn example_active_projects(max_age : i64) {
 }
 
 /** Shows full information about given project. 
+ 
+    A debugging command that finds a project with given url (or historical url) in the datastore and shows its stored information. This includes the current url and project id, the full log of the project and its heads.
+
+    Then all commits of the project are printed, for each commit the parents, commit & author info, message and changes are printed. Each change shows the path and hash. 
+
+    Change paths and commit hashes are displayed as terminal links, where supported. 
  */
 fn example_show_project(url : & str, savepoint : Option<& str>) {
     // create the datastore and savepoint

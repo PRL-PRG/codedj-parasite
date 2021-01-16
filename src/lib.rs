@@ -26,6 +26,8 @@ mod task_verify_substore;
 mod github;
 #[allow(dead_code)]
 mod settings;
+#[allow(dead_code)]
+mod reporter;
 
 use crate::settings::SETTINGS;
 use crate::db::Indexable;

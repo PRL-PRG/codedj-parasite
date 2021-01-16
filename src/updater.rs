@@ -16,10 +16,10 @@ use crate::task_update_substore::*;
 use crate::task_load_substore::*;
 use crate::task_drop_substore::*;
 use crate::task_verify_substore::*;
+use crate::reporter::*;
 
 use crate::settings::SETTINGS;
 
-pub type Tx = crossbeam_channel::Sender<TaskMessage>;
 
 /** Convenience struct that brings together the tx end of a channel, task name and task itself and exposes the sending of task messages via a simple api. 
  */
@@ -122,7 +122,6 @@ impl Updater {
         print!("\x1b[2J"); // clear screen
         stdout().flush().unwrap();
         let (tx, rx) = crossbeam_channel::unbounded::<TaskMessage>();
-        // TODO alt mode, clear screen and do stuff
         crossbeam::thread::scope(|s| {
             s.spawn(|_| {
                 self.reporter(rx);
@@ -157,7 +156,7 @@ impl Updater {
                         return task_update_repo(self, TaskStatus::new(& tx, task));
                     }
                     Task::AddProjects{ref source} => {
-                        return task_add_projects(self, source.to_owned(), TaskStatus::new(& tx, task));
+                        return task_add_projects(& self.ds, source.to_owned(), TaskStatus::new(& tx, task));
                     },
                     Task::UpdateSubstore{store, mode} => {
                         return task_update_substore(self, store, mode, TaskStatus::new(& tx, task));
