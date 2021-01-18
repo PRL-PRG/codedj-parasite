@@ -73,6 +73,7 @@ fn execute_command() {
         "savepoints" => datastore_savepoints(),
         "add" => datastore_add(SETTINGS.command.get(1).unwrap()),
         "create-savepoint" => datastore_create_savepoint(SETTINGS.command.get(1).unwrap()),
+        "revert-to-savepoint" => datastore_revert_to_savepoint(SETTINGS.command.get(1).unwrap()),
         // example commands
         "active-projects" => example_active_projects(
             SETTINGS.command.get(1).map(|x| { x.parse::<i64>().unwrap() }).unwrap_or(90 * 24 * 3600)
@@ -136,6 +137,17 @@ fn datastore_create_savepoint(name : & str) {
             return datastore_maintenance_tasks::task_create_savepoint(& ds, ts);
         });
     });
+}
+
+/** Reverts the datastore to given saveopoint. 
+ */
+fn datastore_revert_to_savepoint(name : & str) {
+    {
+        let ds = Datastore::new(& SETTINGS.datastore_root, false);
+        let sp = ds.get_savepoint(name).unwrap();
+        ds.revert_to_savepoint(&sp);
+    }
+    datastore_size();
 }
 
 /** Displays active projects per substore. 

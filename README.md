@@ -138,7 +138,7 @@ File contents are stored in a split store, split by file extension.
 
 ### 0.2 
 
-File contents are stored as well, interactive updater. Binary format only. Only git and github input sources.
+File contents are stored as well, interactive updater. Binary format only. Only git and github input sources. Pretty much complete code rewrite.
 
 ### 0.1
 

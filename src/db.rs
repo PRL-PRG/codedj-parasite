@@ -248,6 +248,18 @@ impl<T : Indexable + Serializable<Item = T>, ID : Id> Indexer<T, ID> {
         return self.size as usize;
     }
 
+    pub fn savepoint(& mut self, savepoint : & mut Savepoint) {
+        savepoint.add_entry(
+            format!("{}.idx", self.name),
+            self.f.seek(SeekFrom::End(0)).unwrap()
+        );
+    }
+
+    pub fn revert_to_savepoint(& mut self, savepoint : & Savepoint) {
+        self.f.set_len(savepoint.limit_for(& format!("{}.idx", self.name))).unwrap();
+        self.f.seek(SeekFrom::End(0)).unwrap();
+    }
+
     pub fn iter(& mut self) -> IndexerIterator<T, ID> {
         self.f.seek(SeekFrom::Start(0)).unwrap();
         return IndexerIterator{indexer : self, id : 0, max_offset: u64::MAX};
@@ -322,9 +334,16 @@ impl<T: Serializable<Item = T>, ID : Id> Store<T, ID> {
      */
     pub fn savepoint(& mut self, savepoint : & mut Savepoint) {
         savepoint.add_entry(
-            self.name().to_owned(),
+            format!("{}.store",self.name()),
             self.f.seek(SeekFrom::End(0)).unwrap()
         );
+        self.indexer.savepoint(savepoint);
+    }
+
+    pub fn revert_to_savepoint(& mut self, savepoint : & Savepoint) {
+        self.f.set_len(savepoint.limit_for(& format!("{}.store", self.name()))).unwrap();
+        self.f.seek(SeekFrom::End(0)).unwrap();
+        self.indexer.revert_to_savepoint(savepoint);
     }
 
     /** Verifies the store. 
@@ -427,7 +446,7 @@ impl<T: Serializable<Item = T>, ID : Id> Store<T, ID> {
     }
 
     pub fn savepoint_iter_all(& mut self, sp : & Savepoint) -> StoreIterAll<T, ID> {
-        let max_offset = sp.limit_for(self.name());
+        let max_offset = sp.limit_for(& format!("{}.store", self.name()));
         self.f.seek(SeekFrom::Start(0)).unwrap();
         return StoreIterAll{ store : self, max_offset };
     }
@@ -540,9 +559,16 @@ impl<T: Serializable<Item = T>, ID : Id> LinkedStore<T, ID> {
      */
     pub fn savepoint(& mut self, savepoint : & mut Savepoint) {
         savepoint.add_entry(
-            self.name().to_owned(),
+            format!("{}.store", self.name()),
             self.f.seek(SeekFrom::End(0)).unwrap()
         );
+        self.indexer.savepoint(savepoint);
+    }
+
+    pub fn revert_to_savepoint(& mut self, savepoint : & Savepoint) {
+        self.f.set_len(savepoint.limit_for(& format!("{}.store", self.name()))).unwrap();
+        self.f.seek(SeekFrom::End(0)).unwrap();
+        self.indexer.revert_to_savepoint(savepoint);
     }
 
     /** Verifies the linked store. 
@@ -660,7 +686,7 @@ impl<T: Serializable<Item = T>, ID : Id> LinkedStore<T, ID> {
     }
 
     pub fn savepoint_iter_all(& mut self, sp : & Savepoint) -> LinkedStoreIterAll<T, ID> {
-        let max_offset = sp.limit_for(self.name());
+        let max_offset = sp.limit_for(& format!("{}.store",self.name()));
         self.f.seek(SeekFrom::Start(0)).unwrap();
         return LinkedStoreIterAll{ store : self, max_offset };
     }
@@ -811,9 +837,14 @@ impl<T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone, ID : Id> Mapping<T
      */
     pub fn savepoint(& mut self, savepoint : & mut Savepoint) {
         savepoint.add_entry(
-            self.name().to_owned(),
+            format!("{}.mapping", self.name()),
             self.f.seek(SeekFrom::End(0)).unwrap()
         );
+    }
+
+    pub fn revert_to_savepoint(& mut self, savepoint : & Savepoint) {
+        self.f.set_len(savepoint.limit_for(& format!("{}.mapping", self.name))).unwrap();
+        self.f.seek(SeekFrom::End(0)).unwrap();
     }
 
     /** Verifies the mapping's integrity. 
@@ -912,7 +943,7 @@ impl<T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone, ID : Id> Mapping<T
     }
 
     pub fn savepoint_iter(& mut self, sp : & Savepoint) -> MappingIter<T, ID> {
-        let max_offset = sp.limit_for(self.name());
+        let max_offset = sp.limit_for(& format!("{}.mapping", self.name()));
         self.f.seek(SeekFrom::Start(0)).unwrap();
         return MappingIter{f : & mut self.f, index : 0, size : max_offset / (std::mem::size_of::<T>() as u64), why_oh_why : std::marker::PhantomData{} };
     }
@@ -968,6 +999,9 @@ impl<T : Serializable<Item = T> + Eq + Hash + Clone, ID : Id> IndirectMapping<T,
         self.store.savepoint(savepoint);
     }
 
+    pub fn revert_to_savepoint(& mut self, savepoint : & Savepoint) {
+        self.store.revert_to_savepoint(savepoint);
+    }
 
     /** Verifies the mapping's integrity. 
 
@@ -1158,11 +1192,22 @@ impl<T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>, ID : Id> SplitSto
         let mut i = 0;
         for f in self.files.iter_mut() {
             savepoint.add_entry(
-                format!("{}-{}", self.name, i),
+                format!("{}-{}.store", self.name, i),
                 f.seek(SeekFrom::End(0)).unwrap()
             );
             i += 1;
         }
+        self.indexer.savepoint(savepoint);
+    }
+
+    pub fn revert_to_savepoint(& mut self, savepoint : & Savepoint) {
+        let mut i = 0;
+        for f in self.files.iter_mut() {
+            f.set_len(savepoint.limit_for(& format!("{}-{}.store", self.name, i))).unwrap();
+            f.seek(SeekFrom::End(0)).unwrap();
+            i += 1;
+        }
+        self.indexer.revert_to_savepoint(savepoint);
     }
 
     /** Verifies the split store's integrity
@@ -1265,7 +1310,7 @@ impl<T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>, ID : Id> SplitSto
         let mut max_offsets = Vec::new();
         let mut i = 0;
         for _f in self.files.iter_mut() {
-            max_offsets.push(sp.limit_for(& format!("{}-{}", self.name, i)));
+            max_offsets.push(sp.limit_for(& format!("{}-{}.store", self.name, i)));
             i += 1;
         }
         self.files[0].seek(SeekFrom::Start(0)).unwrap();
@@ -1356,9 +1401,13 @@ impl std::fmt::Display for Savepoint {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         writeln!(f, "Savepoint: {}, time: {} ({})", self.name, helpers::pretty_timestamp(self.time), self.time)?;
         writeln!(f, "    files: {}", self.sizes.len())?;
-        for (file, size) in self.sizes.iter() {
+        let size = self.sizes.iter().fold(0, |a, (_,b)| a + b);
+        writeln!(f, "    size:  {}", size)?;
+        /*
+        for (_file, file_size) in self.sizes.iter() {
             writeln!(f, "    {} {}", size, file)?;
         }
+        */
         return Ok(());
     }
 }

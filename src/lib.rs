@@ -109,7 +109,7 @@ impl DatastoreView {
      */
     pub fn new(root : & str) -> DatastoreView {
         return DatastoreView{
-            ds : datastore::Datastore::new(root, false),
+            ds : datastore::Datastore::new(root, true), // readonly
         };
     }
 
@@ -148,7 +148,7 @@ impl DatastoreView {
     }
 
     pub fn current_savepoint(& self) -> Savepoint {
-        return self.ds.create_savepoint("latest".to_owned(), false);
+        return self.ds.create_savepoint("latest".to_owned());
     }
 
     pub fn get_nearest_savepoint(& self, timestamp : i64) -> Option<Savepoint> {
@@ -171,10 +171,7 @@ impl DatastoreView {
         match name {
             None => return Some(self.current_savepoint()),
             Some(savepoint_name) => {
-                let mut guard = self.ds.savepoints.lock().unwrap();
-                return guard.iter()
-                    .find(|(_, sp)| sp.name() == savepoint_name)
-                    .map(|(_, sp)| sp);
+                return self.ds.get_savepoint(savepoint_name);
             },
         }
     }

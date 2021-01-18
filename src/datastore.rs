@@ -193,8 +193,24 @@ impl Datastore {
     // savepoints -------------------------------------------------------------------------------------------------------
 
     /** Creates new savepoint and stores it in the datastore. 
+     
+        The savepoint will contain itself as well, i.e. when restoring the datastore to the savepoint the savepoint definition will remain intact. 
+        
+        This is done by first creating dummy savepoint, storing it, thus increasing the savepoints size, creating new savepoint, reverting to the dummy one, and writing the proper savepoint. 
      */
-    pub (crate) fn create_savepoint(& self, name : String, save : bool) -> Savepoint {
+    pub (crate) fn create_and_save_savepoint(& self, name : String) -> Savepoint {
+        let dummy = self.create_savepoint(name.clone());
+        self.savepoints.lock().unwrap().set(0, & dummy);
+        let result = self.create_savepoint(name);
+        self.savepoints.lock().unwrap().revert_to_savepoint(& dummy);
+        *self.savepoints.lock().unwrap() = LinkedStore::new(& self.root, "savepoints", false);
+        self.savepoints.lock().unwrap().set(0, & result);
+        return result;
+    }
+
+    /** Creates savepoint. 
+     */
+    pub (crate) fn create_savepoint(& self, name : String) -> Savepoint {
         let mut savepoint = Savepoint::new(name);
         self.projects.lock().unwrap().savepoint(& mut savepoint);
         self.project_substores.lock().unwrap().savepoint(& mut savepoint);
@@ -205,10 +221,29 @@ impl Datastore {
         for substore in self.substores.iter() {
             substore.savepoint(& mut savepoint);
         }
-        if save {
-            self.savepoints.lock().unwrap().set(0, & savepoint);
-        }
         return savepoint;
+    }
+
+    /** Reverts the datastore to given savepoint. 
+     
+        Note that this is destructive operation and *will* delete all data *after the savepoint 
+     */
+    pub (crate) fn revert_to_savepoint(& self, sp : & Savepoint) {
+        self.projects.lock().unwrap().revert_to_savepoint(sp);
+        self.project_substores.lock().unwrap().revert_to_savepoint(sp);
+        self.project_updates.lock().unwrap().revert_to_savepoint(sp);
+        self.project_heads.lock().unwrap().revert_to_savepoint(sp);
+        self.project_metadata.lock().unwrap().revert_to_savepoint(sp);
+        self.savepoints.lock().unwrap().revert_to_savepoint(sp);
+        for substore in self.substores.iter() {
+            substore.revert_to_savepoint(sp);
+        }
+    }
+
+    pub (crate) fn get_savepoint(& self, name : & str) -> Option<Savepoint> {
+        return self.savepoints.lock().unwrap().iter_all()
+            .find(|(_, sp)| sp.name() == name)
+            .map(|(_, sp)| sp);
     }
 
 
@@ -469,10 +504,12 @@ impl Substore {
 
         };
         // add sentinels (0 index values) for commits, hashes, paths and users
-        result.get_or_create_commit_id(& Hash::zero());
-        result.get_or_create_hash_id(& Hash::zero());
-        result.get_or_create_path_id(& "".to_owned());
-        result.get_or_create_user_id(& "".to_owned());
+        if !readonly && result.commits.lock().unwrap().len() == 0 {
+            result.get_or_create_commit_id(& Hash::zero());
+            result.get_or_create_hash_id(& Hash::zero());
+            result.get_or_create_path_id(& "".to_owned());
+            result.get_or_create_user_id(& "".to_owned());
+        }
         return result;
     }
 
@@ -487,6 +524,19 @@ impl Substore {
         self.path_strings.lock().unwrap().savepoint(savepoint);
         self.users.lock().unwrap().savepoint(savepoint);
         self.users_metadata.lock().unwrap().savepoint(savepoint);
+    }
+
+    fn revert_to_savepoint(& self, savepoint : & Savepoint) {
+        self.commits.lock().unwrap().revert_to_savepoint(savepoint);
+        self.commits_info.lock().unwrap().revert_to_savepoint(savepoint);
+        self.commits_metadata.lock().unwrap().revert_to_savepoint(savepoint);
+        self.hashes.lock().unwrap().revert_to_savepoint(savepoint);
+        self.contents.lock().unwrap().revert_to_savepoint(savepoint);
+        self.contents_metadata.lock().unwrap().revert_to_savepoint(savepoint);
+        self.paths.lock().unwrap().revert_to_savepoint(savepoint);
+        self.path_strings.lock().unwrap().revert_to_savepoint(savepoint);
+        self.users.lock().unwrap().revert_to_savepoint(savepoint);
+        self.users_metadata.lock().unwrap().revert_to_savepoint(savepoint);
     }
 
     pub (crate) fn load(& self, task : & updater::TaskStatus) {
