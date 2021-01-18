@@ -81,6 +81,12 @@ Creates savepoint of given name from current state of the datastore.
 
 > This command is also available in the interactive mode.
 
+### `revert-to-savepoint` name
+
+Reverts the datastore to given savepoint. 
+
+> NOTE: This is dangerous. Once the datastore is reverted, all extra data is lost. Not available in interactive mode.
+
 ### `active-projects` [days = 90]
 
 Displays a large csv that displays per substore and total number of projects, valid projects and active projects. Project is considered active if it has at least one commit no older than `days` before now.
