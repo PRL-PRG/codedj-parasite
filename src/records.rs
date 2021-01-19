@@ -9,6 +9,7 @@ use num_derive::*;
 use crate::db::*;
 use crate::datastore::*;
 use crate::helpers;
+use std::fmt::Display;
 
 #[derive(std::fmt::Debug, std::cmp::PartialEq, std::cmp::Eq, std::hash::Hash, std::marker::Copy, std::clone::Clone)]
 pub struct ProjectId {
@@ -222,6 +223,35 @@ impl StoreKind {
             "shell" => Some(StoreKind::Shell),
             "typescript" | "ts" => Some(StoreKind::TypeScript),
             _ => None
+        }
+    }
+}
+
+impl Display for StoreKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            StoreKind::Generic => write!(f, "Generic"),
+            StoreKind::SmallProjects => write!(f, "Small"),
+            StoreKind::C => write!(f, "C"),
+            StoreKind::Cpp => write!(f, "C++"),
+            StoreKind::CSharp => write!(f, "C#"),
+            StoreKind::Clojure => write!(f, "Clojure"),
+            StoreKind::CoffeeScript => write!(f, "CoffeeScript"),
+            StoreKind::Erlang => write!(f, "Erlang"),
+            StoreKind::Go => write!(f, "Go"),
+            StoreKind::Haskell => write!(f, "Haskell"),
+            StoreKind::Html => write!(f, "HTML"),
+            StoreKind::Java => write!(f, "Java"),
+            StoreKind::JavaScript => write!(f, "JavaScript"),
+            StoreKind::ObjectiveC => write!(f, "ObjectiveC"),
+            StoreKind::Perl => write!(f, "Perl"),
+            StoreKind::Php => write!(f, "PHP"),
+            StoreKind::Python => write!(f, "Python"),
+            StoreKind::Ruby => write!(f, "Ruby"),
+            StoreKind::Scala => write!(f, "Scala"),
+            StoreKind::Shell => write!(f, "Shell"),
+            StoreKind::TypeScript => write!(f, "TypeScript"),
+            StoreKind::Unspecified => write!(f, "Unspecified"),
         }
     }
 }
