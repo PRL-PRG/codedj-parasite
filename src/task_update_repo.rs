@@ -16,8 +16,8 @@ use crate::helpers;
     - update the project
     
  */
-pub (crate) fn task_update_repo(updater : & Updater, task : TaskStatus) -> Result<(), std::io::Error> {
-    let mut ru = RepoUpdater::new(updater, task);
+pub (crate) fn task_update_repo(updater : & Updater, task : TaskStatus, force : bool) -> Result<(), std::io::Error> {
+    let mut ru = RepoUpdater::new(updater, task, force);
     match ru.update() {
         Err(e) => {
                 // if there was an error, report the error and exit
@@ -67,7 +67,7 @@ impl<'a> RepoUpdater<'a> {
 
     /** Creates new repository updater. 
      */
-    fn new(updater : &'a Updater, task : TaskStatus<'a>) -> RepoUpdater<'a> {
+    fn new(updater : &'a Updater, task : TaskStatus<'a>, force : bool) -> RepoUpdater<'a> {
         if let Task::UpdateRepo{id, last_update_time : _ } = task.task {
             return RepoUpdater {
                 updater,
@@ -75,7 +75,7 @@ impl<'a> RepoUpdater<'a> {
                 task,
                 id,
                 project : updater.ds.get_project(id).unwrap(),
-                force : false,
+                force,
                 tentative_substore : StoreKind::Unspecified,
                 changed : false,
                 local_folder : format!("{}/repo_clones/{}", updater.ds.root_folder(), u64::from(id)),

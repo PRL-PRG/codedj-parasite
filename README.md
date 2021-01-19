@@ -108,7 +108,7 @@ The API provides various view wrappers around the internal parasite objects. The
 
 > The following are current items that are being worked on or that must be checked are already finished:
 
-- add project heads and metadata extraction for the assembled projects ? 
+- add metadata extraction for the assembled projects ? 
 
 - and how to stop them threads that are updating (purge the queue should do it, the task would then end once all other threads will become idle)
 - add log for commands entered
@@ -119,7 +119,6 @@ The API provides various view wrappers around the internal parasite objects. The
 
 - github linguist and cloc to be executed on snapshots
 - db guys should be able to regenerate their indices from the datafiles
-- a datastore should be able to rollback to any given savepoint
 - add projects from github directly
 - add issues
 

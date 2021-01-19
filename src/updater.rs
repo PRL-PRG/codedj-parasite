@@ -153,7 +153,7 @@ impl Updater {
             let result = std::panic::catch_unwind(|| {
                 match task {
                     Task::UpdateRepo{last_update_time : _, id : _ } => {
-                        return task_update_repo(self, TaskStatus::new(& tx, task));
+                        return task_update_repo(self, TaskStatus::new(& tx, task), false);
                     }
                     Task::AddProjects{ref source} => {
                         return task_add_projects(& self.ds, source.to_owned(), TaskStatus::new(& tx, task));
