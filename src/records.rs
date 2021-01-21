@@ -304,19 +304,19 @@ impl FixedSizeSerializable for StoreKind {
     ProjectKind::Github : the id is the username and repo name.
  */
 #[derive(Clone,Debug, std::cmp::PartialEq, std::cmp::Eq, std::hash::Hash)]
-pub enum Project{
+pub enum ProjectUrl{
     Git{url : String},
     GitHub{user_and_repo : String},
 }
 
-impl Project {
+impl ProjectUrl {
 
     pub fn clone_url(& self) -> String {
         match self {
-            Project::Git{url} => {
+            ProjectUrl::Git{url} => {
                 return format!("https://{}.git", url);
             },
-            Project::GitHub{user_and_repo} => {
+            ProjectUrl::GitHub{user_and_repo} => {
                 return format!("https://github.com/{}.git", user_and_repo);                
             }
         }
@@ -324,26 +324,26 @@ impl Project {
 
     pub fn name(& self) -> String {
         match self {
-            Project::Git{url} => {
+            ProjectUrl::Git{url} => {
                 return url.clone();
             },
-            Project::GitHub{user_and_repo} => {
+            ProjectUrl::GitHub{user_and_repo} => {
                 return user_and_repo.clone();                
             }
         }
     }
 
-    pub fn from_url(url : & str) -> Option<Project> {
+    pub fn from_url(url : & str) -> Option<ProjectUrl> {
         if url.starts_with("https://github.com/") {
             if url.ends_with(".git") {
-                return Some(Project::GitHub{ user_and_repo : url[19..(url.len() - 4)].to_owned() });
+                return Some(ProjectUrl::GitHub{ user_and_repo : url[19..(url.len() - 4)].to_owned() });
             } else {
-                return Some(Project::GitHub{ user_and_repo : url[19..].to_owned() });
+                return Some(ProjectUrl::GitHub{ user_and_repo : url[19..].to_owned() });
             }
         } else if url.starts_with("https://api.github.com/repos/") {
-            return Some(Project::GitHub{ user_and_repo : url[29..].to_owned() });
+            return Some(ProjectUrl::GitHub{ user_and_repo : url[29..].to_owned() });
         } else if url.ends_with(".git") && url.starts_with("https://") {
-            return Some(Project::Git{ url : url[8..(url.len() - 4)].to_owned() });
+            return Some(ProjectUrl::Git{ url : url[8..(url.len() - 4)].to_owned() });
         } else {
             return None;
         }
@@ -355,7 +355,7 @@ impl Project {
      */
     pub fn matches_url(& self, mut url : & str) -> bool {
         match self {
-            Project::Git{url : git_url} => {
+            ProjectUrl::Git{url : git_url} => {
                 if url.ends_with(".git") {
                     url = & url[0..url.len()-4];
                 }
@@ -366,7 +366,7 @@ impl Project {
                 }
                 return git_url == url;
             },
-            Project::GitHub{user_and_repo} => {
+            ProjectUrl::GitHub{user_and_repo} => {
                 if url.ends_with(".git") {
                     url = & url[0..url.len()-4];
                 }
@@ -386,11 +386,11 @@ impl Project {
 
        Currently only github projects will return a link. Terminals that do not support the link feature will still show the hash properly. 
     */
-    pub fn get_commit_terminal_link(& self, commit_hash : Hash) -> String {
+    pub fn get_commit_terminal_link(& self, commit_hash : SHA) -> String {
         match self {
-            Project::Git{url : _ } => 
+            ProjectUrl::Git{url : _ } => 
                 return format!("{}", commit_hash),
-            Project::GitHub{user_and_repo} => 
+            ProjectUrl::GitHub{user_and_repo} => 
                 return format!("\x1b]8;;https://github.com/{}/commit/{}\x07{}\x1b]8;;\x07", user_and_repo, commit_hash, commit_hash),
         }
     }
@@ -399,57 +399,57 @@ impl Project {
 
        Currently only github projects will return a link. Terminals that do not support the link feature will still show the hash properly. 
     */
-    pub fn get_change_terminal_link(& self, commit_hash : Hash, path : & str, contents_hash : Hash) -> String {
-        if contents_hash == Hash::zero() {
+    pub fn get_change_terminal_link(& self, commit_hash : SHA, path : & str, contents_hash : SHA) -> String {
+        if contents_hash == SHA::zero() {
             return path.to_owned();
         }
         match self {
-            Project::Git{url : _ } => 
+            ProjectUrl::Git{url : _ } => 
                 return path.to_owned(),
-            Project::GitHub{user_and_repo} => 
+            ProjectUrl::GitHub{user_and_repo} => 
                 return format!("\x1b]8;;https://github.com/{}/blob/{}/{}\x07{}\x1b]8;;\x07", user_and_repo, commit_hash, path, path),
         }
     }
 }
 
-impl Serializable for Project {
-    type Item = Project;
-    fn serialize(f : & mut File, value : & Project) {
+impl Serializable for ProjectUrl {
+    type Item = ProjectUrl;
+    fn serialize(f : & mut File, value : & ProjectUrl) {
         match value {
-            Project::Git{url} => {
+            ProjectUrl::Git{url} => {
                 u8::serialize(f, & 0);
                 String::serialize(f, url);
             }
-            Project::GitHub{user_and_repo } => {
+            ProjectUrl::GitHub{user_and_repo } => {
                 u8::serialize(f, & 1);
                 String::serialize(f, user_and_repo);
             }
         }
     }
 
-    fn deserialize(f : & mut File) -> Project {
+    fn deserialize(f : & mut File) -> ProjectUrl {
         match u8::deserialize(f) {
             0 => {
                 let url = String::deserialize(f);
-                return Project::Git{ url };
+                return ProjectUrl::Git{ url };
             },
             1 => {
                 let user_and_repo = String::deserialize(f);
-                return Project::GitHub{ user_and_repo };
+                return ProjectUrl::GitHub{ user_and_repo };
             },
             _ => panic!("Unknown project kind"),
         }
     }
 
-    fn verify(f : & mut File) -> Result<Project, std::io::Error> {
+    fn verify(f : & mut File) -> Result<ProjectUrl, std::io::Error> {
         match u8::verify(f)? {
             0 => {
                 let url = String::verify(f)?;
-                return Ok(Project::Git{ url });
+                return Ok(ProjectUrl::Git{ url });
             },
             1 => {
                 let user_and_repo = String::verify(f)?;
-                return Ok(Project::GitHub{ user_and_repo });
+                return Ok(ProjectUrl::GitHub{ user_and_repo });
             },
             _ => return Err(std::io::Error::new(std::io::ErrorKind::Other, "Invalid project kind id")),
         }
@@ -472,7 +472,7 @@ impl Serializable for Project {
 
     # Error
  */
-pub enum ProjectUpdateStatus {
+pub enum ProjectLog {
     NoChange{time : i64, version : u16}, // 0
     Ok{time : i64, version : u16},  // 1
     /** Project url changes. Although project kind change is not expected when issuing project renames, it is technically possible. 
@@ -482,56 +482,56 @@ pub enum ProjectUpdateStatus {
     Error{time : i64, version : u16, error : String }, // 255
 }
 
-impl ProjectUpdateStatus {
+impl ProjectLog {
     pub fn version(& self) -> u16 {
         match self {
-            ProjectUpdateStatus::NoChange{time : _, version } => return *version,
-            ProjectUpdateStatus::Ok{time : _, version} => return *version,
-            ProjectUpdateStatus::Rename{time : _, version, old_offset: _} => return *version,
-            ProjectUpdateStatus::ChangeStore{time : _, version, new_kind : _ } => return *version,
-            ProjectUpdateStatus::Error{time : _, version, error: _ } => return *version,
+            ProjectLog::NoChange{time : _, version } => return *version,
+            ProjectLog::Ok{time : _, version} => return *version,
+            ProjectLog::Rename{time : _, version, old_offset: _} => return *version,
+            ProjectLog::ChangeStore{time : _, version, new_kind : _ } => return *version,
+            ProjectLog::Error{time : _, version, error: _ } => return *version,
         }
     }
 
     pub fn time(& self) -> i64 {
         match self {
-            ProjectUpdateStatus::NoChange{time, version: _ } => return *time,
-            ProjectUpdateStatus::Ok{time, version : _} => return *time,
-            ProjectUpdateStatus::Rename{time, version : _, old_offset: _} => return *time,
-            ProjectUpdateStatus::ChangeStore{time, version : _, new_kind : _ } => return *time,
-            ProjectUpdateStatus::Error{time, version : _, error: _ } => return *time,
+            ProjectLog::NoChange{time, version: _ } => return *time,
+            ProjectLog::Ok{time, version : _} => return *time,
+            ProjectLog::Rename{time, version : _, old_offset: _} => return *time,
+            ProjectLog::ChangeStore{time, version : _, new_kind : _ } => return *time,
+            ProjectLog::Error{time, version : _, error: _ } => return *time,
         }
 
     }
 }
 
-impl Serializable for ProjectUpdateStatus {
-    type Item = ProjectUpdateStatus;
-    fn serialize(f : & mut File, value : & ProjectUpdateStatus) {
+impl Serializable for ProjectLog {
+    type Item = ProjectLog;
+    fn serialize(f : & mut File, value : & ProjectLog) {
         match value {
-            ProjectUpdateStatus::NoChange{time , version } => {
+            ProjectLog::NoChange{time , version } => {
                 u8::serialize(f, & 0);
                 i64::serialize(f, time);
                 u16::serialize(f, version);
             },
-            ProjectUpdateStatus::Ok{time , version} =>  {
+            ProjectLog::Ok{time , version} =>  {
                 u8::serialize(f, & 1);
                 i64::serialize(f, time);
                 u16::serialize(f, version);
             },
-            ProjectUpdateStatus::Rename{time , version, old_offset} =>  {
+            ProjectLog::Rename{time , version, old_offset} =>  {
                 u8::serialize(f, & 2);
                 i64::serialize(f, time);
                 u16::serialize(f, version);
                 u64::serialize(f, old_offset);
             },
-            ProjectUpdateStatus::ChangeStore{time , version, new_kind } =>  {
+            ProjectLog::ChangeStore{time , version, new_kind } =>  {
                 u8::serialize(f, & 3);
                 i64::serialize(f, time);
                 u16::serialize(f, version);
                 StoreKind::serialize(f, new_kind);
             },
-            ProjectUpdateStatus::Error{time , version, error } =>  {
+            ProjectLog::Error{time , version, error } =>  {
                 u8::serialize(f, & 255);
                 i64::serialize(f, time);
                 u16::serialize(f, version);
@@ -540,31 +540,31 @@ impl Serializable for ProjectUpdateStatus {
         }
     }
 
-    fn deserialize(f : & mut File) -> ProjectUpdateStatus {
+    fn deserialize(f : & mut File) -> ProjectLog {
         let kind = u8::deserialize(f);
         let time = i64::deserialize(f);
         let version = u16::deserialize(f);
         match kind {
             0 => {
-                return ProjectUpdateStatus::NoChange{time, version};
+                return ProjectLog::NoChange{time, version};
             },
             1 => {
-                return ProjectUpdateStatus::Ok{time, version};
+                return ProjectLog::Ok{time, version};
             },
             2 => {
-                return ProjectUpdateStatus::Rename{time, version, old_offset : u64::deserialize(f)};
+                return ProjectLog::Rename{time, version, old_offset : u64::deserialize(f)};
             },
             3 => {
-                return ProjectUpdateStatus::ChangeStore{time, version, new_kind : StoreKind::deserialize(f)};
+                return ProjectLog::ChangeStore{time, version, new_kind : StoreKind::deserialize(f)};
             },
             255 => {
-                return ProjectUpdateStatus::Error{time, version, error : String::deserialize(f)};
+                return ProjectLog::Error{time, version, error : String::deserialize(f)};
             },
             _ => panic!("Unknown project update status kind"),
         }
     }
 
-    fn verify(f : & mut File) -> Result<ProjectUpdateStatus, std::io::Error> {
+    fn verify(f : & mut File) -> Result<ProjectLog, std::io::Error> {
         let kind = u8::verify(f)?;
         match kind {
             0 | 1 | 2 | 3 | 255 => {
@@ -572,19 +572,19 @@ impl Serializable for ProjectUpdateStatus {
                 let version = u16::verify(f)?;
                 match kind {
                     0 => {
-                        return Ok(ProjectUpdateStatus::NoChange{time, version});
+                        return Ok(ProjectLog::NoChange{time, version});
                     },
                     1 => {
-                        return Ok(ProjectUpdateStatus::Ok{time, version});
+                        return Ok(ProjectLog::Ok{time, version});
                     },
                     2 => {
-                        return Ok(ProjectUpdateStatus::Rename{time, version, old_offset : u64::deserialize(f)});
+                        return Ok(ProjectLog::Rename{time, version, old_offset : u64::deserialize(f)});
                     },
                     3 => {
-                        return Ok(ProjectUpdateStatus::ChangeStore{time, version, new_kind : StoreKind::deserialize(f)});
+                        return Ok(ProjectLog::ChangeStore{time, version, new_kind : StoreKind::deserialize(f)});
                     },
                     255 => {
-                        return Ok(ProjectUpdateStatus::Error{time, version, error : String::deserialize(f)});
+                        return Ok(ProjectLog::Error{time, version, error : String::deserialize(f)});
                     },
                     _ => unreachable!(),
                 }
@@ -595,22 +595,22 @@ impl Serializable for ProjectUpdateStatus {
     }
 }
 
-impl std::fmt::Display for ProjectUpdateStatus {
+impl std::fmt::Display for ProjectLog {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            ProjectUpdateStatus::NoChange{time , version } => {
+            ProjectLog::NoChange{time , version } => {
                 return write!(f, "{}: no change (v {})", helpers::pretty_timestamp(*time), version);
             },
-            ProjectUpdateStatus::Ok{time , version} =>  {
+            ProjectLog::Ok{time , version} =>  {
                 return write!(f, "{}: ok (v {})", helpers::pretty_timestamp(*time), version);
             },
-            ProjectUpdateStatus::Rename{time , version, old_offset : _} =>  {
+            ProjectLog::Rename{time , version, old_offset : _} =>  {
                 return write!(f, "{}: project renamed (v {})", helpers::pretty_timestamp(*time), version);
             },
-            ProjectUpdateStatus::ChangeStore{time , version, new_kind } =>  {
+            ProjectLog::ChangeStore{time , version, new_kind } =>  {
                 return write!(f, "{}: substore: {:?} (v {})", helpers::pretty_timestamp(*time), new_kind, version);
             },
-            ProjectUpdateStatus::Error{time , version, error } =>  {
+            ProjectLog::Error{time , version, error } =>  {
                 return write!(f, "{}: error: {} (v {})", helpers::pretty_timestamp(*time), error, version);
             },
         }
@@ -623,7 +623,7 @@ impl std::fmt::Display for ProjectUpdateStatus {
     
     For practical reasons, the heads keep both the id of the latest commit's hash as well as the hash itself. This is important so that the updater can compare the string hashes against the possibly new commits in new heads without having to consult the substore, while everyone else can use the commit ids directly.
  */
-pub type ProjectHeads = HashMap<String, (CommitId, Hash)>;
+pub type ProjectHeads = HashMap<String, (CommitId, SHA)>;
 
 impl Serializable for ProjectHeads {
     type Item = ProjectHeads;
@@ -632,7 +632,7 @@ impl Serializable for ProjectHeads {
         for (name, (id, hash)) in value {
             String::serialize(f, name);
             u64::serialize(f, & u64::from(*id));
-            Hash::serialize(f, hash);
+            SHA::serialize(f, hash);
         }
     }
 
@@ -642,7 +642,7 @@ impl Serializable for ProjectHeads {
         while records > 0 {
             let name = String::deserialize(f);
             let id = CommitId::from(u64::deserialize(f));
-            let hash = Hash::deserialize(f);
+            let hash = SHA::deserialize(f);
             result.insert(name, (id, hash));
             records -= 1;
         }
@@ -658,7 +658,7 @@ impl Serializable for ProjectHeads {
         while records > 0 {
             let name = String::verify(f)?;
             let id = CommitId::from(u64::verify(f)?);
-            let hash = Hash::verify(f)?;
+            let hash = SHA::verify(f)?;
             result.insert(name, (id, hash));
             records -= 1;
         }
@@ -666,21 +666,21 @@ impl Serializable for ProjectHeads {
     }
 }
 
-pub type Hash = git2::Oid;
+pub type SHA = git2::Oid;
 
-impl Serializable for Hash {
-    type Item = Hash;
-    fn serialize(f : & mut File, value : & Hash) {
+impl Serializable for SHA {
+    type Item = SHA;
+    fn serialize(f : & mut File, value : & SHA) {
         f.write(value.as_bytes()).unwrap();
     }
 
-    fn deserialize(f : & mut File) -> Hash {
+    fn deserialize(f : & mut File) -> SHA {
         let mut buffer = vec![0; 20];
         f.read(& mut buffer).unwrap();
         return git2::Oid::from_bytes(& buffer).unwrap();
     }
 
-    fn verify(f : & mut File) -> Result<Hash, std::io::Error> {
+    fn verify(f : & mut File) -> Result<SHA, std::io::Error> {
         let mut buffer = vec![0; 20];
         f.read(& mut buffer)?;
         match git2::Oid::from_bytes(& buffer) {
@@ -690,7 +690,7 @@ impl Serializable for Hash {
     }
 }
 
-impl FixedSizeSerializable for Hash {
+impl FixedSizeSerializable for SHA {
     const SIZE : u64 = 20;
 }
 

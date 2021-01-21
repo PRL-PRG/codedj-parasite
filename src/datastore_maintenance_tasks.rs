@@ -24,7 +24,7 @@ pub (crate) fn task_add_projects(ds : & Datastore, source : String,  task : Task
 }
 
 fn add_project(ds : & Datastore, url : & str, added : & mut usize, existing : & mut usize, invalid : & mut usize) {
-    match Project::from_url(url) {
+    match ProjectUrl::from_url(url) {
         Some(project) => {
             match ds.add_project(& project) {
                 Some(_id) => {
@@ -77,7 +77,7 @@ fn find_repo_url_column(row : & csv::StringRecord) -> Option<usize> {
     let mut i : usize = 0;
     let mut result : usize = std::usize::MAX;
     for x in row {
-        match Project::from_url(x) {
+        match ProjectUrl::from_url(x) {
             Some(_) => {
                 // there are multiple indices that could be urls, so we can't determine 
                 if result != std::usize::MAX {
@@ -107,5 +107,16 @@ pub (crate) fn task_create_savepoint(ds : & Datastore, task : TaskStatus) -> Res
      } else {
         panic!("Invalid task kind");
     }
+    return Ok(());
+}
+
+pub (crate) fn task_load_substore(ds : & Datastore, store : StoreKind,  task : TaskStatus) -> Result<(), std::io::Error> {
+    ds.substore(store).load(& task);
+    task.info(format!("{:?}", store));
+    return Ok(());
+}
+
+pub (crate) fn task_drop_substore(ds : & Datastore, store : StoreKind,  task : TaskStatus) -> Result<(), std::io::Error> {
+    ds.substore(store).clear(& task);
     return Ok(());
 }

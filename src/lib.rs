@@ -11,7 +11,7 @@ mod helpers;
 #[allow(dead_code)]
 mod db;
 #[allow(dead_code)]
-mod records;
+pub mod records;
 #[allow(dead_code)]
 mod datastore;
 #[allow(dead_code)]
@@ -20,8 +20,6 @@ mod updater;
 mod datastore_maintenance_tasks;
 mod task_update_repo;
 mod task_update_substore;
-mod task_load_substore;
-mod task_drop_substore;
 mod task_verify_substore;
 mod github;
 #[allow(dead_code)]
@@ -31,28 +29,11 @@ mod reporter;
 
 use crate::settings::SETTINGS;
 use crate::db::Indexable;
+pub use crate::records::*;
 
 /* Exported types.
-
-   TODO there are some renamings here, would be nice to unify. 
- */
+*/
 pub type Savepoint = db::Savepoint;
-pub type StoreKind = records::StoreKind;
-pub type SHA = records::Hash;
-pub type ProjectId = records::ProjectId;
-pub type ProjectUrl = records::Project;
-pub type ProjectHeads = records::ProjectHeads;
-pub type CommitId = records::CommitId;
-pub type HashId = records::HashId;
-pub type PathId = records::PathId;
-pub type PathString = records::PathString;
-pub type UserId = records::UserId;
-pub type Metadata = records::Metadata;
-pub type CommitInfo = records::CommitInfo;
-pub type FileContents = records::FileContents;
-pub type ContentsKind = records::ContentsKind;
-pub type ProjectLog = records::ProjectUpdateStatus;
-
 
 /** The assembled project information. 
  */

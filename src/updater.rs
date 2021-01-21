@@ -13,8 +13,6 @@ use crate::db::*;
 use crate::datastore_maintenance_tasks::*;
 use crate::task_update_repo::*;
 use crate::task_update_substore::*;
-use crate::task_load_substore::*;
-use crate::task_drop_substore::*;
 use crate::task_verify_substore::*;
 use crate::reporter::*;
 
@@ -82,7 +80,7 @@ pub (crate) struct Updater {
 
     /** List of all urls of projects in the datastore so that new projects can be checked against duplicates. 
      */
-    pub (crate) project_urls : Mutex<HashSet<Project>>,
+    pub (crate) project_urls : Mutex<HashSet<ProjectUrl>>,
 
 
     /** Mutex to guard console output.
@@ -153,7 +151,7 @@ impl Updater {
             let result = std::panic::catch_unwind(|| {
                 match task {
                     Task::UpdateRepo{last_update_time : _, id : _ } => {
-                        return task_update_repo(self, TaskStatus::new(& tx, task), false);
+                        return task_update_repo(& self.ds, & self.github, TaskStatus::new(& tx, task), /* force */ false, /* load_substore */ false);
                     }
                     Task::AddProjects{ref source} => {
                         return task_add_projects(& self.ds, source.to_owned(), TaskStatus::new(& tx, task));
@@ -162,10 +160,10 @@ impl Updater {
                         return task_update_substore(self, store, mode, TaskStatus::new(& tx, task));
                     }, 
                     Task::LoadSubstore{store} => {
-                        return task_load_substore(self, store, TaskStatus::new(& tx, task));
+                        return task_load_substore(& self.ds, store, TaskStatus::new(& tx, task));
                     },
                     Task::DropSubstore{store} => {
-                        return task_drop_substore(self, store, TaskStatus::new(& tx, task));
+                        return task_drop_substore(& self.ds, store, TaskStatus::new(& tx, task));
                     }
                     Task::VerifySubstore{store, mode} => {
                         return task_verify_substore(self, store, mode, TaskStatus::new(& tx, task));

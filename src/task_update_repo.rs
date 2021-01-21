@@ -4,6 +4,7 @@ use crate::datastore::*;
 use crate::updater::*;
 use crate::records::*;
 use crate::helpers;
+use crate::github::*;
 
 
 /** Provides a full update of the given repository. 
@@ -16,12 +17,12 @@ use crate::helpers;
     - update the project
     
  */
-pub (crate) fn task_update_repo(updater : & Updater, task : TaskStatus, force : bool) -> Result<(), std::io::Error> {
-    let mut ru = RepoUpdater::new(updater, task, force);
+pub (crate) fn task_update_repo(ds : & Datastore, gh : & Github, task : TaskStatus, force : bool, load_substore : bool) -> Result<(), std::io::Error> {
+    let mut ru = RepoUpdater::new(ds, gh, task, force, load_substore);
     match ru.update() {
         Err(e) => {
                 // if there was an error, report the error and exit
-                ru.ds.update_project_update_status(ru.id, ProjectUpdateStatus::Error{
+                ru.ds.update_project_update_status(ru.id, ProjectLog::Error{
                     time : helpers::now(),
                     version : Datastore::VERSION,
                     error : format!("{:?}", e),
@@ -37,21 +38,22 @@ pub (crate) fn task_update_repo(updater : & Updater, task : TaskStatus, force : 
 /** A convenience struct because I do not want to drag everything as function arguments.
  */
 struct RepoUpdater<'a> {
-    updater : &'a Updater,
     ds : &'a Datastore,
+    gh : &'a Github,
     task : TaskStatus<'a>,
     id : ProjectId,
-    project : Project,
+    project : ProjectUrl,
     force : bool,
+    load_substore : bool,
     /** The substore, or tentative substore for the project (see check_repository_substore function for more details). 
      */
     tentative_substore : StoreKind,
     changed : bool,
     local_folder : String,
-    visited_commits : HashMap<Hash, CommitId>,
+    visited_commits : HashMap<SHA, CommitId>,
     users : HashMap<String, UserId>,
     paths : HashMap<String, PathId>,
-    q : Vec<(Hash, CommitId)>,
+    q : Vec<(SHA, CommitId)>,
     snapshots : usize,
 }
 
@@ -67,18 +69,19 @@ impl<'a> RepoUpdater<'a> {
 
     /** Creates new repository updater. 
      */
-    fn new(updater : &'a Updater, task : TaskStatus<'a>, force : bool) -> RepoUpdater<'a> {
+    fn new(ds : &'a Datastore, gh : &'a Github, task : TaskStatus<'a>, force : bool, load_substore : bool) -> RepoUpdater<'a> {
         if let Task::UpdateRepo{id, last_update_time : _ } = task.task {
             return RepoUpdater {
-                updater,
-                ds : & updater.ds,
+                ds,
+                gh,
                 task,
                 id,
-                project : updater.ds.get_project(id).unwrap(),
+                project : ds.get_project(id).unwrap(),
                 force,
+                load_substore,
                 tentative_substore : StoreKind::Unspecified,
                 changed : false,
-                local_folder : format!("{}/repo_clones/{}", updater.ds.root_folder(), u64::from(id)),
+                local_folder : format!("{}/repo_clones/{}", ds.root_folder(), u64::from(id)),
                 visited_commits : HashMap::new(),
                 users : HashMap::new(),
                 paths : HashMap::new(),
@@ -107,14 +110,14 @@ impl<'a> RepoUpdater<'a> {
                     // if there was no error and the task was not cancelled, report the change / no-change 
                     if processed {
                         if self.changed {
-                            self.ds.update_project_update_status(self.id, ProjectUpdateStatus::Ok{
+                            self.ds.update_project_update_status(self.id, ProjectLog::Ok{
                                 time : helpers::now(),
                                 version : Datastore::VERSION,
                             });
                             self.task.info("ok");
                             self.task.color("\x1b[92m");
                         } else {
-                            self.ds.update_project_update_status(self.id, ProjectUpdateStatus::NoChange{
+                            self.ds.update_project_update_status(self.id, ProjectLog::NoChange{
                                 time : helpers::now(),
                                 version : Datastore::VERSION,
                             });
@@ -139,29 +142,37 @@ impl<'a> RepoUpdater<'a> {
         // check if there was error during the update, in which case we do not attempt to update the project again
         if let Some(last_update) = self.ds.get_project_last_update(self.id) {
             match last_update {
-                ProjectUpdateStatus::Error{time : _, version : _, error : _ } => return false,
+                ProjectLog::Error{time : _, version : _, error : _ } => return false,
                 _ => {}
             }
-            // if the version of the last update differs from current version of the datastore, a forced update should be performed
+            // if the version of the last update differs from current version of the datastore, we might need to do something special
             if Datastore::VERSION != last_update.version() {
-                self.force = true;
+                self.new_version_update(last_update.version(), Datastore::VERSION);
             }
         }
         return true;
+    }
+
+    /** Determines what to do if the datastore version has increased since the latest project update. 
+     
+        The default action is to do force update, which is technically not always what we want to do and different version situations should actually be covered here. 
+     */
+    fn new_version_update(& mut self, _old : u16, _new : u16) {
+        self.force = true;
     }
 
     fn check_metadata(& mut self) -> Result<(), std::io::Error> {
         match & self.project {
             /* There is nothing extra we can do for raw git projects as there are no metadata associated with them. 
              */
-            Project::Git{url : _} => {
+            ProjectUrl::Git{url : _} => {
                 // nop
             },
             /* For github projects, we get github metadata. Store these if changed and update the project url, if different (this is a project rename).  
              */
-            Project::GitHub{user_and_repo} => {
+            ProjectUrl::GitHub{user_and_repo} => {
                 self.task.info("checking metadata...");
-                let mut metadata = self.updater.github.get_repo(user_and_repo, & self.task)?;
+                let mut metadata = self.gh.get_repo(user_and_repo, & self.task)?;
                 // check project rename
                 let new_url = format!("{}.git",metadata["html_url"]).to_lowercase();
                 self.check_url_change(& new_url)?;
@@ -182,7 +193,7 @@ impl<'a> RepoUpdater<'a> {
     /** Compares the newly obtained project url to the one stored and records project rename if applicable. 
      */
     fn check_url_change(& mut self, new_url : & str) -> Result<(), std::io::Error> {
-        if let Some(new_project) = Project::from_url(new_url) {
+        if let Some(new_project) = ProjectUrl::from_url(new_url) {
             if self.project != new_project {
                 self.project = new_project;
                 self.task.info(format!("project url changed to {}", new_url));
@@ -220,10 +231,14 @@ impl<'a> RepoUpdater<'a> {
         // fetch the repository from the remote and analyze its contents
         if ! heads_to_fetch.is_empty() {
             self.clone_repository(& mut remote, & heads_to_fetch)?;
-            // check the repository's substore and terminate if the substore is not loaded
+            // check the repository's substore and terminate if the substore is not loaded should not be loaded
             substore = self.update_repository_substore(& repo, substore)?;
             if ! self.ds.substore(substore).is_loaded() {
-                return Ok(false);
+                if self.load_substore {
+                    self.ds.substore(substore).load(& self.task);
+                } else {
+                    return Ok(false);
+                }
             }
             // analyze the fetched heads
             let ds_s = self.ds.substore(substore);
@@ -287,8 +302,8 @@ impl<'a> RepoUpdater<'a> {
         Determines the number of commits in the repository. If the number of commits is at least the given limit, stops looking further. 
      */
     fn get_repo_commits(& self, repo : & git2::Repository, limit : usize) ->Result<usize, git2::Error> {
-        let mut commits = HashSet::<Hash>::new();
-        let mut q = Vec::<Hash>::new();
+        let mut commits = HashSet::<SHA>::new();
+        let mut q = Vec::<SHA>::new();
         for reference in repo.references()? {
             let x = reference?;
             if let Ok(commit) = x.peel_to_commit() {
@@ -354,6 +369,7 @@ impl<'a> RepoUpdater<'a> {
             if let Some((last_id, last_hash)) = last.get(name) {
                 if hash == last_hash {
                     *id = *last_id;
+                    // force update always analyzes all
                     if ! self.force {
                         continue;
                     }
@@ -391,7 +407,7 @@ impl<'a> RepoUpdater<'a> {
     /** Analyzes given branch, starting at a head commit and returns the id of the head commit. 
      
      */
-    fn analyze_branch(& mut self, repo : & git2::Repository, head : Hash, substore : & Substore) -> Result<CommitId, git2::Error> {
+    fn analyze_branch(& mut self, repo : & git2::Repository, head : SHA, substore : & Substore) -> Result<CommitId, git2::Error> {
         // add head to the queue
         let head_id = self.add_commit(& head, substore);
         // process the queue
@@ -425,15 +441,13 @@ impl<'a> RepoUpdater<'a> {
 
         If the update is forced, all commits are reanalyzed even if they exist in the datastore
      */ 
-    fn add_commit(& mut self, hash : & Hash, substore : & Substore) -> CommitId {
+    fn add_commit(& mut self, hash : & SHA, substore : & Substore) -> CommitId {
         if let Some(id) = self.visited_commits.get(hash) {
-            if ! self.force {
-                return *id;
-            }
+            return *id;
         }
         let (id, is_new) = substore.get_or_create_commit_id(hash);
         self.visited_commits.insert(*hash, id);
-        if is_new {
+        if is_new || self.force {
             self.q.push((*hash, id)); 
         }
         return id;
@@ -454,7 +468,7 @@ impl<'a> RepoUpdater<'a> {
 
     fn get_commit_changes(& mut self, repo : & git2::Repository, commit : & git2::Commit, substore : & Substore) -> Result<HashMap<PathId, HashId>, git2::Error> {
         // first create the changes map and populate it by changes between the commit and its parents, or the full commit if the commit has no parents
-        let mut changes = HashMap::<String, Hash>::new();
+        let mut changes = HashMap::<String, SHA>::new();
         if commit.parent_count() == 0 {
             calculate_tree_diff(repo, None, Some(& commit.tree()?), & mut changes)?;
         } else {
@@ -488,9 +502,9 @@ impl<'a> RepoUpdater<'a> {
 
         Returns : path id, hash id, path, hash, is hash new?
      */
-    fn convert_and_register_changes(& mut self, changes : HashMap<String, Hash>, substore : & Substore) -> Vec<(PathId, HashId, String, Hash, bool)> {
+    fn convert_and_register_changes(& mut self, changes : HashMap<String, SHA>, substore : & Substore) -> Vec<(PathId, HashId, String, SHA, bool)> {
         // contents hashes are easy, we just go straight to the substore to get us the hash ids and whether they are new or not
-        let hashes = changes.iter().map(|(_, hash)| *hash ).collect::<Vec<Hash>>();
+        let hashes = changes.iter().map(|(_, hash)| *hash ).collect::<Vec<SHA>>();
         let hash_ids = substore.convert_hashes_to_ids(& hashes);
         // for paths we use two stage process, first convert what we can from the local cache, then convert the others via the substore and merge
         let mut unknown_paths = Vec::<String>::new();
@@ -501,7 +515,7 @@ impl<'a> RepoUpdater<'a> {
                 unknown_paths.push(path.clone());
                 return (PathId::EMPTY, path, hash);
             }
-        }).collect::<Vec<(PathId, String, Hash)>>();
+        }).collect::<Vec<(PathId, String, SHA)>>();
         // get the missing path ids
         if ! unknown_paths.is_empty() {
             let path_ids = substore.convert_paths_to_ids(& unknown_paths);
@@ -548,7 +562,7 @@ fn filter_github_metadata_keys(json : & mut json::JsonValue, is_root : bool) {
 
 /** Calculates the output of two git trees and adds / updates any changes in the given hashmap. 
  */
-fn calculate_tree_diff(repo : & git2::Repository,  parent : Option<& git2::Tree>, commit : Option<& git2::Tree>, changes : & mut HashMap<String, Hash>) -> Result<(), git2::Error> {
+fn calculate_tree_diff(repo : & git2::Repository,  parent : Option<& git2::Tree>, commit : Option<& git2::Tree>, changes : & mut HashMap<String, SHA>) -> Result<(), git2::Error> {
     let diff = repo.diff_tree_to_tree(parent, commit, None)?;
     for delta in diff.deltas() {
         match delta.status() {

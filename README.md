@@ -87,6 +87,10 @@ Reverts the datastore to given savepoint.
 
 > NOTE: This is dangerous. Once the datastore is reverted, all extra data is lost. Not available in interactive mode.
 
+### `update-project` name [--force]
+
+Updates given project, possibly forcefully. Loads the required substore mappings as needed. The project name is matched in the same way as `show-project`.  
+
 ### `active-projects` [days = 90]
 
 Displays a large csv that displays per substore and total number of projects, valid projects and active projects. Project is considered active if it has at least one commit no older than `days` before now.
@@ -113,7 +117,6 @@ The API provides various view wrappers around the internal parasite objects. The
 - and how to stop them threads that are updating (purge the queue should do it, the task would then end once all other threads will become idle)
 - add log for commands entered
 - add log for on/off of the downloader on the database
-- force update should do all commits
 
 > And the following are large items that should be added to parasite:
 

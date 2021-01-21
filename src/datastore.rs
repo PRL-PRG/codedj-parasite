@@ -55,15 +55,17 @@ pub struct Datastore {
         - project metadata
 
      */
-    pub (crate) projects : Mutex<Store<Project, ProjectId>>,
+    pub (crate) projects : Mutex<Store<ProjectUrl, ProjectId>>,
     pub (crate) project_substores : Mutex<Store<StoreKind, ProjectId>>,
-    pub (crate) project_updates : Mutex<LinkedStore<ProjectUpdateStatus, ProjectId>>,
+    pub (crate) project_updates : Mutex<LinkedStore<ProjectLog, ProjectId>>,
     pub (crate) project_heads : Mutex<Store<ProjectHeads, ProjectId>>,
     pub (crate) project_metadata : Mutex<LinkedStore<Metadata, ProjectId>>,
 
     /** Current and past urls for known projects so that when new projects are added we can check for ambiguity.
+     
+        TODO take this out of the datastore and into the updater? 
      */
-    project_urls : Mutex<HashSet<Project>>,
+    pub project_urls : Mutex<HashSet<ProjectUrl>>,
 
     /** The substores. 
      
@@ -267,7 +269,7 @@ impl Datastore {
 
     /** Returns the information about given project. 
      */
-    pub fn get_project(& self, id : ProjectId) -> Option<Project> {
+    pub fn get_project(& self, id : ProjectId) -> Option<ProjectUrl> {
         return self.projects.lock().unwrap().get(id);
     }
 
@@ -275,27 +277,27 @@ impl Datastore {
      
         Updates the project info and adds the appropriate update record. 
      */
-    pub (crate) fn update_project(& self, id : ProjectId, project : & Project) {
+    pub (crate) fn update_project(& self, id : ProjectId, project : & ProjectUrl) {
         let old_offset;
         {
             let mut projects = self.projects.lock().unwrap();
             old_offset = projects.indexer.get(id).unwrap();
             projects.set(id, project);
         }
-        self.project_updates.lock().unwrap().set(id, & ProjectUpdateStatus::Rename{
+        self.project_updates.lock().unwrap().set(id, & ProjectLog::Rename{
             time : helpers::now(),
             version : Self::VERSION,
             old_offset
         });
     }
 
-    pub fn get_project_last_update(& self, id : ProjectId) -> Option<ProjectUpdateStatus> {
+    pub fn get_project_last_update(& self, id : ProjectId) -> Option<ProjectLog> {
         return self.project_updates.lock().unwrap().get(id);
     }
 
     /** Updates the project's update status with a new record. 
      */
-    pub fn update_project_update_status(& self, id : ProjectId, status : ProjectUpdateStatus) {
+    pub fn update_project_update_status(& self, id : ProjectId, status : ProjectLog) {
         self.project_updates.lock().unwrap().set(id, & status);    
     }
 
@@ -310,7 +312,7 @@ impl Datastore {
     pub (crate) fn update_project_substore(& self, id : ProjectId, store : StoreKind) {
         self.project_substores.lock().unwrap().set(id, & store);
         self.project_heads.lock().unwrap().set(id, & ProjectHeads::new());
-        self.project_updates.lock().unwrap().set(id,  & ProjectUpdateStatus::ChangeStore{
+        self.project_updates.lock().unwrap().set(id,  & ProjectLog::ChangeStore{
             time : helpers::now(),
             version : Datastore::VERSION,
             new_kind : store,
@@ -400,7 +402,7 @@ impl Datastore {
      
         If the project does not exist, adds the project and returns its id. If the project already exists in the known urls, returns None. 
      */
-    pub (crate) fn add_project(& self, project : & Project) -> Option<ProjectId> {
+    pub (crate) fn add_project(& self, project : & ProjectUrl) -> Option<ProjectId> {
         let mut urls = self.project_urls.lock().unwrap();
         let mut projects = self.projects.lock().unwrap();
         assert!(projects.len() == 0 || urls.len() != 0, "Load project urls first");
@@ -415,10 +417,10 @@ impl Datastore {
 
     /** Returns the SHA-1 hash of given contents. 
      */
-    pub (crate) fn hash_of(contents : & [u8]) -> Hash {
+    pub (crate) fn hash_of(contents : & [u8]) -> SHA {
         let mut hasher = Sha1::new();
         hasher.update(contents);
-        return Hash::from_bytes(& hasher.finalize()).unwrap();
+        return SHA::from_bytes(& hasher.finalize()).unwrap();
     }
 }
 
@@ -442,7 +444,7 @@ pub (crate) struct Substore {
 
     /** Commits stored in the dataset. 
      */
-    pub (crate) commits : Mutex<Mapping<Hash, CommitId>>,
+    pub (crate) commits : Mutex<Mapping<SHA, CommitId>>,
     pub (crate) commits_info : Mutex<Store<CommitInfo, CommitId>>,
     pub (crate) commits_metadata : Mutex<LinkedStore<Metadata, CommitId>>,
 
@@ -452,7 +454,7 @@ pub (crate) struct Substore {
 
         We use a split store based on the ContentsKind of the file to be stored. The index is kept for *all* file hashes, i.e. there will be a lot of empty holes in it, but these holes will be relatively cheap (20 bytes per hole, 10 bytes for contents and 10 bytes for metadata) and on disk, where it bothers us less. 
      */
-    pub (crate) hashes : Mutex<Mapping<Hash, HashId>>,
+    pub (crate) hashes : Mutex<Mapping<SHA, HashId>>,
     pub (crate) contents : Mutex<SplitStore<FileContents, ContentsKind, HashId>>,
     pub (crate) contents_metadata : Mutex<LinkedStore<Metadata, HashId>>,
 
@@ -460,7 +462,7 @@ pub (crate) struct Substore {
      
         Path hash to ids is stored in a mapping at runtime, while path strings are stored separately in an indexable store on disk. 
      */
-    pub (crate) paths : Mutex<Mapping<Hash, PathId>>,
+    pub (crate) paths : Mutex<Mapping<SHA, PathId>>,
     pub (crate) path_strings : Mutex<Store<PathString, PathId>>,
 
     /** Users.
@@ -505,8 +507,8 @@ impl Substore {
         };
         // add sentinels (0 index values) for commits, hashes, paths and users
         if !readonly && result.commits.lock().unwrap().len() == 0 {
-            result.get_or_create_commit_id(& Hash::zero());
-            result.get_or_create_hash_id(& Hash::zero());
+            result.get_or_create_commit_id(& SHA::zero());
+            result.get_or_create_hash_id(& SHA::zero());
             result.get_or_create_path_id(& "".to_owned());
             result.get_or_create_user_id(& "".to_owned());
         }
@@ -698,7 +700,7 @@ impl Substore {
      
         The secord returned value determines whether the commit is new,  or already known.
      */
-    pub (crate) fn get_or_create_commit_id(& self, hash : & Hash) -> (CommitId, bool) {
+    pub (crate) fn get_or_create_commit_id(& self, hash : & SHA) -> (CommitId, bool) {
         return self.commits.lock().unwrap().get_or_create(hash);
     }
 
@@ -709,11 +711,11 @@ impl Substore {
         }
     }
 
-    pub (crate) fn get_or_create_hash_id(& self, hash : & Hash) -> (HashId, bool) {
+    pub (crate) fn get_or_create_hash_id(& self, hash : & SHA) -> (HashId, bool) {
         return self.hashes.lock().unwrap().get_or_create(hash);
     }
 
-    pub (crate) fn convert_hashes_to_ids(& self, hashes : & Vec<Hash>) -> Vec<(HashId, bool)> {
+    pub (crate) fn convert_hashes_to_ids(& self, hashes : & Vec<SHA>) -> Vec<(HashId, bool)> {
         let mut mapping = self.hashes.lock().unwrap();
         return hashes.iter().map(|hash| {
             return mapping.get_or_create(hash);

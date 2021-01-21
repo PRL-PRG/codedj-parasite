@@ -15,8 +15,6 @@ mod updater;
 mod datastore_maintenance_tasks;
 mod task_update_repo;
 mod task_update_substore;
-mod task_load_substore;
-mod task_drop_substore;
 mod task_verify_substore;
 mod github;
 mod settings;
@@ -24,11 +22,13 @@ mod reporter;
 
 use datastore::*;
 use updater::*;
+use github::*;
 
 use parasite::*;
 use reporter::*;
 
 use settings::SETTINGS;
+use task_update_repo::*;
 
 /** The incremental downloader and command-line interface
  
@@ -74,6 +74,10 @@ fn execute_command() {
         "add" => datastore_add(SETTINGS.command.get(1).unwrap()),
         "create-savepoint" => datastore_create_savepoint(SETTINGS.command.get(1).unwrap()),
         "revert-to-savepoint" => datastore_revert_to_savepoint(SETTINGS.command.get(1).unwrap()),
+        "update-project" => datastore_update_project(
+            SETTINGS.command.get(1).unwrap(),
+            SETTINGS.command.get(2),
+        ),
         // example commands
         "active-projects" => example_active_projects(
             SETTINGS.command.get(1).map(|x| { x.parse::<i64>().unwrap() }).unwrap_or(90 * 24 * 3600)
@@ -148,6 +152,34 @@ fn datastore_revert_to_savepoint(name : & str) {
         ds.revert_to_savepoint(&sp);
     }
     datastore_size();
+}
+
+/** Forces the update of given project. 
+ */
+fn datastore_update_project(project : & str, force_opt : Option<& String>) {
+    let mut force = false;
+    if let Some(opt) = force_opt {
+        if opt == "--force" {
+            force = true;
+        } else {
+            panic!("Unknown option {}", opt);
+        }
+    }
+    TerminalReporter::report(|reporter : & TerminalReporter| {
+        let ds = Datastore::new(& SETTINGS.datastore_root, false);
+        let gh = Github::new(& SETTINGS.github_tokens);
+        let p = ds.projects.lock().unwrap().iter_all().filter(|(_, p)| p.matches_url(project)).next();
+        if let Some((id, _)) = p {
+            reporter.run_task(Task::UpdateRepo{
+                id : id, 
+                last_update_time : ds.get_project_last_update(id).map(|x| x.time()).or(Some(0)).unwrap()
+            }, |ts| {
+                return task_update_repo(& ds, & gh, ts, force, true);
+            });
+        } else {
+            panic!("No project named {} found", project);
+        }
+    });
 }
 
 /** Displays active projects per substore. 
