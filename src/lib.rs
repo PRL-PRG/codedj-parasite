@@ -1,5 +1,5 @@
 use std::hash::Hash;
-use std::collections::{HashMap};
+use std::collections::*;
 use std::io::{Seek, SeekFrom};
 
 #[macro_use]
@@ -9,7 +9,7 @@ extern crate lazy_static;
 mod helpers;
 
 #[allow(dead_code)]
-mod db;
+pub mod db;
 #[allow(dead_code)]
 pub mod records;
 #[allow(dead_code)]
@@ -451,6 +451,44 @@ impl<'a> SubstoreView<'a> {
     }
 
 }
+
+/* Merges and filters on a datastore substore. 
+ 
+    The idea is that you create this, initialize with a datastore where the results will be stored, datastore view from which the data will be taken and a savepoint. 
+
+    Then you control which entities will be merged. 
+ */
+/*
+pub struct MergerFilter {
+    target : Datastore,
+    source : DatastoreView,
+
+}
+*/
+
+/* Substore filter for merging. 
+ 
+    Contains the substore view that can be queried in any way a normal substore is queried, but also provides an API for remembering what entities should be preserved during the merge & filter phase. 
+
+    Note that while this seems pretty simple, the API is actually extremely low level and should be used very carefully, otherwise an invalid datastore can easily be created (say by adding a commit, but not adding its parent commit). The merge filter will report warnings if any such problem is detected, but (a) it does not guarantee to spot everything, and (b) these are just warnings and it is possible (but discouraged) to create datastores that are useful, but are not valid in parasite's sense. 
+
+    Also note that the implementation can be optimized if needs be. For now, we keep all the mappings in memory and deduplicate immediately. If memory would ever become a problem, we can simply output all the ids in files without deduplication and then merge on a per id basis by first loading and deduplicating the filter ids file. 
+ */
+/*
+pub struct SubstoreFilter<'a> {
+    substore : SubstoreView<'a>,
+    projects : HashSet<ProjectId>,
+    commits : HashSet<CommitId>,
+    hashes : HashSet<HashId>,
+    contents : HashSet<HashId>,
+}
+
+
+impl<'a> SubstoreFilter<'a> {
+}
+*/
+
+
 
 /** A helper class that iterates over all substores in a datastore and returns substore views to them. 
  */
