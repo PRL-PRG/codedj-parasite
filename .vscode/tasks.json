@@ -2,13 +2,16 @@
 	"version": "2.0.0",
 	"tasks": [
         {
-            "type": "cargo",
-            "subcommand": "build",
+            "type": "shell",
+            "command": "cargo build",
             "problemMatcher": [
                 "$rustc"
             ],
-            "group": "build",
-            "label": "Rust: cargo build - dcd",
+            "group": {
+                "kind" : "build",
+                "isDefault" : true
+            },
+            "label": "cargo build",
         }
     ]
 }
