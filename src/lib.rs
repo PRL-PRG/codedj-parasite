@@ -29,6 +29,7 @@ mod reporter;
 
 use crate::settings::SETTINGS;
 use crate::db::Indexable;
+use crate::datastore::Datastore;
 pub use crate::records::*;
 
 /* Exported types.
@@ -452,17 +453,59 @@ impl<'a> SubstoreView<'a> {
 
 }
 
-/* Merges and filters on a datastore substore. 
+/** Merges and filters on a datastore substore. 
  
     The idea is that you create this, initialize with a datastore where the results will be stored, datastore view from which the data will be taken and a savepoint. 
 
     Then you control which entities will be merged. 
  */
-/*
-pub struct MergerFilter {
+pub struct MergerAndFilter {
     target : Datastore,
     source : DatastoreView,
+}
 
+impl MergerAndFilter {
+    /** Creates new merger and filter.
+     
+        It will merge the substores from source datastore and add them to generic substore in the target store. 
+     */
+    pub fn new(target_root : & str, source_root : & str) -> MergerAndFilter {
+        return MergerAndFilter{
+            target : Datastore::new(target_root, false),
+            source : DatastoreView::new(source_root),
+        };
+    }
+
+
+
+    /*
+    pub fn get_substore(& self, substore : StoreKind) -> SubstoreMerger {
+        return SubstoreMerger::new(self.source.get_substore(substore), & self.target);
+    }
+    */
+}
+
+/** Merger interface of a single substore. 
+
+    
+    
+ */
+pub struct SubstoreMerger<'a> {
+    source : SubstoreView<'a>,
+    target : &'a Datastore,
+    projects : HashSet<ProjectId>,
+    commits : HashSet<CommitId>,
+}
+
+/*
+
+impl<'a> SubstoreMerger<'a> {
+    fn new(source : SubstoreView<'a>, target : &'a Datastore) -> SubstoreMerger<'a> {
+        return SubstoreMerger{
+            source,
+            target
+        };
+    }
 }
 */
 

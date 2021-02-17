@@ -44,7 +44,7 @@ impl Settings {
                 settings.verbose = true;
                 arg_i += 1;
             } else if arg == "-ght" || arg == "--github-tokens" {
-                settings.datastore_root = args.get(arg_i + 1).expect("Github tokens path missing").to_owned();
+                settings.github_tokens = args.get(arg_i + 1).expect("Github tokens path missing").to_owned();
                 arg_i += 2;
             } else if arg == "-n" || arg == "--num-threads" {
                 settings.num_threads = args.get(arg_i + 1).expect("Number of threads missing").parse::<usize>().unwrap();
