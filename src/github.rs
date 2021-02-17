@@ -82,7 +82,7 @@ impl Github {
             attempts += 1;
             // if we have too many attempts, it likely means that the tokens are all used up, wait 10 minutes is primitive and should work alright...
             if attempts == max_attempts {
-                task.info("all Github API tokens exhausted, sleeping for 10 minutes");
+                task.info(format!("all Github API tokens ({}) exhausted, sleeping for 10 minutes", rhdr));
                 std::thread::sleep(std::time::Duration::from_millis(1000 * 60 * 10));
                 attempts = 0;
             }
