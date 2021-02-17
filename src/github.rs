@@ -69,7 +69,7 @@ impl Github {
                     }
                 }
             } else if rhdr.starts_with("HTTP/1.1 401") || rhdr.starts_with("HTTP/1.1 403") {
-                if rhdr.contains("X-RateLimit-Remaining: 0") {
+                if rhdr.contains("x-ratelimit-remaining: 0") {
                     // move to next token
                     self.tokens.lock().unwrap().next_token(token.1);
                     task.info("moving to next Github API token");

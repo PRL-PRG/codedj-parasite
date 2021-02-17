@@ -9,7 +9,7 @@
             "type": "lldb",
             "request": "launch",
             "program": "${workspaceFolder}/target/debug/parasite",
-            "args": ["show-project", "alari/play-mongo"],
+            "args": ["-i", "-ds", "/home/peta/test-julia"],
             "cwd": "${workspaceFolder}",
             "env" : {
                 "RUST_BACKTRACE" : "1"
