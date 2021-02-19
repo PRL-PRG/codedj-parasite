@@ -38,9 +38,13 @@ pub (crate) const MAX_BUFFER_LENGTH : u64 = 10 * 1024 * 1024 * 1024; // 10GB
 pub trait ReadOnly {
 }
 
-pub trait Id : From<u64> + Into<u64> + std::marker::Copy + std::fmt::Debug + std::cmp::PartialEq + std::cmp::Eq + std::hash::Hash {}
+pub trait Id : From<u64> + Into<u64> + std::marker::Copy + std::fmt::Debug + std::cmp::PartialEq + std::cmp::Eq + std::hash::Hash {
+    const NONE : Self;
+}
 
-impl Id for u64 {}
+impl Id for u64 {
+    const NONE : u64 = std::u64::MAX;
+}
 
 /** TODO since at the end I need verify anyways, maybe check if deserialize should behave like verify already and the performance hit of that.
  */

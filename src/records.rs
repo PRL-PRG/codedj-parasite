@@ -28,7 +28,9 @@ impl std::convert::From<ProjectId> for u64 {
     }
 }
 
-impl Id for ProjectId {}
+impl Id for ProjectId {
+    const NONE : ProjectId = ProjectId{ id : std::u64::MAX };
+}
 
 impl std::fmt::Display for ProjectId {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -57,7 +59,10 @@ impl std::convert::From<CommitId> for u64 {
     }
 }
 
-impl Id for CommitId {}
+impl Id for CommitId {
+    const NONE : CommitId = CommitId{ id : std::u64::MAX };
+
+}
 
 impl std::fmt::Display for CommitId {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -86,7 +91,9 @@ impl std::convert::From<HashId> for u64 {
     }
 }
 
-impl Id for HashId {}
+impl Id for HashId {
+    const NONE : HashId = HashId{ id : std::u64::MAX };
+}
 
 impl std::fmt::Display for HashId {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -116,7 +123,9 @@ impl std::convert::From<PathId> for u64 {
     }
 }
 
-impl Id for PathId {}
+impl Id for PathId {
+    const NONE : PathId = PathId{ id : std::u64::MAX };
+}
 
 impl std::fmt::Display for PathId {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -145,7 +154,9 @@ impl std::convert::From<UserId> for u64 {
     }
 }
 
-impl Id for UserId {}
+impl Id for UserId {
+    const NONE : UserId = UserId{ id : std::u64::MAX };
+}
 
 impl std::fmt::Display for UserId {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {

@@ -94,12 +94,13 @@ fn execute_command() {
 }
 
 fn datastore_summary() {
-    let ds = DatastoreView::new(& SETTINGS.datastore_root);
+    let ds = DatastoreView::from(& SETTINGS.datastore_root);
+    
     println!("{}", ds.summary());
 }
 
 fn datastore_size() {
-    let ds = DatastoreView::new(& SETTINGS.datastore_root);
+    let ds = DatastoreView::from(& SETTINGS.datastore_root);
     println!("kind,contents,indices");
     println!("savepoints,{}", ds.savepoints_size());
     println!("projects,{}", ds.projects_size());
@@ -111,7 +112,7 @@ fn datastore_size() {
 }
 
 fn datastore_savepoints() {
-    let ds = DatastoreView::new(& SETTINGS.datastore_root);
+    let ds = DatastoreView::from(& SETTINGS.datastore_root);
     let mut s = ds.savepoints();
     let mut num = 0;
     for (_, sp) in s.iter() {
@@ -188,7 +189,7 @@ fn datastore_update_project(project : & str, force_opt : Option<& String>) {
  */
 fn example_active_projects(max_age : i64) {
     // create the datastore view with latest info (the latest savepoint is created ad hoc for the current state of the datastore)
-    let ds = DatastoreView::new(& SETTINGS.datastore_root);
+    let ds = DatastoreView::from(& SETTINGS.datastore_root);
     let sp = ds.current_savepoint();
     // get all projects 
     let projects = ds.projects(& sp);
@@ -244,7 +245,7 @@ fn example_active_projects(max_age : i64) {
  */
 fn example_show_project(url : & str, savepoint : Option<& str>) {
     // create the datastore and savepoint
-    let ds = DatastoreView::new(& SETTINGS.datastore_root);
+    let ds = DatastoreView::from(& SETTINGS.datastore_root);
     let sp = ds.get_savepoint(savepoint).unwrap();
     // determine the ID of the project
     let p = ds.project_urls().iter(& sp).filter(|(_, p)| p.matches_url(url)).next();
@@ -297,7 +298,7 @@ fn example_show_project(url : & str, savepoint : Option<& str>) {
 }
 
 fn datastore_contents_compression() {
-    let ds = DatastoreView::new(& SETTINGS.datastore_root);
+    let ds = DatastoreView::from(& SETTINGS.datastore_root);
     let sp = ds.current_savepoint();
     let mut compressed : usize = 0;
     let mut uncompressed : usize = 0;
@@ -314,7 +315,7 @@ fn datastore_contents_compression() {
     println!("TOTAL: compressed : {}, uncompressed : {}", compressed, uncompressed);
 }
 fn datastore_debug() {
-    let ds = DatastoreView::new(& SETTINGS.datastore_root);
+    let ds = DatastoreView::from(& SETTINGS.datastore_root);
     let sp = ds.current_savepoint();
     ds.projects(& sp);
 }
