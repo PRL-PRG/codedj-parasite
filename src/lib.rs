@@ -9,7 +9,7 @@ extern crate lazy_static;
 mod helpers;
 
 #[allow(dead_code)]
-mod db;
+pub mod db;
 #[allow(dead_code)]
 mod records;
 #[allow(dead_code)]
