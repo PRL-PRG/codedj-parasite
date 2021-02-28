@@ -1,6 +1,24 @@
 use std::time::{SystemTime, UNIX_EPOCH, Duration};
 use std::str;
 
+use std::ops::{Deref, DerefMut};
+
+/// Used in lieu of &mut T
+pub struct Holder<T>(pub T);
+
+impl<T> Deref for Holder<T> {
+    type Target = T;
+    
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T> DerefMut for Holder<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
 
 pub fn pct(value : usize, max : usize) -> String {
     if max == 0 {
