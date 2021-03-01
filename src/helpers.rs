@@ -4,19 +4,28 @@ use std::str;
 use std::ops::{Deref, DerefMut};
 
 /// Used in lieu of &mut T
-pub struct Holder<T>(pub T);
+pub enum Holder<'a, T>{
+    Ref(&'a mut T),
+    Own(T),
+}
 
-impl<T> Deref for Holder<T> {
+impl<'a, T> Deref for Holder<'a, T> {
     type Target = T;
     
     fn deref(&self) -> &Self::Target {
-        &self.0
+        match self {
+            Holder::Ref(r) => r,
+            Holder::Own(t) => t,
+        }
     }
 }
 
-impl<T> DerefMut for Holder<T> {
+impl<'a, T> DerefMut for Holder<'a, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
+        match self {
+            Holder::Ref(r) => r,
+            Holder::Own(t) => t,
+        }
     }
 }
 
