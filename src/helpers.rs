@@ -1,6 +1,33 @@
 use std::time::{SystemTime, UNIX_EPOCH, Duration};
 use std::str;
 
+use std::ops::{Deref, DerefMut};
+
+/// Used in lieu of &mut T
+pub enum Holder<'a, T>{
+    Ref(&'a mut T),
+    Own(T),
+}
+
+impl<'a, T> Deref for Holder<'a, T> {
+    type Target = T;
+    
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Holder::Ref(r) => r,
+            Holder::Own(t) => t,
+        }
+    }
+}
+
+impl<'a, T> DerefMut for Holder<'a, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        match self {
+            Holder::Ref(r) => r,
+            Holder::Own(t) => t,
+        }
+    }
+}
 
 pub fn pct(value : usize, max : usize) -> String {
     if max == 0 {

@@ -586,8 +586,8 @@ pub struct StoreView<'a, T : db::Serializable<Item = T>, ID : db::Id = u64> {
 }
 
 impl<'a, T : db::Serializable<Item = T>, ID : db::Id > StoreView<'a, T, ID> {
-    pub fn iter(& mut self, sp : & Savepoint) -> db::StoreIterAll<T,ID> {
-        return self.guard.savepoint_iter_all(sp);
+    pub fn iter<'b>(&'b mut self, sp : & Savepoint) -> impl Iterator<Item = (ID, T)> + 'b {
+        self.guard.savepoint_iter_all(sp)
     }
 }
 
@@ -606,8 +606,8 @@ pub struct LinkedStoreView<'a, T : db::Serializable<Item = T>, ID : db::Id> {
 }
 
 impl<'a, T : db::Serializable<Item = T>, ID : db::Id > LinkedStoreView<'a, T, ID> {
-    pub fn iter(& mut self, sp : & Savepoint) -> db::LinkedStoreIterAll<T,ID> {
-        return self.guard.savepoint_iter_all(sp);
+    pub fn iter<'b>(&'b mut self, sp : & Savepoint) -> impl Iterator<Item = (ID, T)> + 'b {
+        self.guard.savepoint_iter_all(sp)
     }
 }
 
@@ -626,7 +626,7 @@ pub struct MappingView<'a, T : db::FixedSizeSerializable<Item = T> + Eq + Hash +
 }
 
 impl<'a, T : db::FixedSizeSerializable<Item = T> + Eq + Hash + Clone, ID : db::Id> MappingView<'a, T, ID> {
-    pub fn iter(& mut self, sp : & Savepoint) -> db::MappingIter<T, ID> {
+    pub fn iter<'b>(&'b mut self, sp : & Savepoint) -> impl Iterator<Item = (ID, T)> + 'b {
         return self.guard.savepoint_iter(sp);
     }
 
@@ -644,8 +644,8 @@ pub struct IndirectMappingView<'a, T : db::Serializable<Item = T> + Eq + Hash + 
 }
 
 impl<'a, T : db::Serializable<Item = T> + Eq + Hash + Clone, ID : db::Id> IndirectMappingView<'a, T, ID> {
-    pub fn iter(& mut self, sp : & Savepoint) -> db::StoreIterAll<T, ID> {
-        return self.guard.savepoint_iter(sp);
+    pub fn iter<'b>(&'b mut self, sp : & Savepoint) -> impl Iterator<Item = (ID, T)> + 'b {
+        self.guard.savepoint_iter(sp)
     }
 
     pub fn get(& mut self, id : ID) -> Option<T> {
@@ -666,8 +666,8 @@ pub struct SplitStoreView<'a, T : db::Serializable<Item = T>, KIND : db::SplitKi
 
 impl<'a, T : db::Serializable<Item = T>, KIND : db::SplitKind<Item = KIND>, ID : db::Id> SplitStoreView<'a, T, KIND, ID> {
 
-    pub fn iter(& mut self, sp : & Savepoint) -> db::SplitStoreIterAll<T, KIND, ID> {
-        return self.guard.savepoint_iter(sp);
+    pub fn iter<'b>(&'b mut self, sp : & Savepoint) -> impl Iterator<Item = (ID, KIND, T)> + 'b {
+        self.guard.savepoint_iter(sp)
     }
 }
 
@@ -684,8 +684,8 @@ pub struct SavepointsView<'a> {
 }
 
 impl<'a> SavepointsView<'a> {
-    pub fn iter(& mut self) -> db::LinkedStoreIterAll<Savepoint,u64> {
-        return self.guard.iter_all();
+    pub fn iter<'b>(&'b mut self) -> impl Iterator<Item = (u64, Savepoint)> + 'b {
+        self.guard.iter_all()
     }
 }
 

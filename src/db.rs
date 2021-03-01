@@ -15,19 +15,18 @@
     Like store, 
 
  */
-use std::fs::{File, OpenOptions};
+use std::{fs::{File, OpenOptions}, marker::PhantomData};
 use std::io::{Seek, SeekFrom, Read, Write};
 use byteorder::*;
 use std::collections::*;
 use std::hash::*;
 use std::fmt::{Debug};
 use std::convert::From;
-use crate::helpers;
+use crate::helpers::{self, Holder};
 use crate::settings::SETTINGS;
 use crate::LOG;
 
 pub (crate) const MAX_BUFFER_LENGTH : u64 = 10 * 1024 * 1024 * 1024; // 10GB
-
 
 /** Marker trait for readonly datastore records. 
  
@@ -205,7 +204,7 @@ pub struct Indexer<T : Indexable + Serializable<Item = T> = u64, ID : Id = u64 >
     name : String, 
     f : File, 
     size : u64,
-    why_oh_why : std::marker::PhantomData<(T, ID)>
+    _t : std::marker::PhantomData<(T, ID)>
 }
 
 impl<T : Indexable + Serializable<Item = T>, ID : Id> Indexer<T, ID> {
@@ -217,8 +216,8 @@ impl<T : Indexable + Serializable<Item = T>, ID : Id> Indexer<T, ID> {
             f = OpenOptions::new().read(true).write(true).create(true).open(format!("{}/{}.idx", root, name)).unwrap();
         }
         let size = f.seek(SeekFrom::End(0)).unwrap() / T::SIZE;
-        return Indexer{ name : name.to_owned(), f, size, why_oh_why : std::marker::PhantomData{} };
-    } 
+        return Indexer{ name : name.to_owned(), f, size, _t : std::marker::PhantomData{} };
+    }
 
     pub fn get(& mut self, id : ID) -> Option<T> {
         if id.into() < self.size {
@@ -264,39 +263,59 @@ impl<T : Indexable + Serializable<Item = T>, ID : Id> Indexer<T, ID> {
         self.f.seek(SeekFrom::End(0)).unwrap();
     }
 
-    pub fn iter(& mut self) -> IndexerIterator<T, ID> {
+    pub fn iter<'a>(&'a mut self) -> impl Iterator<Item=(ID, T)> + 'a {
         self.f.seek(SeekFrom::Start(0)).unwrap();
-        return IndexerIterator{indexer : self, id : 0, max_offset: u64::MAX};
+        return IndexerIterator{indexer: Holder::Ref(self), id : ID::from(0), max_offset: u64::MAX};
     }
 
-    pub fn savepoint_iter(& mut self, sp : & Savepoint) -> IndexerIterator<T, ID> {
-        let max_offset = sp.limit_for(& self.name);
+    pub fn into_iter<'a>(mut self) -> impl Iterator<Item=(ID, T)> + 'a where Self: 'a{
         self.f.seek(SeekFrom::Start(0)).unwrap();
-        return IndexerIterator{indexer : self, id : 0, max_offset };
+        return IndexerIterator{indexer: Holder::Own(self), id : ID::from(0), max_offset: u64::MAX };
+    }
+
+    pub fn savepoint_iter<'a>(&'a mut self, sp : & Savepoint) -> impl Iterator<Item=(ID, T)> + 'a {
+        let max_offset = sp.limit_for(&self.name);
+        self.f.seek(SeekFrom::Start(0)).unwrap();
+        return IndexerIterator{indexer : Holder::Ref(self), id: ID::from(0), max_offset };
+    }
+
+    pub fn into_savepoint_iter<'a>(mut self, sp : & Savepoint) ->impl Iterator<Item=(ID, T)> + 'a where Self: 'a {
+        let max_offset = sp.limit_for(&self.name);
+        self.f.seek(SeekFrom::Start(0)).unwrap();
+        return IndexerIterator{indexer: Holder::Own(self), id: ID::from(0), max_offset };
     }
 
 }
 
-pub struct IndexerIterator<'a, T : Indexable + Serializable<Item = T>, ID : Id = u64> {
-    indexer : &'a mut Indexer<T, ID>,
-    id : u64,
-    max_offset : u64,
+pub struct IndexerIterator<'a, T, ID>
+where
+    T: Indexable + Serializable<Item = T>,
+    ID: Id,
+{
+    indexer: Holder<'a, Indexer<T, ID>>,
+    id: ID,
+    max_offset: u64,
 }
 
-impl<'a, T : Indexable + Serializable<Item = T>, ID : Id> Iterator for IndexerIterator<'a, T, ID> {
+impl<'a, T, ID> Iterator for IndexerIterator<'a, T, ID>
+where
+    T: Indexable + Serializable<Item = T>,
+    ID: Id,
+{
     type Item = (ID, T);
 
-    fn next(& mut self) -> Option<(ID, T)> {
+    fn next(&mut self) -> Option<(ID, T)> {
+        let uid = <ID as Into<u64>>::into(self.id);
         loop {
             if self.indexer.f.seek(SeekFrom::Current(0)).unwrap() >= self.max_offset {
                 return None;
-            } else if self.id == self.indexer.len() as u64 { 
+            } else if uid == self.indexer.len() as u64 { 
                 return None;
             } else {
-                let id = ID::from(self.id);
-                let result = T::deserialize(& mut self.indexer.f);
-                self.id += 1;
-                return Some((id, result));
+                let nid = self.id;
+                let result = T::deserialize(&mut self.indexer.f);
+                self.id = ID::from(uid + 1u64);
+                return Some((nid, result));
             }
         }
     }
@@ -306,14 +325,21 @@ impl<'a, T : Indexable + Serializable<Item = T>, ID : Id> Iterator for IndexerIt
  
     Store is an indexed updatable container that keeps history of updates.
  */
-pub struct Store<T : Serializable<Item = T>, ID : Id = u64> {
+pub struct Store<T, ID>
+where
+    T: Serializable<Item = T>,
+    ID: Id
+{
     pub (crate) indexer : Indexer<u64, ID>,
     pub (crate) f : File,
-    why_oh_why : std::marker::PhantomData<T>,
+    _t : std::marker::PhantomData<T>,
 }
 
-impl<T: Serializable<Item = T>, ID : Id> Store<T, ID> {
-
+impl<T: Serializable<Item = T>, ID : Id> Store<T, ID>
+where
+    T: Serializable<Item = T>,
+    ID: Id
+{
     pub fn new(root : & str, name : & str, readonly : bool) -> Store<T, ID> {
         let f;
         if readonly {
@@ -324,7 +350,7 @@ impl<T: Serializable<Item = T>, ID : Id> Store<T, ID> {
         let mut result = Store{
             indexer : Indexer::new(root, name, readonly),
             f,
-            why_oh_why : std::marker::PhantomData{}
+            _t : std::marker::PhantomData{}
         };
         LOG!("    {}: indices {}, size {}", name, result.indexer.len(), result.f.seek(SeekFrom::End(0)).unwrap());
         return result;
@@ -436,23 +462,46 @@ impl<T: Serializable<Item = T>, ID : Id> Store<T, ID> {
      
         Returns the latest stored value for every id. The ids are guaranteed to be increasing. 
      */
-    pub fn iter(& mut self) -> StoreIter<T, ID> {
-        return StoreIter::new(& mut self. f, & mut self.indexer);
+     pub fn iter<'a>(&'a mut self) -> impl Iterator<Item = (ID, T)> + 'a {
+        StoreIter::new(Holder::Ref(&mut self.f), self.indexer.iter())
+    }
+
+    /** Iterates over the stored values. 
+     
+        Returns the latest stored value for every id. The ids are guaranteed to be increasing. 
+     */
+     pub fn into_iter<'a>(self) -> impl Iterator<Item = (ID, T)> + 'a where Self: 'a{
+        StoreIter::new(Holder::Own(self.f), self.indexer.into_iter())
     }
 
     /** Iterates over all stored values. 
      
         Iterates over *all* stored values, returning them in the order they were added to the store. Multiple values may be returned for single id, the last value returned is the valid one. 
      */
-    pub fn iter_all(& mut self) -> StoreIterAll<T, ID> {
+     pub fn iter_all<'a>(&'a mut self) -> impl Iterator<Item = (ID, T)> + 'a {
         self.f.seek(SeekFrom::Start(0)).unwrap();
-        return StoreIterAll{ store : self, max_offset : u64::MAX };
+        return StoreIterAll{ store: Holder::Ref(self), max_offset : u64::MAX };
     }
 
-    pub fn savepoint_iter_all(& mut self, sp : & Savepoint) -> StoreIterAll<T, ID> {
+    /** Iterates over all stored values. 
+     
+        Iterates over *all* stored values, returning them in the order they were added to the store. Multiple values may be returned for single id, the last value returned is the valid one. 
+     */
+     pub fn into_iter_all<'a>(mut self) -> impl Iterator<Item = (ID, T)> + 'a where Self: 'a{
+        self.f.seek(SeekFrom::Start(0)).unwrap();
+        return StoreIterAll{ store: Holder::Own(self), max_offset : u64::MAX };
+    }
+
+    pub fn savepoint_iter_all<'a>(&'a mut self, sp : & Savepoint) -> impl Iterator<Item = (ID, T)> + 'a {
         let max_offset = sp.limit_for(& format!("{}.store", self.name()));
         self.f.seek(SeekFrom::Start(0)).unwrap();
-        return StoreIterAll{ store : self, max_offset };
+        return StoreIterAll{store: Holder::Ref(self), max_offset };
+    }
+
+    pub fn into_savepoint_iter_all<'a>(mut self, sp: &Savepoint) -> impl Iterator<Item = (ID, T)> + 'a where Self: 'a{
+        let max_offset = sp.limit_for(& format!("{}.store", self.name()));
+        self.f.seek(SeekFrom::Start(0)).unwrap();
+        return StoreIterAll{ store: Holder::Own(self), max_offset };
     }
 
     /** Reads the record from a file. 
@@ -475,31 +524,47 @@ impl<T: Serializable<Item = T>, ID : Id> Store<T, ID> {
     }
 }
 
+
 /** Latest store iterator does not support savepoints since the indices can be udpated. 
  */
-pub struct StoreIter<'a, T: Serializable<Item = T>, ID : Id> {
-    f : &'a mut File,
-    iiter : IndexerIterator<'a, u64,ID>,
-    why_oh_why : std::marker::PhantomData<T>,
+ pub struct StoreIter<'a, I, T, ID>
+ where
+    I: Iterator<Item = (ID, u64)>,
+    T: Serializable<Item = T>,
+    ID: Id,
+{
+    file: Holder<'a, File>,
+    iiter:I,
+    _t: PhantomData<T>,
 }
 
-impl<'a, T : Serializable<Item = T>, ID : Id> StoreIter<'a, T, ID> {
-    fn new(f : &'a mut File, indexer : &'a mut Indexer<u64, ID>) -> StoreIter<'a, T, ID> {
-        return StoreIter{
-            f : f,
-            iiter : indexer.iter(),
-            why_oh_why : std::marker::PhantomData{}
-        };
+impl<'a, I, T, ID> StoreIter<'a, I, T, ID>
+where
+    I: Iterator<Item = (ID, u64)>,
+    T: Serializable<Item = T>,
+    ID: Id
+ {
+    fn new(file: Holder<'a, File>, iiter: I) -> StoreIter<'a, I, T, ID>{
+        StoreIter{
+            file,
+            iiter,
+            _t: PhantomData
+        }
     }
 }
 
-impl<'a, T : Serializable<Item = T>, ID : Id> Iterator for StoreIter<'a, T, ID> {
+impl<'a, I, T, ID> Iterator for StoreIter<'a, I, T, ID>
+where
+    I: Iterator<Item = (ID, u64)>,
+    T: Serializable<Item = T>,
+    ID: Id
+ {
     type Item = (ID, T);
 
     fn next(& mut self) -> Option<(ID, T)> {
         if let Some((id, offset)) = self.iiter.next() {
-            self.f.seek(SeekFrom::Start(offset)).unwrap();
-            let (store_id, value) = Store::<T, ID>::read_record(self.f).unwrap();
+            self.file.seek(SeekFrom::Start(offset)).unwrap();
+            let (store_id, value) = Store::<T, ID>::read_record(&mut self.file).unwrap();
             assert_eq!(id, store_id, "Corrupted store or its indexing");
             return Some((id, value)); 
         } else {
@@ -508,22 +573,33 @@ impl<'a, T : Serializable<Item = T>, ID : Id> Iterator for StoreIter<'a, T, ID> 
     }
 }
 
-pub struct StoreIterAll<'a, T : Serializable<Item = T>, ID : Id> {
-    store : &'a mut Store<T, ID>,
+
+
+pub struct StoreIterAll<'a, T, ID>
+where
+    T: Serializable<Item = T>,
+    ID: Id
+{
+    store: Holder<'a, Store<T, ID>>,
     max_offset : u64,
 }
 
-impl<'a, T : Serializable<Item = T>, ID : Id> Iterator for StoreIterAll<'a, T, ID> {
+impl<'a, T, ID> Iterator for StoreIterAll<'a, T, ID> 
+where
+    T: Serializable<Item = T>,
+    ID: Id
+{
     type Item = (ID, T);
 
     fn next(& mut self) -> Option<(ID, T)> {
         if self.store.f.seek(SeekFrom::Current(0)).unwrap() >= self.max_offset {
             return None;
         } else {
-            return Store::<T, ID>::read_record(& mut self.store.f); 
+            return Store::<T, ID>::read_record(&mut self.store.f); 
         }
     }
 }
+
 
 /** Linked store implementation. 
  
@@ -534,7 +610,7 @@ impl<'a, T : Serializable<Item = T>, ID : Id> Iterator for StoreIterAll<'a, T, I
 pub struct LinkedStore<T : Serializable<Item = T>, ID : Id = u64> {
     pub (crate) indexer : Indexer<u64, ID>,
     pub (crate) f : File,
-    why_oh_why : std::marker::PhantomData<T>,
+    _t : std::marker::PhantomData<T>,
 }
 
 impl<T: Serializable<Item = T>, ID : Id> LinkedStore<T, ID> {
@@ -549,7 +625,7 @@ impl<T: Serializable<Item = T>, ID : Id> LinkedStore<T, ID> {
         let mut result = LinkedStore{
             indexer : Indexer::new(root, name, readonly),
             f,
-            why_oh_why : std::marker::PhantomData{}
+            _t : std::marker::PhantomData{}
         };
         LOG!("    {}: indices {}, size {}", name, result.indexer.len(), result.f.seek(SeekFrom::End(0)).unwrap());
         return result;
@@ -676,32 +752,64 @@ impl<T: Serializable<Item = T>, ID : Id> LinkedStore<T, ID> {
      
         Returns the latest stored value for every id. The ids are guaranteed to be increasing. 
      */
-    pub fn iter(& mut self) -> LinkedStoreIter<T, ID> {
-        return LinkedStoreIter::new(& mut self. f, & mut self.indexer);
+     pub fn iter<'a>(&'a mut self) -> impl Iterator<Item = (ID, T)> + 'a {
+        LinkedStoreIter::new(Holder::Ref(&mut self.f), self.indexer.iter())
+    }
+
+    /** Iterates over the stored values. 
+     
+        Returns the latest stored value for every id. The ids are guaranteed to be increasing. 
+     */
+     pub fn into_iter<'a>(self) -> impl Iterator<Item = (ID, T)> + 'a where Self: 'a{
+        LinkedStoreIter::new(Holder::Own(self.f), self.indexer.into_iter())
     }
 
     /** Iterates over all stored values. 
      
         Iterates over *all* stored values, returning them in the order they were added to the store. Multiple values may be returned for single id, the last value returned is the valid one. 
      */
-    pub fn iter_all(& mut self) -> LinkedStoreIterAll<T, ID> {
+     pub fn iter_all<'a>(&'a mut self) -> impl Iterator<Item = (ID, T)> + 'a {
         self.f.seek(SeekFrom::Start(0)).unwrap();
-        return LinkedStoreIterAll{ store : self, max_offset : u64::MAX };
+        LinkedStoreIterAll{ store: Holder::Ref(self), max_offset: u64::MAX }
     }
 
-    pub fn savepoint_iter_all(& mut self, sp : & Savepoint) -> LinkedStoreIterAll<T, ID> {
-        let max_offset = sp.limit_for(& format!("{}.store",self.name()));
+    /** Iterates over all stored values. 
+     
+        Iterates over *all* stored values, returning them in the order they were added to the store. Multiple values may be returned for single id, the last value returned is the valid one. 
+     */
+     pub fn into_iter_all<'a>(mut self) -> impl Iterator<Item = (ID, T)> + 'a where Self: 'a{
         self.f.seek(SeekFrom::Start(0)).unwrap();
-        return LinkedStoreIterAll{ store : self, max_offset };
+        LinkedStoreIterAll{ store: Holder::Own(self), max_offset: u64::MAX }
+    }
+
+    pub fn savepoint_iter_all<'a>(&'a mut self, sp: &Savepoint) -> impl Iterator<Item = (ID, T)> + 'a {
+        let max_offset = sp.limit_for(&format!("{}.store",self.name()));
+        self.f.seek(SeekFrom::Start(0)).unwrap();
+        LinkedStoreIterAll{ store : Holder::Ref(self), max_offset }
+    }
+
+    pub fn into_savepoint_iter_all<'a>(mut self, sp: &Savepoint) -> impl Iterator<Item = (ID, T)> + 'a where Self: 'a{
+        let max_offset = sp.limit_for(&format!("{}.store",self.name()));
+        self.f.seek(SeekFrom::Start(0)).unwrap();
+        LinkedStoreIterAll{ store: Holder::Own(self), max_offset }
     }
 
     /** Given an id, returns an iterator over all values ever stored for it. 
      
         The values are returned in the reverse order they were added, i.e. latest value first. 
      */
-    pub fn iter_id(& mut self, id : ID) -> LinkedStoreIterId<T, ID> {
+     pub fn iter_id<'a>(&'a mut self, id : ID) -> impl Iterator<Item = T> + 'a {
         let offset = self.indexer.get(id);
-        return LinkedStoreIterId{ store : self, offset };
+        LinkedStoreIterId{ store: Holder::Ref(self), offset }
+    }
+
+    /** Given an id, returns an iterator over all values ever stored for it. 
+     
+        The values are returned in the reverse order they were added, i.e. latest value first. 
+     */
+     pub fn into_iter_id<'a>(mut self, id : ID) -> impl Iterator<Item = T> + 'a where Self: 'a {
+        let offset = self.indexer.get(id);
+        return LinkedStoreIterId{ store: Holder::Own(self), offset };
     }
 
     /** Reads the record from a file. 
@@ -729,29 +837,44 @@ impl<T: Serializable<Item = T>, ID : Id> LinkedStore<T, ID> {
     }
 }
 
-pub struct LinkedStoreIter<'a, T: Serializable<Item = T>, ID : Id> {
-    f : &'a mut File,
-    iiter : IndexerIterator<'a, u64, ID>,
-    why_oh_why : std::marker::PhantomData<T>,
+pub struct LinkedStoreIter<'a, I, T, ID>
+where
+    I: Iterator<Item=(ID, u64)>,
+    T: Serializable<Item = T>,
+    ID: Id,
+{
+    iiter: I,
+    file: Holder<'a, File>,
+    _t: std::marker::PhantomData<T>,
 }
 
-impl<'a, T : Serializable<Item = T>, ID : Id> LinkedStoreIter<'a, T, ID> {
-    fn new(f : &'a mut File, indexer : &'a mut Indexer<u64, ID>) -> LinkedStoreIter<'a, T, ID> {
+impl<'a, I, T, ID> LinkedStoreIter<'a, I, T, ID>
+where
+    I: Iterator<Item=(ID, u64)>,
+    T: Serializable<Item = T>,
+    ID: Id,
+{
+    fn new(file: Holder<'a, File>, iiter: I) -> LinkedStoreIter<'a, I, T, ID> {
         return LinkedStoreIter{
-            f : f,
-            iiter : indexer.iter(),
-            why_oh_why : std::marker::PhantomData{}
+            iiter,
+            file,
+            _t: std::marker::PhantomData{}
         };
     }
 }
 
-impl<'a, T : Serializable<Item = T>, ID : Id> Iterator for LinkedStoreIter<'a, T, ID> {
+impl<'a, I, T, ID> Iterator for LinkedStoreIter<'a, I, T, ID>
+where
+    I: Iterator<Item=(ID, u64)>,
+    T: Serializable<Item = T>,
+    ID: Id,
+{
     type Item = (ID, T);
 
     fn next(& mut self) -> Option<(ID, T)> {
         if let Some((id, offset)) = self.iiter.next() {
-            self.f.seek(SeekFrom::Start(offset)).unwrap();
-            let (store_id, _, value) = LinkedStore::<T, ID>::read_record(self.f).unwrap();
+            self.file.seek(SeekFrom::Start(offset)).unwrap();
+            let (store_id, _, value) = LinkedStore::<T, ID>::read_record(&mut self.file).unwrap();
             assert_eq!(id, store_id, "Corrupted store or its indexing");
             return Some((id, value)); 
         } else {
@@ -760,40 +883,56 @@ impl<'a, T : Serializable<Item = T>, ID : Id> Iterator for LinkedStoreIter<'a, T
     }
 }
 
-pub struct LinkedStoreIterAll<'a, T : Serializable<Item = T>, ID : Id> {
-    store : &'a mut LinkedStore<T, ID>,
-    max_offset : u64,
+
+
+pub struct LinkedStoreIterAll<'a, T, ID>
+where
+    T: Serializable<Item = T>,
+    ID: Id
+{
+    store: Holder<'a, LinkedStore<T, ID>>,
+    max_offset: u64,
 }
 
-impl<'a, T : Serializable<Item = T>, ID : Id> Iterator for LinkedStoreIterAll<'a, T, ID> {
+impl<'a, T, ID> Iterator for LinkedStoreIterAll<'a, T, ID>
+where
+    T: Serializable<Item = T>,
+    ID: Id
+{
     type Item = (ID, T);
 
     fn next(& mut self) -> Option<(ID, T)> {
         if self.store.f.seek(SeekFrom::Current(0)).unwrap() >= self.max_offset {
             return None;
         } else {
-            match LinkedStore::<T, ID>::read_record(& mut self.store.f) {
+            match LinkedStore::<T, ID>::read_record(&mut self.store.f) {
                 Some((id, _, value)) => Some((id, value)),
                 None => None
             }
         }
     }
-
+}
+pub struct LinkedStoreIterId<'a, T, ID>
+where
+    T: Serializable<Item = T>,
+    ID: Id,
+{
+    store: Holder<'a, LinkedStore<T, ID>>,
+    offset: Option<u64>,
 }
 
-pub struct LinkedStoreIterId<'a, T : Serializable<Item = T>, ID : Id> {
-    store : &'a mut LinkedStore<T, ID>,
-    offset : Option<u64>,
-}
-
-impl<'a, T : Serializable<Item = T>, ID : Id> Iterator for LinkedStoreIterId<'a, T, ID> {
+impl<'a, T, ID> Iterator for LinkedStoreIterId<'a, T, ID>
+where
+    T: Serializable<Item = T>,
+    ID: Id,
+{
     type Item = T;
 
-    fn next(& mut self) -> Option<T> {
+    fn next(&mut self) -> Option<T> {
         match self.offset {
             Some(offset) => {
                 self.store.f.seek(SeekFrom::Start(offset)).unwrap();
-                let (_, previous_offset, value) = LinkedStore::<T, ID>::read_record(& mut self.store.f).unwrap(); 
+                let (_, previous_offset, value) = LinkedStore::<T, ID>::read_record(&mut self.store.f).unwrap(); 
                 self.offset = previous_offset;
                 return Some(value);
             }, 
@@ -801,6 +940,7 @@ impl<'a, T : Serializable<Item = T>, ID : Id> Iterator for LinkedStoreIterId<'a,
         }
     }
 }
+
 
 /** Mapping from values to ids. 
  
@@ -871,11 +1011,11 @@ impl<T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone, ID : Id> Mapping<T
 
     /** Loads the mapping into from disk to the hashmap. 
      */
-    pub fn load(& mut self) {
+    pub fn load(&mut self) {
         // we have to create the iterator ourselves here otherwise rust would complain of double mutable borrow
         self.f.seek(SeekFrom::Start(0)).unwrap();
-        let iter = MappingIter{f : & mut self.f, index : 0, size : self.size, why_oh_why : std::marker::PhantomData{} };
         self.mapping.clear();
+        let iter = MappingIter{file: Holder::Ref(&mut self.f), index: 0, size: self.size, _t: PhantomData };
         for (id, value) in iter {
             self.mapping.insert(value, id);
         }
@@ -941,33 +1081,56 @@ impl<T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone, ID : Id> Mapping<T
         return self.mapping.len();
     }
 
-    pub fn iter(& mut self) -> MappingIter<T, ID> {
+    pub fn iter<'a>(&'a mut self) -> impl Iterator<Item = (ID, T)> + 'a {
         self.f.seek(SeekFrom::Start(0)).unwrap();
-        return MappingIter{f : & mut self.f, index : 0, size : self.size, why_oh_why : std::marker::PhantomData{} };
+        let size = self.size;
+        MappingIter{file: Holder::Ref(&mut self.f), index: 0, size, _t: PhantomData }
     }
 
-    pub fn savepoint_iter(& mut self, sp : & Savepoint) -> MappingIter<T, ID> {
-        let max_offset = sp.limit_for(& format!("{}.mapping", self.name()));
+    pub fn savepoint_iter<'a>(&'a mut self, sp : &Savepoint) -> impl Iterator<Item = (ID, T)> + 'a {
+        let max_offset = 
+            sp.limit_for(& format!("{}.mapping", self.name())) / (std::mem::size_of::<T>() as u64);
         self.f.seek(SeekFrom::Start(0)).unwrap();
-        return MappingIter{f : & mut self.f, index : 0, size : max_offset / (std::mem::size_of::<T>() as u64), why_oh_why : std::marker::PhantomData{} };
+        MappingIter{file: Holder::Ref(&mut self.f), index : 0, size: max_offset, _t: PhantomData }
+    }
+
+    pub fn into_iter<'a>(mut self) -> impl Iterator<Item = (ID, T)> + 'a where Self: 'a{
+        self.f.seek(SeekFrom::Start(0)).unwrap();
+        let size = self.size;
+        MappingIter{file: Holder::Own(self.f), index: 0, size, _t: PhantomData }
+    }
+
+    pub fn into_savepoint_iter<'a>(mut self, sp : &Savepoint) -> impl Iterator<Item = (ID, T)> + 'a where Self: 'a{
+        let max_offset = 
+            sp.limit_for(& format!("{}.mapping", self.name())) / (std::mem::size_of::<T>() as u64);
+        self.f.seek(SeekFrom::Start(0)).unwrap();
+        MappingIter{file: Holder::Own(self.f), index : 0, size: max_offset, _t: PhantomData }
     }
 }
 
-pub struct MappingIter<'a, T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone, ID : Id = u64> {
-    f : &'a mut File,
-    index : u64,
-    size : u64,
-    why_oh_why : std::marker::PhantomData<(T, ID)>
+pub struct MappingIter<'a, T, ID>
+where
+    T: FixedSizeSerializable<Item = T> + Eq + Hash + Clone,
+    ID: Id
+{
+    file: Holder<'a, File>,
+    index: u64,
+    size: u64,
+    _t: std::marker::PhantomData<(T, ID)>,
 }
 
-impl<'a, T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone, ID : Id> Iterator for MappingIter<'a, T, ID> {
+impl<T, ID> Iterator for MappingIter<'_, T, ID>
+where
+    T: FixedSizeSerializable<Item = T> + Eq + Hash + Clone,
+    ID: Id
+{
     type Item = (ID, T);
 
-    fn next(& mut self) -> Option<(ID, T)> {
+    fn next(&mut self) -> Option<(ID, T)> {
         if self.index == self.size {
             return None;
         } else {
-            let value = T::deserialize(self.f);
+            let value = T::deserialize(&mut self.file);
             let id = ID::from(self.index);
             self.index += 1;
             return Some((id, value));
@@ -975,14 +1138,24 @@ impl<'a, T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone, ID : Id> Itera
     }
 }
 
+
+
 /** Mapping from values to ids where the values require indexing. 
  */
-pub struct IndirectMapping<T : Serializable<Item = T> + Eq + Hash + Clone, ID : Id = u64> {
+pub struct IndirectMapping<T, ID>
+where
+    T : Serializable<Item = T> + Eq + Hash + Clone,
+    ID : Id,
+{
     pub (crate) store : Store<T, ID>,
     mapping : HashMap<T, ID>
 }
 
-impl<T : Serializable<Item = T> + Eq + Hash + Clone, ID : Id> IndirectMapping<T, ID> {
+impl<T, ID> IndirectMapping<T, ID>
+where
+    T : Serializable<Item = T> + Eq + Hash + Clone,
+    ID : Id,
+{
 
     /** Creates new mapping. 
      */
@@ -1058,12 +1231,20 @@ impl<T : Serializable<Item = T> + Eq + Hash + Clone, ID : Id> IndirectMapping<T,
         return self.mapping.len();
     }
 
-    pub fn iter(& mut self) -> StoreIterAll<T, ID> {
-        return self.store.iter_all();
+    pub fn iter<'a>(&'a mut self) -> impl Iterator<Item = (ID, T)> + 'a {
+        self.store.iter_all()
     }
 
-    pub fn savepoint_iter(& mut self, sp : & Savepoint) -> StoreIterAll<T, ID> {
-        return self.store.savepoint_iter_all(sp);
+    pub fn into_iter<'a>(self) -> impl Iterator<Item = (ID, T)> + 'a where Self: 'a{
+        self.store.into_iter_all()
+    }
+
+    pub fn savepoint_iter<'a> (&'a mut self, sp: &Savepoint) -> impl Iterator<Item = (ID, T)> + 'a {
+        self.store.savepoint_iter_all(sp)
+    }
+
+    pub fn into_savepoint_iter<'a>(self, sp: &Savepoint) -> impl Iterator<Item = (ID, T)> + 'a where Self: 'a {
+        self.store.into_savepoint_iter_all(sp)
     }
 
 }
@@ -1090,12 +1271,12 @@ pub trait SplitKind : FixedSizeSerializable + Eq + Debug {
  */
 pub struct SplitKindIter<T : SplitKind> {
     i : u64,
-    why_oh_why : std::marker::PhantomData<T>,
+    _t : std::marker::PhantomData<T>,
 }
 
 impl<T : SplitKind> SplitKindIter<T> {
     pub fn new() -> SplitKindIter<T> {
-        return SplitKindIter{i : 0, why_oh_why : std::marker::PhantomData{} };
+        return SplitKindIter{i : 0, _t : std::marker::PhantomData{} };
     }
 }
 
@@ -1156,11 +1337,16 @@ impl<KIND : SplitKind<Item = KIND>> Indexable for SplitOffset<KIND> {
 
 /** Split store contains single index, but multiple files that store the data based on its kind. 
  */
-pub struct SplitStore<T : Serializable<Item = T>, KIND : SplitKind<Item = KIND>, ID : Id = u64> {
+pub struct SplitStore<T, KIND, ID>
+where
+    T: Serializable<Item = T>,
+    KIND : SplitKind<Item = KIND>,
+    ID: Id,
+{
     name : String,
     pub (crate) indexer : Indexer<SplitOffset<KIND>, ID>,
     pub (crate) files : Vec<File>,
-    why_oh_why : std::marker::PhantomData<T>
+    _t : std::marker::PhantomData<T>
 }
 
 impl<T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>, ID : Id> SplitStore<T, KIND, ID> {
@@ -1180,7 +1366,7 @@ impl<T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>, ID : Id> SplitSto
             name : name.to_owned(),
             indexer : Indexer::new(root, name, readonly),
             files, 
-            why_oh_why : std::marker::PhantomData{}
+            _t : std::marker::PhantomData{}
         };
         LOG!("    {}: indices {}, splits {}", name, result.indexer.len(), result.files.len());
         return result;
@@ -1310,31 +1496,47 @@ impl<T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>, ID : Id> SplitSto
         return self.indexer.len();
     }
 
-    pub fn savepoint_iter(& mut self, sp : & Savepoint) -> SplitStoreIterAll<T,KIND,ID> {
+    pub fn savepoint_iter<'a>(&'a mut self, sp: &Savepoint) -> impl Iterator<Item = (ID, KIND, T)> + 'a {
         let mut max_offsets = Vec::new();
-        let mut i = 0;
-        for _f in self.files.iter_mut() {
-            max_offsets.push(sp.limit_for(& format!("{}-{}.store", self.name, i)));
-            i += 1;
+        for i in 0..self.files.len() {
+            max_offsets.push(sp.limit_for(&format!("{}-{}.store", self.name, i)));
         }
         self.files[0].seek(SeekFrom::Start(0)).unwrap();
-        return SplitStoreIterAll{ store : self, max_offsets, split : 0 }
+        return SplitStoreIterAll{ store: Holder::Ref(self), max_offsets, split: 0 };
     }
 
-    // TODO add iterators
-
+    pub fn into_savepoint_iter<'a>(mut self, sp: &Savepoint) -> impl Iterator<Item = (ID, KIND, T)> + 'a where Self: 'a{
+        let mut max_offsets = Vec::new();
+        for i in 0..self.files.len() {
+            max_offsets.push(sp.limit_for(&format!("{}-{}.store", self.name, i)));
+        }
+        self.files[0].seek(SeekFrom::Start(0)).unwrap();
+        
+        SplitStoreIterAll{ store: Holder::Own(self), max_offsets, split: 0 }
+    }
 }
 
-pub struct SplitStoreIterAll<'a, T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>, ID : Id> {
-    store: &'a mut SplitStore<T, KIND, ID>,
+
+pub struct SplitStoreIterAll<'a, T, KIND, ID>
+where
+    T: Serializable<Item = T>,
+    KIND: SplitKind<Item = KIND>,
+    ID: Id,
+{
+    store: Holder<'a, SplitStore<T, KIND, ID>>,
     max_offsets : Vec<u64>,
     split : usize,
 }
 
-impl<'a, T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>, ID : Id> Iterator for SplitStoreIterAll<'a, T, KIND, ID> {
+impl<'a, T, KIND, ID> Iterator for SplitStoreIterAll<'a, T, KIND, ID>
+where
+    T: Serializable<Item = T>,
+    KIND: SplitKind<Item = KIND>,
+    ID: Id,
+{
     type Item = (ID, KIND, T);
 
-    fn next(& mut self) -> Option<(ID, KIND, T)> {
+    fn next(&mut self) -> Option<(ID, KIND, T)> {
         loop {
             if self.store.files[self.split].seek(SeekFrom::Current(0)).unwrap() >= self.max_offsets[self.split] {
                 self.split += 1;
@@ -1350,6 +1552,7 @@ impl<'a, T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>, ID : Id> Iter
         }
     }
 }
+
 
 /** Savepoint for the entire datastore. 
  
