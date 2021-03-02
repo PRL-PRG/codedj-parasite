@@ -394,6 +394,15 @@ impl Datastore {
         }
     }
 
+    pub (crate) fn load_all_project_urls(& self) {
+        let mut urls = self.project_urls.lock().unwrap();
+        if urls.is_empty() {
+            for (_, p) in self.projects.lock().unwrap().iter_all() {
+                urls.insert(p);
+            }
+        }
+    }
+
     pub (crate) fn drop_project_urls(& self) {
         self.project_urls.lock().unwrap().clear();
     }

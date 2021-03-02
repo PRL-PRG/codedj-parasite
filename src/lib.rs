@@ -577,6 +577,51 @@ pub trait RandomAccessView<'a, T : db::ReadOnly, ID : db::Id> {
 }
 
 
+/** A guarded iterator that contains the guard, and an iterator itself.
+ */
+/*
+pub struct GuardedIterator<T : Iterator, G> {
+    i : T,
+    guard : G,
+}
+
+impl<T : Iterator, G> Iterator for GuardedIterator<T,G> {
+    type Item = T::Item;
+
+    fn next(& mut self) -> Option<Self::Item> {
+        return self.i.next();
+    }
+
+}
+*/
+
+
+/** Specifies iterator and how to obtain it */
+/*
+pub trait IteratorWrapper<T : Iterator> {
+
+    fn iter(self, sp : & Savepoint) -> T;
+}
+*/
+
+/** Holds the iterator, and its guard.
+ */
+/*
+pub struct ConsumingIterator<T : IteratorWrapper> {
+    guard : T,
+    i : T::IteratorType
+}
+
+impl<T : IteratorWrapper> Iterator for ConsumingIterator<T> {
+    //type Item = T::IteratorType::Item;
+    type Item = <<T as IteratorWrapper>::IteratorType as Iterator>::Item;
+
+    fn next(& mut self) -> Option<Self::Item> {
+        return self.i.next();
+    }
+}
+*/
+
 /** A view into a Store. 
  
     Provides iterator for all elements within given savepoint and if the store holds ReadOnly records, provides random access as well. 
@@ -585,11 +630,42 @@ pub struct StoreView<'a, T : db::Serializable<Item = T>, ID : db::Id = u64> {
     guard : std::sync::MutexGuard<'a, db::Store<T,ID>>,
 }
 
-impl<'a, T : db::Serializable<Item = T>, ID : db::Id > StoreView<'a, T, ID> {
+impl<'a, T : db::Serializable<Item = T>, ID : db::Id> StoreView<'a, T, ID> {
     pub fn iter(& mut self, sp : & Savepoint) -> db::StoreIterAll<T,ID> {
         return self.guard.savepoint_iter_all(sp);
+    } 
+
+    /*
+    pub fn giter(self, sp : & Savepoint) -> GuardedIterator<db::StoreIterAll<'a, T, ID>, std::sync::MutexGuard<'a, db::Store<T,ID>>> {
+        let g = self.guard;
+        let i = g.savepoint_iter_all(sp);
+        let mut result = GuardedIterator{i, guard : g};
+        result.next();
+        return result;
     }
+    */
+
+    /*
+    fn into_iter(mut self, sp : & Savepoint) -> ConsumingIterator<'a, Self> {
+        let iter = self.guard.savepoint_iter_all(sp);
+        return ConsumingIterator{
+            guard : self, 
+            i : iter
+        };
+    } */
 }
+
+/*
+impl<'a, T : db::Serializable<Item = T>, ID : db::Id> IteratorWrapper for StoreView<'a, T, ID> {
+    type IteratorType = db::StoreIterAll<'a, T, ID>;
+
+    fn iter(&'a mut self, sp : & Savepoint) -> db::StoreIterAll<'a, T,ID> {
+        return self.guard.savepoint_iter_all(sp);
+    }
+
+} 
+*/
+
 
 impl<'a, T : db::Serializable<Item = T> + db::ReadOnly, ID : db::Id> RandomAccessView<'a, T, ID> for StoreView<'a, T, ID> {
     fn get(& mut self, id : ID) -> Option<T> {
@@ -688,7 +764,6 @@ impl<'a> SavepointsView<'a> {
         return self.guard.iter_all();
     }
 }
-
 
 /* ====================================================================================================================
    Helper classes for various statistics about the datastore. 
@@ -1018,6 +1093,64 @@ impl<'a> SubstoreMerger<'a> {
         NOTE: The above is not perfect, but is safe.
      */
     fn merge_projects(& mut self, sp : & Savepoint) {
+        // first we need to create a mapping from project urls to project ids, including historic urls for the target datastore
+        let mut urls = HashMap::<ProjectUrl, ProjectId>::new();
+        for (id, url) in self.target.ds.ds.projects.lock().unwrap().iter_all() {
+            urls.insert(url, id);
+        }
+        // now look at source projects and add ids of those that we have already seen in the target (even historically)
+        for (src_id, url) in self.source.ds.project_urls().iter(sp) {
+            if let Some(target_id) = urls.get(& url) {
+                self.projects.entry(src_id).and_modify(|e| {
+                    *e = (*target_id, false);
+                });
+            }
+        }
+        // in second pass, add the remaining projects
+        let ref target = self.target.ds.ds;
+        for (src_id, url) in self.source.ds.project_urls().iter(sp) {
+            self.projects.entry(src_id).and_modify(|e| {
+                if e.0 == ProjectId::NONE {
+                    if let Some(target_id) = target.add_project(& url) {
+                        *e = (target_id, true);
+                        target.update_project(e.0, & url);
+                    } else {
+                        unreachable!();
+                    }
+                } else if e.1 {
+                    target.update_project(e.0, & url);
+                }
+            });
+        }
+        // now all the project urls have been added and we know which projects information to include. Since merging happens on a substore basis, the substore information cannot be properly preserved in the merged datastore, instead, all added projects substore is set to the merge target
+        let mut project_substores = self.target.ds.project_substores();
+        for p in self.projects.iter() {
+            if let (_, (target_id, true)) = p {
+                project_substores.guard.set(*target_id, & self.target.kind());
+            }
+        }
+        // For updates and changes, we only store the last one for each project 
+
+
+
+
+
+
+        /*
+        self.target.ds.ds.load_all_project_urls();
+        let mut urls = self.target.ds.ds.project_urls.lock();
+        // first look at all selected source projects and remove those whose urls in any given point it time were already analyzed in the target
+        for (src_id, url) in self.source.ds.project_urls() {
+            self.projects.entry(src_id).and_modify(|e| {
+                *e = commits.guard.get_or_create(& hash);
+            });
+            
+            if urls.contains(url)
+                self.projects.
+        }
+        */
+        
+
 
     }
 
