@@ -94,12 +94,15 @@ fn execute_command() {
 }
 
 fn datastore_summary() {
+    /*
     let ds = DatastoreView::from(& SETTINGS.datastore_root);
     
     println!("{}", ds.summary());
+    */
 }
 
 fn datastore_size() {
+    /*
     let ds = DatastoreView::from(& SETTINGS.datastore_root);
     println!("kind,contents,indices");
     println!("savepoints,{}", ds.savepoints_size());
@@ -109,9 +112,11 @@ fn datastore_size() {
     println!("paths,{}", ds.paths_size());
     println!("users,{}", ds.users_size());
     println!("total,{}", ds.datastore_size());
+    */
 }
 
 fn datastore_savepoints() {
+    /*
     let ds = DatastoreView::from(& SETTINGS.datastore_root);
     let mut s = ds.savepoints();
     let mut num = 0;
@@ -120,44 +125,52 @@ fn datastore_savepoints() {
         num += 1;
     }
     println!("Total {} savepoints found.", num);
+    */
 }
 
 /** Adds the given project or projects specified in a csv file to the datastore. 
  */
 fn datastore_add(url_or_file : & str) {
+    /*
     TerminalReporter::report(|reporter : & TerminalReporter| {
         let ds = Datastore::new(& SETTINGS.datastore_root, false);
         reporter.run_task(Task::AddProjects{source : url_or_file.to_owned()}, |ts| {
             return datastore_maintenance_tasks::task_add_projects(& ds, url_or_file.to_owned(), ts);
         });
     });
+    */
 }
 
 /** Creates a savepoint of given name from the current datastore state. 
  */
 fn datastore_create_savepoint(name : & str) {
+    /*
     TerminalReporter::report(|reporter : & TerminalReporter| {
         let ds = Datastore::new(& SETTINGS.datastore_root, false);
         reporter.run_task(Task::CreateSavepoint{name : name.to_owned()}, |ts| {
             return datastore_maintenance_tasks::task_create_savepoint(& ds, ts);
         });
     });
+    */
 }
 
 /** Reverts the datastore to given saveopoint. 
  */
 fn datastore_revert_to_savepoint(name : & str) {
+    /*
     {
         let ds = Datastore::new(& SETTINGS.datastore_root, false);
         let sp = ds.get_savepoint(name).unwrap();
         ds.revert_to_savepoint(&sp);
     }
     datastore_size();
+    */
 }
 
 /** Forces the update of given project. 
  */
 fn datastore_update_project(project : & str, force_opt : Option<& String>) {
+    /*
     let mut force = false;
     if let Some(opt) = force_opt {
         if opt == "--force" {
@@ -181,6 +194,7 @@ fn datastore_update_project(project : & str, force_opt : Option<& String>) {
             panic!("No project named {} found", project);
         }
     });
+    */
 }
 
 /** Displays active projects per substore. 
@@ -188,6 +202,7 @@ fn datastore_update_project(project : & str, force_opt : Option<& String>) {
     A simple example of the library interface. Looks at heads of all projects on a per substore basis as the commit information is in a substore and calculates which active projects, which is projects whose latest commit has happened `max_age` before the savepoint time.
  */
 fn example_active_projects(max_age : i64) {
+    /*
     // create the datastore view with latest info (the latest savepoint is created ad hoc for the current state of the datastore)
     let ds = DatastoreView::from(& SETTINGS.datastore_root);
     let sp = ds.current_savepoint();
@@ -233,6 +248,7 @@ fn example_active_projects(max_age : i64) {
     println!("{}, total_projects", projects.len());
     println!("{}, total_valid_projects", total_valid);
     println!("{}, total_active_projects", total_active);
+    */
 }
 
 /** Shows full information about given project. 
@@ -244,6 +260,7 @@ fn example_active_projects(max_age : i64) {
     Change paths and commit hashes are displayed as terminal links, where supported. 
  */
 fn example_show_project(url : & str, savepoint : Option<& str>) {
+    /*
     // create the datastore and savepoint
     let ds = DatastoreView::from(& SETTINGS.datastore_root);
     let sp = ds.get_savepoint(savepoint).unwrap();
@@ -295,9 +312,18 @@ fn example_show_project(url : & str, savepoint : Option<& str>) {
     } else {
         println!("ERROR: No project matches the given url {}", url);
     }
+    */
 }
 
 fn datastore_contents_compression() {
+    /*
+    let ds = DatastoreView::from(& SETTINGS.datastore_root);
+    for substore in StoreKind::all() {
+        let contents = ds.contents(substore);
+
+    }
+    */
+    /*
     let ds = DatastoreView::from(& SETTINGS.datastore_root);
     let sp = ds.current_savepoint();
     let mut compressed : usize = 0;
@@ -313,11 +339,14 @@ fn datastore_contents_compression() {
         println!("{:?}: compressed : {}, uncompressed : {}", ss.kind(), comp, uncomp);
     }
     println!("TOTAL: compressed : {}, uncompressed : {}", compressed, uncompressed);
+    */
 }
 fn datastore_debug() {
+    /*
     let ds = DatastoreView::from(& SETTINGS.datastore_root);
     let sp = ds.current_savepoint();
     ds.projects(& sp);
+    */
 }
 
 

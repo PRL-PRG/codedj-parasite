@@ -236,6 +236,28 @@ impl StoreKind {
             _ => None
         }
     }
+
+    pub fn all() -> StoreKindIterator {
+        return StoreKindIterator{i : 0 };
+    }
+
+}
+
+pub struct StoreKindIterator {
+    i : u64
+}
+
+impl Iterator for StoreKindIterator {
+    type Item = StoreKind;
+    fn next(& mut self) -> Option<StoreKind> {
+        if self.i >= StoreKind::Unspecified.to_number() {
+            return None;    
+        } else {
+            let result = StoreKind::from_number(self.i);
+            self.i += 1;
+            return Some(result);
+        }
+    }
 }
 
 impl Display for StoreKind {

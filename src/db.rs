@@ -195,6 +195,49 @@ impl Serializable for String {
     }
 }
 
+/** Basic table trait. 
+ 
+    The table provides basic implementation for both iterator-like interface of reading and avancing the index and random access elements. 
+ */
+pub trait Table : IntoIterator {
+    type Id;
+    type Value;
+
+    fn get_reset(& mut self);
+
+    fn get_next(& mut self) -> Option<(Self::Id, Self::Value)>;
+
+    fn get(& mut self, id : Self::Id) -> Option<Self::Value>;
+}
+
+/** An iterator owning the table.
+ 
+    
+ */
+pub struct TableOwningIterator<T : Table> {
+    table : T
+}
+
+impl<T: Table> TableOwningIterator<T> {
+    pub fn new(mut table : T) -> TableOwningIterator<T> {
+        table.get_reset();
+        return TableOwningIterator{table};
+    }
+}
+
+impl<T : Table> Iterator for TableOwningIterator<T> {
+    type Item = (T::Id, T::Value);
+
+    fn next(& mut self) -> Option<Self::Item> {
+        return self.table.get_next();
+    }
+}
+
+
+// TODO DELETE DELETE DELETE DELETE DELETE DELETE DELETE DELETE DELETE DELETE DELETE DELETE DELETE DELETE DELETE DELETE DELETE
+
+/** Basic requirements for a table.
+ */
 pub trait TableImplementation {
     type Item;
     type Id; 
@@ -205,6 +248,14 @@ pub trait TableImplementation {
     /** Because seeking in rust is really expensive, we actually require the readers to return the number of bytes they have read. 
      */
     fn read_and_advance(& mut self) -> Option<(Self::Id, Self::Item)>;
+}
+
+
+pub trait RandomAccessImplementation {
+    type Item;
+    type Id; 
+
+    fn get(& mut self, id : Self::Id) -> Option<Self::Item>;
 }
 
 /** Holds indices for each id.
@@ -330,6 +381,40 @@ pub struct Store<T : Serializable<Item = T>, ID : Id = u64> {
     why_oh_why : std::marker::PhantomData<T>,
 }
 
+impl<T:Serializable<Item = T>, ID : Id> Table for Store<T, ID> {
+    type Id = ID;
+    type Value = T;
+
+    fn get_reset(& mut self) {
+        self.f.seek(SeekFrom::Start(0)).unwrap();
+    }
+
+    fn get_next(& mut self) -> Option<(Self::Id, Self::Value)> {
+        return Store::<T, ID>::read_record(& mut self.f);
+    }
+
+    fn get(& mut self, id : ID) -> Option<Self::Value> {
+        if let Some(offset) = self.indexer.get(id) {
+            self.f.seek(SeekFrom::Start(offset)).unwrap();
+            let (record_id, value) = Self::read_record(& mut self.f).unwrap();
+            assert_eq!(id, record_id, "Corrupted store or index");
+            return Some(value);
+        } else {
+            return None;
+        }
+    }
+}
+
+impl<T:Serializable<Item = T>, ID : Id> IntoIterator for Store<T, ID> {
+    type Item = (ID, T);
+    type IntoIter = TableOwningIterator<Store<T,ID>>;
+
+    fn into_iter(self) -> TableOwningIterator<Store<T,ID>> {
+        return TableOwningIterator::new(self);
+    }
+}
+
+/*
 impl<T:Serializable<Item = T>, ID : Id> TableImplementation for Store<T, ID> {
     type Item = T;
     type Id = ID;
@@ -342,6 +427,7 @@ impl<T:Serializable<Item = T>, ID : Id> TableImplementation for Store<T, ID> {
         return Store::<T,ID>::read_record(& mut self.f);
     }
 } 
+*/
 
 impl<T: Serializable<Item = T>, ID : Id> Store<T, ID> {
 
@@ -438,6 +524,7 @@ impl<T: Serializable<Item = T>, ID : Id> Store<T, ID> {
 
     /** Gets the value for given id. 
      */
+    /*
     pub fn get(& mut self, id : ID) -> Option<T> {
         if let Some(offset) = self.indexer.get(id) {
             self.f.seek(SeekFrom::Start(offset)).unwrap();
@@ -447,7 +534,7 @@ impl<T: Serializable<Item = T>, ID : Id> Store<T, ID> {
         } else {
             return None;
         }
-    }
+    } */
 
     /** Sets the value for given id. 
      */
@@ -568,6 +655,41 @@ pub struct LinkedStore<T : Serializable<Item = T>, ID : Id = u64> {
     why_oh_why : std::marker::PhantomData<T>,
 }
 
+impl<T: Serializable<Item = T>, ID : Id> Table for LinkedStore<T, ID> {
+    type Id = ID;
+    type Value = T;
+
+    fn get_reset(& mut self) {
+        self.f.seek(SeekFrom::Start(0)).unwrap();
+    }
+
+    fn get_next(& mut self) -> Option<(Self::Id, Self::Value)> {
+        return LinkedStore::<T, ID>::read_record(& mut self.f).map(|(id, _last_offset, value)| (id, value));
+    }
+
+    fn get(& mut self, id : ID) -> Option<Self::Value> {
+        if let Some(offset) = self.indexer.get(id) {
+            self.f.seek(SeekFrom::Start(offset)).unwrap();
+            let (record_id, _, value) = Self::read_record(& mut self.f).unwrap();
+            assert_eq!(id, record_id, "Corrupted store or index");
+            return Some(value);
+        } else {
+            return None;
+        }
+    }
+}
+
+impl<T: Serializable<Item = T>, ID : Id> IntoIterator for LinkedStore<T, ID> {
+    type Item = (ID, T);
+    type IntoIter = TableOwningIterator<LinkedStore<T,ID>>;
+
+    fn into_iter(self) -> TableOwningIterator<LinkedStore<T,ID>> {
+        return TableOwningIterator::new(self);
+    }
+}
+
+
+/*
 impl<T: Serializable<Item = T>, ID : Id> TableImplementation for LinkedStore<T, ID> {
     type Item = T;
     type Id = ID;
@@ -580,6 +702,7 @@ impl<T: Serializable<Item = T>, ID : Id> TableImplementation for LinkedStore<T, 
         return LinkedStore::<T,ID>::read_record(& mut self.f).map(|(id, _last_offset, value)| (id, value));
     }
 }
+*/
 
 impl<T: Serializable<Item = T>, ID : Id> LinkedStore<T, ID> {
 
@@ -690,6 +813,7 @@ impl<T: Serializable<Item = T>, ID : Id> LinkedStore<T, ID> {
 
     /** Gets the value for given id. 
      */
+    /*
     pub fn get(& mut self, id : ID) -> Option<T> {
         if let Some(offset) = self.indexer.get(id) {
             self.f.seek(SeekFrom::Start(offset)).unwrap();
@@ -700,6 +824,7 @@ impl<T: Serializable<Item = T>, ID : Id> LinkedStore<T, ID> {
             return None;
         }
     }
+    */
 
     /** Sets the value for given id. 
      */
@@ -859,6 +984,50 @@ pub struct Mapping<T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone, ID :
     read_index : u64,
 }
 
+impl<T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone, ID : Id> Table for Mapping<T, ID> {
+    type Id = ID;
+    type Value = T;
+    
+    fn get_reset(& mut self) {
+        self.f.seek(SeekFrom::Start(0)).unwrap();
+        self.read_index = 0;
+    }
+
+    fn get_next(& mut self) -> Option<(Self::Id, Self::Value)> {
+        if self.read_index >= self.size {
+            return None;
+        } else {
+            let value = T::deserialize(& mut self.f);
+            let id = ID::from(self.read_index);
+            self.read_index += 1;
+            return Some((id, value));
+        }
+    }
+
+    fn get(& mut self, id : ID) -> Option<Self::Value> {
+        if id.into() >= self.size {
+            return None;
+        }
+        let offset = T::SIZE * id.into();
+        self.f.seek(SeekFrom::Start(offset)).unwrap();
+        let result = T::deserialize(& mut self.f);
+        self.f.seek(SeekFrom::End(0)).unwrap();
+        self.read_index = self.size;
+        return Some(result);
+    }
+
+}
+
+impl<T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone, ID : Id> IntoIterator for Mapping<T, ID> {
+    type Item = (ID, T);
+    type IntoIter = TableOwningIterator<Mapping<T,ID>>;
+
+    fn into_iter(self) -> TableOwningIterator<Mapping<T,ID>> {
+        return TableOwningIterator::new(self);
+    }
+}
+
+
 impl<T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone, ID : Id> TableImplementation for Mapping<T, ID> {
     type Item = T;
     type Id = ID;
@@ -957,14 +1126,14 @@ impl<T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone, ID : Id> Mapping<T
         self.mapping.shrink_to_fit();
     }
 
-    pub fn get(& mut self, value : & T) -> Option<ID> {
+    pub fn get_mapping(& mut self, value : & T) -> Option<ID> {
         match self.mapping.get(value) {
             Some(id) => Some(*id),
             None => None
         }
     }
 
-    pub fn get_or_create(& mut self, value : & T) -> (ID, bool) {
+    pub fn get_or_create_mapping(& mut self, value : & T) -> (ID, bool) {
         match self.mapping.get(value) {
             Some(id) => (*id, false),
             None => {
@@ -979,7 +1148,8 @@ impl<T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone, ID : Id> Mapping<T
         }
     }
 
-    pub fn get_value(& mut self, id : ID) -> Option<T> {
+    /*
+    pub fn get(& mut self, id : ID) -> Option<T> {
         if id.into() >= self.size {
             return None;
         }
@@ -990,6 +1160,7 @@ impl<T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone, ID : Id> Mapping<T
         self.read_index = self.size;
         return Some(result);
     }
+    */
 
     /** Updates the already stored mapping. 
      */
@@ -1054,6 +1225,34 @@ pub struct IndirectMapping<T : Serializable<Item = T> + Eq + Hash + Clone, ID : 
     mapping : HashMap<T, ID>
 }
 
+impl<T : Serializable<Item = T> + Eq + Hash + Clone, ID : Id> Table for IndirectMapping<T, ID> {
+    type Id = ID;
+    type Value = T;
+
+    fn get_reset(& mut self) {
+        self.store.get_reset();
+    }
+
+    fn get_next(& mut self) -> Option<(Self::Id, Self::Value)> {
+        return self.store.get_next();
+    }
+
+    fn get(& mut self, id : ID) -> Option<Self::Value> {
+        return self.store.get(id);
+    }
+}
+
+impl<T : Serializable<Item = T> + Eq + Hash + Clone, ID : Id> IntoIterator for IndirectMapping<T, ID> {
+    type Item = (ID, T);
+    type IntoIter = TableOwningIterator<Store<T,ID>>;
+
+    fn into_iter(self) -> TableOwningIterator<Store<T,ID>> {
+        return TableOwningIterator::new(self.store);
+    }
+}
+
+
+/*
 impl<T : Serializable<Item = T> + Eq + Hash + Clone, ID : Id> TableImplementation for IndirectMapping<T, ID> {
     type Item = T;
     type Id = ID;
@@ -1066,7 +1265,7 @@ impl<T : Serializable<Item = T> + Eq + Hash + Clone, ID : Id> TableImplementatio
         return self.store.read_and_advance();
     }
     
-}
+}*/
 
 impl<T : Serializable<Item = T> + Eq + Hash + Clone, ID : Id> IndirectMapping<T, ID> {
 
@@ -1113,14 +1312,14 @@ impl<T : Serializable<Item = T> + Eq + Hash + Clone, ID : Id> IndirectMapping<T,
         self.mapping.shrink_to_fit();
     }
 
-    pub fn get(& mut self, value : & T) -> Option<ID> {
+    pub fn get_mapping(& mut self, value : & T) -> Option<ID> {
         match self.mapping.get(value) {
             Some(id) => Some(*id),
             None => None
         }
     }
 
-    pub fn get_or_create(& mut self, value : & T) -> (ID, bool) {
+    pub fn get_or_create_mapping(& mut self, value : & T) -> (ID, bool) {
         match self.mapping.get(value) {
             Some(id) => (*id, false),
             None => {
@@ -1132,9 +1331,11 @@ impl<T : Serializable<Item = T> + Eq + Hash + Clone, ID : Id> IndirectMapping<T,
         }
     }
 
+    /*
     pub fn get_value(& mut self, id : ID) -> Option<T> {
         return self.store.get(id);
     }
+    */
 
     pub fn len(& self) -> usize {
         return self.store.len();
@@ -1250,21 +1451,8 @@ pub struct SplitStorePart<T : Serializable<Item = T>, ID : Id = u64> {
     why_oh_why : std::marker::PhantomData<(T,ID)>
 }
 
-impl<T : Serializable<Item = T>, ID : Id> TableImplementation for SplitStorePart<T, ID> {
-    type Item = T;
-    type Id = ID;
-
-    fn seek_start(& mut self) {
-        self.f.seek(SeekFrom::Start(0)).unwrap();
-    }
-
-    fn read_and_advance(& mut self) -> Option<(ID, T)> {
-        return Store::<T,ID>::read_record(& mut self.f);
-    }
-}
-
 impl<T : Serializable<Item = T>, ID : Id> SplitStorePart<T, ID> {
-    pub fn new<KIND : SplitKind<Item = KIND>>(root : & str, name : & str, kind : KIND, readonly : bool) -> SplitStorePart<T,ID> {
+    fn new<KIND : SplitKind<Item = KIND>>(root : & str, name : & str, kind : KIND, readonly : bool) -> SplitStorePart<T,ID> {
         let path = format!("{}/{}-{:?}.splitstore", root, name, kind);
         let f;
         if readonly {
@@ -1274,6 +1462,29 @@ impl<T : Serializable<Item = T>, ID : Id> SplitStorePart<T, ID> {
         }
         return SplitStorePart::<T,ID>{f, why_oh_why : std::marker::PhantomData{}};
     } 
+
+    fn get_reset(& mut self) {
+        self.f.seek(SeekFrom::Start(0)).unwrap();
+    }
+
+    fn get_next(& mut self) -> Option<(ID, T)> {
+        return Store::<T,ID>::read_record(& mut self.f);
+    }
+}
+
+impl<T : Serializable<Item = T>, ID : Id> Iterator for SplitStorePart<T, ID> {
+    type Item = (ID, T);
+
+    fn next(& mut self) -> Option<Self::Item> {
+        return self.get_next();
+    }
+}
+
+pub trait SplitTable : Table + Sized {
+    type Kind;
+    type SplitIterator : Iterator<Item = (Self::Id, Self::Value)>;
+
+    fn split_iter(self, kind : Self::Kind) -> Self::SplitIterator;
 }
 
 /** Split store contains single index, but multiple files that store the data based on its kind. 
@@ -1283,6 +1494,68 @@ pub struct SplitStore<T : Serializable<Item = T>, KIND : SplitKind<Item = KIND>,
     pub (crate) indexer : Indexer<SplitOffset<KIND>, ID>,
     pub (crate) files : Vec<SplitStorePart<T,ID>>,
     //why_oh_why : std::marker::PhantomData<T>
+    /* Which file is used by the iterator, if any. */
+    file_index : usize
+}
+
+impl<T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>, ID : Id> Table for SplitStore<T, KIND, ID> {
+    type Id = ID;
+    type Value = T;
+
+    fn get_reset(& mut self) {
+        self.file_index = 0;
+        self.files[0].get_reset();
+    }
+
+    fn get(& mut self, id : ID) -> Option<T> {
+        match self.indexer.get(id) {
+            Some(offset) => {
+                self.file_index = offset.kind.to_number() as usize;
+                let f = self.files.get_mut(self.file_index).unwrap();
+                f.f.seek(SeekFrom::Start(offset.offset)).unwrap();
+                // we can use default store reader
+                let (record_id, value) = Store::<T, ID>::read_record(& mut f.f).unwrap();
+                assert_eq!(id, record_id, "Corrupted store or index");
+                return Some(value);
+            },
+            None => None
+        }
+    }
+
+    fn get_next(& mut self) -> Option<(ID, T)> {
+        while self.file_index < self.files.len() {
+            if let Some(x) = self.files[self.file_index].get_next() {
+                return Some(x);
+            } else {
+                self.file_index += 1;
+                if self.file_index < self.files.len() {
+                    self.files[self.file_index].get_reset();
+                }
+            }
+        }
+        return None;
+    }
+
+}
+
+impl<T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>, ID : Id> IntoIterator for SplitStore<T, KIND, ID> {
+    type Item = (ID, T);
+
+    type IntoIter = TableOwningIterator<SplitStore<T,KIND,ID>>;
+
+    fn into_iter(self) -> TableOwningIterator<SplitStore<T,KIND,ID>> {
+        return TableOwningIterator::new(self);
+    }
+}
+
+impl<T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>, ID : Id> SplitTable for SplitStore<T, KIND, ID> {
+    type Kind = KIND;
+    type SplitIterator = SplitStorePart<T,ID>;
+
+    fn split_iter(self, kind : KIND) -> SplitStorePart<T,ID> {
+        let mut x = self;
+        return x.files.remove(kind.to_number() as usize);
+    }
 }
 
 impl<T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>, ID : Id> SplitStore<T, KIND, ID> {
@@ -1295,6 +1568,7 @@ impl<T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>, ID : Id> SplitSto
             name : name.to_owned(),
             indexer : Indexer::new(root, name, readonly),
             files, 
+            file_index : 0,
             //why_oh_why : std::marker::PhantomData{}
         };
         LOG!("    {}: indices {}, splits {}", name, result.indexer.len(), result.files.len());

@@ -27,23 +27,143 @@ mod settings;
 #[allow(dead_code)]
 mod reporter;
 
-use crate::db::TableImplementation;
+
+
+//use crate::db::TableImplementation;
+
+pub use db::Table;
+pub use db::TableOwningIterator;
+pub use db::SplitTable;
 
 use crate::datastore::*;
+pub use crate::records::*;
 
+
+
+/** A simple, read-only view into the datastore. 
+
+    
+
+ */
+pub struct DatastoreView {
+    root : String
+}
+
+
+impl DatastoreView {
+    /** Returns new datastore with given root.
+     */
+    pub fn from(root : & str) -> DatastoreView {
+        // TODO check that there is a valid datastore on the path first
+        return DatastoreView{
+            root : root.to_owned()
+        };
+    } 
+
+    pub fn project_urls(& self) -> impl Table<Id = ProjectId, Value = ProjectUrl> {
+        return db::Store::new(& self.root, & DatastoreView::table_filename(Datastore::PROJECTS), true);
+    }
+
+    pub fn project_substores(& self) -> impl Table<Id = ProjectId, Value = StoreKind> {
+        return db::Store::new(& self.root, & DatastoreView::table_filename(Datastore::PROJECT_SUBSTORES), true);
+    }
+
+    pub fn project_updates(& self) -> impl Table<Id = ProjectId, Value = ProjectLog>  {
+        return db::LinkedStore::new(& self.root, & DatastoreView::table_filename(Datastore::PROJECT_UPDATES), true);
+    }
+
+    pub fn project_heads(& self) -> impl Table<Id = ProjectId, Value = ProjectHeads> {
+        return db::Store::new(& self.root, & DatastoreView::table_filename(Datastore::PROJECT_HEADS), true);
+    }
+
+    pub fn project_metadata(& self) -> impl Table<Id = ProjectId, Value = Metadata> {
+        return db::LinkedStore::new(& self.root, & DatastoreView::table_filename(Datastore::PROJECT_METADATA), true);
+    }
+
+    /* Substore contents getters and iterators. 
+     */
+    pub fn commits(& self, substore : StoreKind) -> impl Table<Id = CommitId, Value = SHA> {
+        return db::Mapping::new(& self.root, & DatastoreView::substore_table_filename(substore, Substore::COMMITS), true);
+    }
+
+    pub fn commits_info(& self, substore : StoreKind) -> impl Table<Id = CommitId, Value = CommitInfo> {
+        return db::Store::new(& self.root, & DatastoreView::substore_table_filename(substore, Substore::COMMITS_INFO), true);
+    }
+
+    pub fn commits_metadata(& self, substore : StoreKind) -> impl Table<Id = CommitId, Value = Metadata> {
+        return db::LinkedStore::new(& self.root, & DatastoreView::substore_table_filename(substore, Substore::COMMITS_METADATA), true);
+    }
+
+    pub fn hashes(& self, substore : StoreKind) -> impl Table<Id = HashId, Value = SHA> {
+        return db::Mapping::new(& self.root, & DatastoreView::substore_table_filename(substore, Substore::HASHES), true);
+    }
+
+    pub fn contents(& self, substore : StoreKind) -> impl SplitTable<Id = HashId, Value = FileContents, Kind = ContentsKind, SplitIterator = db::SplitStorePart<FileContents, HashId>> {
+        return db::SplitStore::<FileContents, ContentsKind, HashId>::new(& self.root, & DatastoreView::substore_table_filename(substore, Substore::HASHES),true);
+    }
+
+    pub fn paths(& self, substore : StoreKind) -> impl Table<Id = PathId, Value = SHA> {
+        return db::Mapping::new(& self.root, & DatastoreView::substore_table_filename(substore, Substore::PATHS), true);
+    }
+
+    pub fn paths_strings(& self, substore : StoreKind) -> impl Table<Id = PathId, Value = PathString> {
+        return db::Store::new(& self.root, & DatastoreView::substore_table_filename(substore, Substore::PATHS_STRINGS), true);
+    }
+
+    pub fn users(& self, substore : StoreKind) -> impl Table<Id = UserId, Value = String> {
+        return db::IndirectMapping::new(& self.root, & DatastoreView::substore_table_filename(substore, Substore::USERS), true);
+    }
+
+    pub fn users_metadata(& self, substore : StoreKind) -> impl Table<Id = UserId, Value = Metadata> {
+        return db::LinkedStore::new(& self.root, & DatastoreView::substore_table_filename(substore, Substore::USERS_METADATA), true);
+    }
+
+    fn table_filename(table : & str) -> String {
+        return format!("{}", table);
+    }
+
+    fn substore_table_filename(kind : StoreKind, table : & str) -> String {
+        return format!("{:?}-{}", kind, table);
+    }
+}
+
+
+/*
 
 /** Table is a wrapper around actual implementation of the store. 
  
-    At the heart of each table is the store and the table provides information 
+    Table wraps around the backing store and provides the generic interface. 
+
+    For now this means it simply allows itself to be converted into an iterator. In the future, more can be added. 
  */
 pub struct Table<T : TableImplementation> {
     table : T
 }
 
-
 impl<T: TableImplementation> Table<T> {
     fn new(table : T) -> Table<T> {
         return Table{table};
+    }
+
+    fn into_iter(mut self) -> TableIterator<T> {
+        self.table.seek_start();
+        return TableIterator{table : self.table};
+    }
+}
+
+/** Random access table is like table, but does a bit more.  */
+pub struct RandomAccessTable<T : TableImplementation> {
+    table : T
+}
+
+impl<T: TableImplementation> RandomAccessTable<T> {
+    fn new(table : T) -> RandomAccessTable<T> {
+        return RandomAccessTable{table};
+    }
+
+    fn get(& mut self, id : T::Id) -> Option<T::Item> {
+        unimplemented!();
+        //return self.table.get(id);
     }
 
     fn into_iter(mut self) -> TableIterator<T> {
@@ -129,12 +249,6 @@ impl DatastoreView2 {
     pub fn contents(& self, substore : StoreKind, contents_kind : ContentsKind) -> Table<db::SplitStorePart<FileContents, HashId>> {
         return Table::new(db::SplitStorePart::new(& self.root, & DatastoreView2::substore_table_filename(substore, Substore::HASHES), contents_kind,true));
     }
-
-    /*
-    pub fn contents(& self, substore : StoreKind) -> Table<db::SplitStore<FileContents, ContentsKind, HashId>> {
-        return Table::new(db::Mapping::new(& self.root, & DatastoreView2::substore_table_filename(substore, Substore::HASHES), true));
-    }
-    */
 
     pub fn paths(& self, substore : StoreKind) -> Table<db::Mapping<SHA, PathId>> {
         return Table::new(db::Mapping::new(& self.root, & DatastoreView2::substore_table_filename(substore, Substore::PATHS), true));
@@ -810,7 +924,8 @@ impl<'a, T : db::Serializable<Item = T>, ID : db::Id> IteratorWrapper for StoreV
 
 impl<'a, T : db::Serializable<Item = T> + db::ReadOnly, ID : db::Id> RandomAccessView<'a, T, ID> for StoreView<'a, T, ID> {
     fn get(& mut self, id : ID) -> Option<T> {
-        return self.guard.get(id);
+        unimplemented!();
+        //return self.guard.get(id);
     }
 }
 
@@ -1346,6 +1461,8 @@ impl<'a> SubstoreMerger<'a> {
 
 }
 
+
+*/
 
 */
 

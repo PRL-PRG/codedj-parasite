@@ -731,7 +731,7 @@ impl Substore {
         The secord returned value determines whether the commit is new,  or already known.
      */
     pub (crate) fn get_or_create_commit_id(& self, hash : & SHA) -> (CommitId, bool) {
-        return self.commits.lock().unwrap().get_or_create(hash);
+        return self.commits.lock().unwrap().get_or_create_mapping(hash);
     }
 
     pub (crate) fn add_commit_info_if_missing(& self, id : CommitId, commit_info : & CommitInfo) {
@@ -742,13 +742,13 @@ impl Substore {
     }
 
     pub (crate) fn get_or_create_hash_id(& self, hash : & SHA) -> (HashId, bool) {
-        return self.hashes.lock().unwrap().get_or_create(hash);
+        return self.hashes.lock().unwrap().get_or_create_mapping(hash);
     }
 
     pub (crate) fn convert_hashes_to_ids(& self, hashes : & Vec<SHA>) -> Vec<(HashId, bool)> {
         let mut mapping = self.hashes.lock().unwrap();
         return hashes.iter().map(|hash| {
-            return mapping.get_or_create(hash);
+            return mapping.get_or_create_mapping(hash);
         }).collect();
     }
 
@@ -766,7 +766,7 @@ impl Substore {
      */
     pub (crate) fn get_or_create_path_id(& self, path : & String) -> (PathId, bool) {
         let hash = Datastore::hash_of(path.as_bytes());
-        let (id, is_new) = self.paths.lock().unwrap().get_or_create(& hash);
+        let (id, is_new) = self.paths.lock().unwrap().get_or_create_mapping(& hash);
         if is_new {
             self.path_strings.lock().unwrap().set(id, path);
         }
@@ -778,7 +778,7 @@ impl Substore {
         let mut path_strings = self.path_strings.lock().unwrap();
         return paths.iter().map(|path| {
             let hash = Datastore::hash_of(path.as_bytes());
-            let (id, is_new) = mapping.get_or_create(& hash);
+            let (id, is_new) = mapping.get_or_create_mapping(& hash);
             if is_new {
                 path_strings.set(id, path);
             }
@@ -787,7 +787,7 @@ impl Substore {
     }
 
     pub (crate) fn get_or_create_user_id(& self, email : & String) -> (UserId, bool) {
-        return self.users.lock().unwrap().get_or_create(email);
+        return self.users.lock().unwrap().get_or_create_mapping(email);
     }
 
 }
