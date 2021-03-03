@@ -60,24 +60,24 @@ impl DatastoreView {
         };
     } 
 
-    pub fn project_urls(& self) -> impl Table<Id = ProjectId, Value = ProjectUrl> {
-        return db::Store::new(& self.root, & DatastoreView::table_filename(Datastore::PROJECTS), true);
+    pub fn project_urls(& self) -> impl Iterator<Item = (ProjectId, ProjectUrl)> {
+        return db::Store::new(& self.root, & DatastoreView::table_filename(Datastore::PROJECTS), true).into_iter();
     }
 
-    pub fn project_substores(& self) -> impl Table<Id = ProjectId, Value = StoreKind> {
-        return db::Store::new(& self.root, & DatastoreView::table_filename(Datastore::PROJECT_SUBSTORES), true);
+    pub fn project_substores(& self) -> impl Iterator<Item = (ProjectId, StoreKind)> {
+        return db::Store::new(& self.root, & DatastoreView::table_filename(Datastore::PROJECT_SUBSTORES), true).into_iter();
     }
 
-    pub fn project_updates(& self) -> impl Table<Id = ProjectId, Value = ProjectLog>  {
-        return db::LinkedStore::new(& self.root, & DatastoreView::table_filename(Datastore::PROJECT_UPDATES), true);
+    pub fn project_updates(& self) -> impl Iterator<Item = (ProjectId, ProjectLog)> {
+        return db::LinkedStore::new(& self.root, & DatastoreView::table_filename(Datastore::PROJECT_UPDATES), true).into_iter();
     }
 
-    pub fn project_heads(& self) -> impl Table<Id = ProjectId, Value = ProjectHeads> {
-        return db::Store::new(& self.root, & DatastoreView::table_filename(Datastore::PROJECT_HEADS), true);
+    pub fn project_heads(& self) -> impl Iterator<Item = (ProjectId, ProjectHeads)> {
+        return db::Store::new(& self.root, & DatastoreView::table_filename(Datastore::PROJECT_HEADS), true).into_iter();
     }
 
-    pub fn project_metadata(& self) -> impl Table<Id = ProjectId, Value = Metadata> {
-        return db::LinkedStore::new(& self.root, & DatastoreView::table_filename(Datastore::PROJECT_METADATA), true);
+    pub fn project_metadata(& self) -> impl Iterator<Item = (ProjectId, Metadata)> {
+        return db::LinkedStore::new(& self.root, & DatastoreView::table_filename(Datastore::PROJECT_METADATA), true).into_iter();
     }
 
     /* Substore contents getters and iterators. 
@@ -90,8 +90,8 @@ impl DatastoreView {
         return db::Store::new(& self.root, & DatastoreView::substore_table_filename(substore, Substore::COMMITS_INFO), true);
     }
 
-    pub fn commits_metadata(& self, substore : StoreKind) -> impl Table<Id = CommitId, Value = Metadata> {
-        return db::LinkedStore::new(& self.root, & DatastoreView::substore_table_filename(substore, Substore::COMMITS_METADATA), true);
+    pub fn commits_metadata(& self, substore : StoreKind) -> impl Iterator<Item = (CommitId, Metadata)> {
+        return db::LinkedStore::new(& self.root, & DatastoreView::substore_table_filename(substore, Substore::COMMITS_METADATA), true).into_iter();
     }
 
     pub fn hashes(& self, substore : StoreKind) -> impl Table<Id = HashId, Value = SHA> {
@@ -100,6 +100,10 @@ impl DatastoreView {
 
     pub fn contents(& self, substore : StoreKind) -> impl SplitTable<Id = HashId, Value = FileContents, Kind = ContentsKind, SplitIterator = db::SplitStorePart<FileContents, HashId>> {
         return db::SplitStore::<FileContents, ContentsKind, HashId>::new(& self.root, & DatastoreView::substore_table_filename(substore, Substore::HASHES),true);
+    }
+
+    pub fn contents_metadata(& self, substore : StoreKind) -> impl Iterator<Item = (HashId, Metadata)> {
+        return db::LinkedStore::new(& self.root, & DatastoreView::substore_table_filename(substore, Substore::CONTENTS_METADATA), true).into_iter().into_iter();
     }
 
     pub fn paths(& self, substore : StoreKind) -> impl Table<Id = PathId, Value = SHA> {
@@ -114,8 +118,8 @@ impl DatastoreView {
         return db::IndirectMapping::new(& self.root, & DatastoreView::substore_table_filename(substore, Substore::USERS), true);
     }
 
-    pub fn users_metadata(& self, substore : StoreKind) -> impl Table<Id = UserId, Value = Metadata> {
-        return db::LinkedStore::new(& self.root, & DatastoreView::substore_table_filename(substore, Substore::USERS_METADATA), true);
+    pub fn users_metadata(& self, substore : StoreKind) -> impl Iterator<Item = (UserId, Metadata)> {
+        return db::LinkedStore::new(& self.root, & DatastoreView::substore_table_filename(substore, Substore::USERS_METADATA), true).into_iter();
     }
 
     fn table_filename(table : & str) -> String {
