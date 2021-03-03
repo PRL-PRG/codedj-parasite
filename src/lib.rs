@@ -9,7 +9,7 @@ extern crate lazy_static;
 mod helpers;
 
 #[allow(dead_code)]
-pub mod db;
+mod db;
 #[allow(dead_code)]
 pub mod records;
 #[allow(dead_code)]
@@ -27,9 +27,150 @@ mod settings;
 #[allow(dead_code)]
 mod reporter;
 
+use crate::db::TableImplementation;
+
+use crate::datastore::*;
+
+
+/** Table is a wrapper around actual implementation of the store. 
+ 
+    At the heart of each table is the store and the table provides information 
+ */
+pub struct Table<T : TableImplementation> {
+    table : T
+}
+
+
+impl<T: TableImplementation> Table<T> {
+    fn new(table : T) -> Table<T> {
+        return Table{table};
+    }
+
+    fn into_iter(mut self) -> TableIterator<T> {
+        self.table.seek_start();
+        return TableIterator{table : self.table};
+    }
+}
+
+pub struct TableIterator<T : TableImplementation> {
+    table : T,
+}
+
+impl<T: TableImplementation> Iterator for TableIterator<T> {
+    type Item = (T::Id, T::Item);
+
+    fn next(& mut self) -> Option<Self::Item> {
+        return self.table.read_and_advance();
+    }
+}
+
+/** A simple, read-only view into the datastore. 
+
+    
+
+ */
+pub struct DatastoreView2 {
+    root : String
+}
+
+
+impl DatastoreView2 {
+    /** Returns new datastore with given root.
+     */
+    pub fn new(root : & str) -> DatastoreView2 {
+        // TODO check that there is a valid datastore on the path first
+        return DatastoreView2{
+            root : root.to_owned()
+        };
+    } 
+
+    /* Fine-grained access to project information. 
+
+       TODO Depending on the actual API information, this may be the api itself, of only latest information about a project is stored, or if entire history is stored then this needs a lot of processing to be assembled properly. 
+     */
+    pub fn project_urls(& self) -> Table<db::Store<ProjectUrl, ProjectId>> {
+        return Table::new(db::Store::new(& self.root, & DatastoreView2::table_filename(Datastore::PROJECTS), true));
+    }
+
+    pub fn project_substores(& self) -> Table<db::Store<StoreKind, ProjectId>> {
+        return Table::new(db::Store::new(& self.root, & DatastoreView2::table_filename(Datastore::PROJECT_SUBSTORES), true));
+    }
+
+    pub fn project_updates(& self) -> Table<db::LinkedStore<ProjectLog, ProjectId>> {
+        return Table::new(db::LinkedStore::new(& self.root, & DatastoreView2::table_filename(Datastore::PROJECT_UPDATES), true));
+    }
+
+    pub fn project_heads(& self) -> Table<db::Store<ProjectHeads, ProjectId>> {
+        return Table::new(db::Store::new(& self.root, & DatastoreView2::table_filename(Datastore::PROJECT_HEADS), true));
+    }
+
+    pub fn project_metadata(& self) -> Table<db::LinkedStore<Metadata, ProjectId>> {
+        return Table::new(db::LinkedStore::new(& self.root, & DatastoreView2::table_filename(Datastore::PROJECT_METADATA), true));
+    }
+    
+    /* Substore contents getters and iterators. 
+     */
+    pub fn commits(& self, substore : StoreKind) -> Table<db::Mapping<SHA, CommitId>> {
+        return Table::new(db::Mapping::new(& self.root, & DatastoreView2::substore_table_filename(substore, Substore::COMMITS), true));
+    }
+
+    pub fn commits_info(& self, substore : StoreKind) -> Table<db::Store<CommitInfo, CommitId>> {
+        return Table::new(db::Store::new(& self.root, & DatastoreView2::substore_table_filename(substore, Substore::COMMITS_INFO), true));
+    }
+
+    pub fn commits_metadata(& self, substore : StoreKind) -> Table<db::LinkedStore<Metadata, CommitId>> {
+        return Table::new(db::LinkedStore::new(& self.root, & DatastoreView2::substore_table_filename(substore, Substore::COMMITS_METADATA), true));
+    }
+
+    pub fn hashes(& self, substore : StoreKind) -> Table<db::Mapping<SHA, HashId>> {
+        return Table::new(db::Mapping::new(& self.root, & DatastoreView2::substore_table_filename(substore, Substore::HASHES), true));
+    }
+
+    pub fn contents(& self, substore : StoreKind, contents_kind : ContentsKind) -> Table<db::SplitStorePart<FileContents, HashId>> {
+        return Table::new(db::SplitStorePart::new(& self.root, & DatastoreView2::substore_table_filename(substore, Substore::HASHES), contents_kind,true));
+    }
+
+    /*
+    pub fn contents(& self, substore : StoreKind) -> Table<db::SplitStore<FileContents, ContentsKind, HashId>> {
+        return Table::new(db::Mapping::new(& self.root, & DatastoreView2::substore_table_filename(substore, Substore::HASHES), true));
+    }
+    */
+
+    pub fn paths(& self, substore : StoreKind) -> Table<db::Mapping<SHA, PathId>> {
+        return Table::new(db::Mapping::new(& self.root, & DatastoreView2::substore_table_filename(substore, Substore::PATHS), true));
+    }
+
+    pub fn paths_strings(& self, substore : StoreKind) -> Table<db::Store<PathString, PathId>> {
+        return Table::new(db::Store::new(& self.root, & DatastoreView2::substore_table_filename(substore, Substore::PATHS_STRINGS), true));
+    }
+
+    pub fn users(& self, substore : StoreKind) -> Table<db::IndirectMapping<String, UserId>> {
+        return Table::new(db::IndirectMapping::new(& self.root, & DatastoreView2::substore_table_filename(substore, Substore::USERS), true));
+    }
+
+    pub fn users_metadata(& self, substore : StoreKind) -> Table<db::LinkedStore<Metadata, UserId>> {
+        return Table::new(db::LinkedStore::new(& self.root, & DatastoreView2::substore_table_filename(substore, Substore::USERS_METADATA), true));
+    }
+
+
+
+    fn table_filename(table : & str) -> String {
+        return format!("{}", table);
+    }
+
+    fn substore_table_filename(kind : StoreKind, table : & str) -> String {
+        return format!("{:?}-{}", kind, table);
+    }
+}
+
+
+
+
+
+
 use crate::settings::SETTINGS;
 use crate::db::Indexable;
-use crate::db::Id;
+//use crate::db::Id;
 //use crate::datastore::Datastore;
 pub use crate::records::*;
 
@@ -838,7 +979,7 @@ impl<T: db::Serializable<Item = T>, KIND : db::SplitKind<Item = KIND>, ID : db::
     fn datastore_size(& mut self) -> DatastoreSize {
         let mut result = self.indexer.datastore_size();
         for f in self.files.iter_mut() {
-            let contents = f.seek(SeekFrom::End(0)).unwrap() as usize;
+            let contents = f.f.seek(SeekFrom::End(0)).unwrap() as usize;
             result = result + DatastoreSize{ contents, indices : 0 };
         }
         return result;
@@ -891,6 +1032,8 @@ impl std::fmt::Display for Summary {
         return Ok(());
     }
 }
+
+/*
 
 /* Datastore merging 
 
@@ -1203,4 +1346,6 @@ impl<'a> SubstoreMerger<'a> {
 
 }
 
+
+*/
 

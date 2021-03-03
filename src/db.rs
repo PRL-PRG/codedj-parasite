@@ -195,6 +195,18 @@ impl Serializable for String {
     }
 }
 
+pub trait TableImplementation {
+    type Item;
+    type Id; 
+
+    /**  */
+    fn seek_start(& mut self);
+
+    /** Because seeking in rust is really expensive, we actually require the readers to return the number of bytes they have read. 
+     */
+    fn read_and_advance(& mut self) -> Option<(Self::Id, Self::Item)>;
+}
+
 /** Holds indices for each id.
 
     The idsn are expected to be mostly consecutive, i.e. if an id `N` is added all ids from `0` to `N-1` either must exist, or will be created. 
@@ -207,6 +219,12 @@ pub struct Indexer<T : Indexable + Serializable<Item = T> = u64, ID : Id = u64 >
     size : u64,
     why_oh_why : std::marker::PhantomData<(T, ID)>
 }
+
+/*
+impl<T : Indexable + Serializable<Item = T>, ID : Id> TableImplementation for Indexer<T, ID> {
+    type Item = T;
+    type Id = ID;
+} */
 
 impl<T : Indexable + Serializable<Item = T>, ID : Id> Indexer<T, ID> {
     pub fn new(root : & str, name : & str, readonly : bool) -> Indexer<T, ID> {
@@ -311,6 +329,19 @@ pub struct Store<T : Serializable<Item = T>, ID : Id = u64> {
     pub (crate) f : File,
     why_oh_why : std::marker::PhantomData<T>,
 }
+
+impl<T:Serializable<Item = T>, ID : Id> TableImplementation for Store<T, ID> {
+    type Item = T;
+    type Id = ID;
+
+    fn seek_start(& mut self) {
+        self.f.seek(SeekFrom::Start(0)).unwrap();
+    }
+
+    fn read_and_advance(& mut self) -> Option<(ID, T)> {
+        return Store::<T,ID>::read_record(& mut self.f);
+    }
+} 
 
 impl<T: Serializable<Item = T>, ID : Id> Store<T, ID> {
 
@@ -535,6 +566,19 @@ pub struct LinkedStore<T : Serializable<Item = T>, ID : Id = u64> {
     pub (crate) indexer : Indexer<u64, ID>,
     pub (crate) f : File,
     why_oh_why : std::marker::PhantomData<T>,
+}
+
+impl<T: Serializable<Item = T>, ID : Id> TableImplementation for LinkedStore<T, ID> {
+    type Item = T;
+    type Id = ID;
+
+    fn seek_start(& mut self) {
+        self.f.seek(SeekFrom::Start(0)).unwrap();
+    }
+
+    fn read_and_advance(& mut self) -> Option<(ID, T)> {
+        return LinkedStore::<T,ID>::read_record(& mut self.f).map(|(id, _last_offset, value)| (id, value));
+    }
 }
 
 impl<T: Serializable<Item = T>, ID : Id> LinkedStore<T, ID> {
@@ -778,7 +822,6 @@ impl<'a, T : Serializable<Item = T>, ID : Id> Iterator for LinkedStoreIterAll<'a
             }
         }
     }
-
 }
 
 pub struct LinkedStoreIterId<'a, T : Serializable<Item = T>, ID : Id> {
@@ -810,7 +853,31 @@ pub struct Mapping<T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone, ID :
     name : String,
     f : File,
     mapping : HashMap<T, ID>,
-    size : u64
+    size : u64,
+    /** Because seeking a file in rust is really expensive, the read index is cached.
+     */
+    read_index : u64,
+}
+
+impl<T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone, ID : Id> TableImplementation for Mapping<T, ID> {
+    type Item = T;
+    type Id = ID;
+
+    fn seek_start(& mut self) {
+        self.f.seek(SeekFrom::Start(0)).unwrap();
+        self.read_index = 0;
+    }
+
+    fn read_and_advance(& mut self) -> Option<(ID, T)> {
+        if self.read_index >= self.size {
+            return None;
+        } else {
+            let value = T::deserialize(& mut self.f);
+            let id = ID::from(self.read_index);
+            self.read_index += 1;
+            return Some((id, value));
+        }
+    }
 }
 
 impl<T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone, ID : Id> Mapping<T, ID> {
@@ -827,7 +894,9 @@ impl<T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone, ID : Id> Mapping<T
             name : name.to_owned(),
             f, 
             mapping : HashMap::new(),
-            size
+            size,
+            read_index : 0,
+
         };
         LOG!("    {}: indices {}, size {}", name, result.size, result.f.seek(SeekFrom::End(0)).unwrap());
         return result;
@@ -904,6 +973,7 @@ impl<T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone, ID : Id> Mapping<T
                 // serialize the value and increase size
                 T::serialize(& mut self.f, value);
                 self.size += 1;
+                self.read_index = self.size;
                 return (next_id, true);
             }
         }
@@ -917,6 +987,7 @@ impl<T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone, ID : Id> Mapping<T
         self.f.seek(SeekFrom::Start(offset)).unwrap();
         let result = T::deserialize(& mut self.f);
         self.f.seek(SeekFrom::End(0)).unwrap();
+        self.read_index = self.size;
         return Some(result);
     }
 
@@ -928,6 +999,7 @@ impl<T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone, ID : Id> Mapping<T
         self.f.seek(SeekFrom::Start(offset)).unwrap();
         T::serialize(& mut self.f, value);
         self.f.seek(SeekFrom::End(0)).unwrap();
+        self.read_index = self.size;
         // now that the file has been changed, update the mapping
         self.mapping.remove(value);
         self.mapping.insert(value.to_owned(), id);
@@ -980,6 +1052,20 @@ impl<'a, T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone, ID : Id> Itera
 pub struct IndirectMapping<T : Serializable<Item = T> + Eq + Hash + Clone, ID : Id = u64> {
     pub (crate) store : Store<T, ID>,
     mapping : HashMap<T, ID>
+}
+
+impl<T : Serializable<Item = T> + Eq + Hash + Clone, ID : Id> TableImplementation for IndirectMapping<T, ID> {
+    type Item = T;
+    type Id = ID;
+
+    fn seek_start(& mut self) {
+        self.store.seek_start();
+    }
+
+    fn read_and_advance(& mut self) -> Option<(ID, T)> {
+        return self.store.read_and_advance();
+    }
+    
 }
 
 impl<T : Serializable<Item = T> + Eq + Hash + Clone, ID : Id> IndirectMapping<T, ID> {
@@ -1154,33 +1240,62 @@ impl<KIND : SplitKind<Item = KIND>> Indexable for SplitOffset<KIND> {
     const EMPTY : SplitOffset<KIND> = SplitOffset{offset : u64::EMPTY, kind : KIND::EMPTY};
 }
 
+
+/** A wrapper around a single store kind for the split store.
+ 
+    TODO the internal code does not yet use this type, update the code.
+ */
+pub struct SplitStorePart<T : Serializable<Item = T>, ID : Id = u64> {
+    pub (crate) f : File,
+    why_oh_why : std::marker::PhantomData<(T,ID)>
+}
+
+impl<T : Serializable<Item = T>, ID : Id> TableImplementation for SplitStorePart<T, ID> {
+    type Item = T;
+    type Id = ID;
+
+    fn seek_start(& mut self) {
+        self.f.seek(SeekFrom::Start(0)).unwrap();
+    }
+
+    fn read_and_advance(& mut self) -> Option<(ID, T)> {
+        return Store::<T,ID>::read_record(& mut self.f);
+    }
+}
+
+impl<T : Serializable<Item = T>, ID : Id> SplitStorePart<T, ID> {
+    pub fn new<KIND : SplitKind<Item = KIND>>(root : & str, name : & str, kind : KIND, readonly : bool) -> SplitStorePart<T,ID> {
+        let path = format!("{}/{}-{:?}.splitstore", root, name, kind);
+        let f;
+        if readonly {
+            f = OpenOptions::new().read(true).open(path).unwrap();
+        } else {
+            f = OpenOptions::new().read(true).write(true).create(true).open(path).unwrap();
+        }
+        return SplitStorePart::<T,ID>{f, why_oh_why : std::marker::PhantomData{}};
+    } 
+}
+
 /** Split store contains single index, but multiple files that store the data based on its kind. 
  */
 pub struct SplitStore<T : Serializable<Item = T>, KIND : SplitKind<Item = KIND>, ID : Id = u64> {
     name : String,
     pub (crate) indexer : Indexer<SplitOffset<KIND>, ID>,
-    pub (crate) files : Vec<File>,
-    why_oh_why : std::marker::PhantomData<T>
+    pub (crate) files : Vec<SplitStorePart<T,ID>>,
+    //why_oh_why : std::marker::PhantomData<T>
 }
 
 impl<T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>, ID : Id> SplitStore<T, KIND, ID> {
     pub fn new(root : & str, name : & str, readonly : bool) -> SplitStore<T, KIND, ID> {
-        let mut files = Vec::<File>::new();
+        let mut files = Vec::<SplitStorePart<T,ID>>::new();
         for i in 0..KIND::COUNT {
-            let path = format!("{}/{}-{:?}.splitstore", root, name, KIND::from_number(i));
-            let f;
-            if readonly {
-                f = OpenOptions::new().read(true).open(path).unwrap();
-            } else {
-                f = OpenOptions::new().read(true).write(true).create(true).open(path).unwrap();
-            }
-            files.push(f);
+            files.push(SplitStorePart::<T, ID>::new(root, name, KIND::from_number(i), readonly));
         }
         let result = SplitStore{
             name : name.to_owned(),
             indexer : Indexer::new(root, name, readonly),
             files, 
-            why_oh_why : std::marker::PhantomData{}
+            //why_oh_why : std::marker::PhantomData{}
         };
         LOG!("    {}: indices {}, splits {}", name, result.indexer.len(), result.files.len());
         return result;
@@ -1197,7 +1312,7 @@ impl<T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>, ID : Id> SplitSto
         for f in self.files.iter_mut() {
             savepoint.add_entry(
                 format!("{}-{}.store", self.name, i),
-                f.seek(SeekFrom::End(0)).unwrap()
+                f.f.seek(SeekFrom::End(0)).unwrap()
             );
             i += 1;
         }
@@ -1207,8 +1322,8 @@ impl<T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>, ID : Id> SplitSto
     pub fn revert_to_savepoint(& mut self, savepoint : & Savepoint) {
         let mut i = 0;
         for f in self.files.iter_mut() {
-            f.set_len(savepoint.limit_for(& format!("{}-{}.store", self.name, i))).unwrap();
-            f.seek(SeekFrom::End(0)).unwrap();
+            f.f.set_len(savepoint.limit_for(& format!("{}-{}.store", self.name, i))).unwrap();
+            f.f.seek(SeekFrom::End(0)).unwrap();
             i += 1;
         }
         self.indexer.revert_to_savepoint(savepoint);
@@ -1227,18 +1342,18 @@ impl<T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>, ID : Id> SplitSto
         let mut i = 0;
         for f in self.files.iter_mut() {
             latest_mappings.push(HashMap::<u64, u64>::new());
-            let end = f.seek(SeekFrom::End(0))?;
-            f.seek(SeekFrom::Start(0))?;
+            let end = f.f.seek(SeekFrom::End(0))?;
+            f.f.seek(SeekFrom::Start(0))?;
             loop {
-                let offset = f.seek(SeekFrom::Current(0))?;
+                let offset = f.f.seek(SeekFrom::Current(0))?;
                 if offset == end {
                     break;
                 }
-                let id = f.read_u64::<LittleEndian>()?;
+                let id = f.f.read_u64::<LittleEndian>()?;
                 if id >= self.indexer.size {
                     return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("SplitStore id {:?}, but only {} ids known at offset {} in split {:?}", ID::from(id), self.indexer.size, offset, KIND::from_number(i))));
                 }
-                let item = T::verify(f)?;
+                let item = T::verify(& mut f.f)?;
                 checker(item)?;
                 // now we need to add this to the mappings, but only to those valid for current id
                 latest_mappings.get_mut(i as usize).unwrap().insert(id, offset);
@@ -1278,9 +1393,9 @@ impl<T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>, ID : Id> SplitSto
         match self.indexer.get(id) {
             Some(offset) => {
                 let f = self.files.get_mut(offset.kind.to_number() as usize).unwrap();
-                f.seek(SeekFrom::Start(offset.offset)).unwrap();
+                f.f.seek(SeekFrom::Start(offset.offset)).unwrap();
                 // we can use default store reader
-                let (record_id, value) = Store::<T, ID>::read_record(f).unwrap();
+                let (record_id, value) = Store::<T, ID>::read_record(& mut f.f).unwrap();
                 assert_eq!(id, record_id, "Corrupted store or index");
                 return Some(value);
             },
@@ -1301,7 +1416,7 @@ impl<T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>, ID : Id> SplitSto
         }
         let f = self.files.get_mut(kind.to_number() as usize).unwrap();
         self.indexer.set(id, & SplitOffset{
-            offset : Store::<T, ID>::write_record(f, id, value),
+            offset : Store::<T, ID>::write_record(& mut f.f, id, value),
             kind
         });
     }
@@ -1317,7 +1432,7 @@ impl<T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>, ID : Id> SplitSto
             max_offsets.push(sp.limit_for(& format!("{}-{}.store", self.name, i)));
             i += 1;
         }
-        self.files[0].seek(SeekFrom::Start(0)).unwrap();
+        self.files[0].f.seek(SeekFrom::Start(0)).unwrap();
         return SplitStoreIterAll{ store : self, max_offsets, split : 0 }
     }
 
@@ -1336,15 +1451,15 @@ impl<'a, T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>, ID : Id> Iter
 
     fn next(& mut self) -> Option<(ID, KIND, T)> {
         loop {
-            if self.store.files[self.split].seek(SeekFrom::Current(0)).unwrap() >= self.max_offsets[self.split] {
+            if self.store.files[self.split].f.seek(SeekFrom::Current(0)).unwrap() >= self.max_offsets[self.split] {
                 self.split += 1;
                 if self.split >= self.max_offsets.len() {
                     return None;
                 }
-                self.store.files[self.split].seek(SeekFrom::Start(0)).unwrap();
+                self.store.files[self.split].f.seek(SeekFrom::Start(0)).unwrap();
             } 
             // there might be empty splits too
-            if let Some((id, value)) = Store::<T, ID>::read_record(self.store.files.get_mut(self.split).unwrap()) {
+            if let Some((id, value)) = Store::<T, ID>::read_record(& mut self.store.files.get_mut(self.split).unwrap().f) {
                 return Some((id, KIND::from_number(self.split as u64), value));
             }
         }

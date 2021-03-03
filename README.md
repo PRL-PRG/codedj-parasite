@@ -112,6 +112,8 @@ The API provides various view wrappers around the internal parasite objects. The
 
 > The following are current items that are being worked on or that must be checked are already finished:
 
+- convert iterators in the db.rs to the new format
+
 - add metadata extraction for the assembled projects ? 
 
 - and how to stop them threads that are updating (purge the queue should do it, the task would then end once all other threads will become idle)

@@ -78,6 +78,14 @@ pub struct Datastore {
 
 impl Datastore {
 
+    pub (crate) const PROJECTS : &'static str = "projects";
+    pub (crate) const PROJECT_SUBSTORES : &'static str = "project-substores";
+    pub (crate) const PROJECT_UPDATES : &'static str = "project-updates";
+    pub (crate) const PROJECT_HEADS : &'static str = "project-heads";
+    pub (crate) const PROJECT_METADATA : &'static str = "project-metadata";
+    pub (crate) const SAVEPOINTS : &'static str = "savepoints";
+
+
     /** The version of the datastore. 
      
         Versions have backwards compatibility, but newer versions may add extra items, or metadata. When new version is executed, all projects & commits and other items are force updated to make sure that all data that should be obtained are obtained. 
@@ -102,16 +110,16 @@ impl Datastore {
         // create the datastore
         let mut ds = Datastore{
             root : root.to_owned(),
-            projects : Mutex::new(Store::new(root, "projects", readonly)),
-            project_substores : Mutex::new(Store::new(root, "project-substores", readonly)),
-            project_updates : Mutex::new(LinkedStore::new(root, "project-updates", readonly)),
-            project_heads : Mutex::new(Store::new(root, "project-heads", readonly)),
-            project_metadata : Mutex::new(LinkedStore::new(root, "project-metadata", readonly)),
+            projects : Mutex::new(Store::new(root, Datastore::PROJECTS, readonly)),
+            project_substores : Mutex::new(Store::new(root, Datastore::PROJECT_SUBSTORES, readonly)),
+            project_updates : Mutex::new(LinkedStore::new(root, Datastore::PROJECT_UPDATES, readonly)),
+            project_heads : Mutex::new(Store::new(root, Datastore::PROJECT_HEADS, readonly)),
+            project_metadata : Mutex::new(LinkedStore::new(root, Datastore::PROJECT_METADATA, readonly)),
             project_urls : Mutex::new(HashSet::new()),
 
             substores : Vec::new(),
 
-            savepoints : Mutex::new(LinkedStore::new(root, "savepoints", readonly)),
+            savepoints : Mutex::new(LinkedStore::new(root, Datastore::SAVEPOINTS, readonly)),
         };
         // initialize the substores
         for store_kind in SplitKindIter::<StoreKind>::new() {
@@ -437,6 +445,7 @@ impl Datastore {
  
  */
 pub (crate) struct Substore {
+
     /** Root folder where the dataset is located. 
      */
     root : String,
@@ -485,6 +494,18 @@ pub (crate) struct Substore {
 
 impl Substore {
 
+    pub (crate) const COMMITS : &'static str = "commits";
+    pub (crate) const COMMITS_INFO : &'static str = "commits-info";
+    pub (crate) const COMMITS_METADATA : &'static str = "commits-metadata";
+    pub (crate) const HASHES : &'static str = "hashes";
+    pub (crate) const CONTENTS : &'static str = "contents";
+    pub (crate) const CONTENTS_METADATA : &'static str = "contents-metadata";
+    pub (crate) const PATHS : &'static str = "paths";
+    pub (crate) const PATHS_STRINGS : &'static str = "paths-strings";
+    pub (crate) const USERS : &'static str = "users";
+    pub (crate) const USERS_METADATA : &'static str = "users-metadata";
+    
+
     pub fn new(root_path : & Path, kind : StoreKind, readonly : bool) -> Substore {
         //if the path root path does not exist, create it
         if ! root_path.exists() {
@@ -499,19 +520,19 @@ impl Substore {
             loaded : AtomicBool::new(false),
             load_mutex : Mutex::new(()), 
 
-            commits : Mutex::new(Mapping::new(root, & format!("{:?}-commits", kind), readonly)),
-            commits_info : Mutex::new(Store::new(root, & format!("{:?}-commits-info", kind), readonly)),
-            commits_metadata : Mutex::new(LinkedStore::new(root, & format!("{:?}-commits-metadata", kind), readonly)),
+            commits : Mutex::new(Mapping::new(root, & format!("{:?}-{}", kind, Substore::COMMITS), readonly)),
+            commits_info : Mutex::new(Store::new(root, & format!("{:?}-{}", kind, Substore::COMMITS_INFO), readonly)),
+            commits_metadata : Mutex::new(LinkedStore::new(root, & format!("{:?}-{}", kind, Substore::COMMITS_METADATA), readonly)),
 
-            hashes : Mutex::new(Mapping::new(root, & format!("{:?}-hashes", kind), readonly)),
-            contents : Mutex::new(SplitStore::new(root, & format!("{:?}-contents", kind), readonly)),
-            contents_metadata : Mutex::new(LinkedStore::new(root, & format!("{:?}-contents-metadata", kind), readonly)),
+            hashes : Mutex::new(Mapping::new(root, & format!("{:?}-{}", kind, Substore::HASHES), readonly)),
+            contents : Mutex::new(SplitStore::new(root, & format!("{:?}-{}", kind, Substore::CONTENTS), readonly)),
+            contents_metadata : Mutex::new(LinkedStore::new(root, & format!("{:?}-{}", kind, Substore::CONTENTS_METADATA), readonly)),
 
-            paths : Mutex::new(Mapping::new(root, & format!("{:?}-paths", kind), readonly)),
-            path_strings : Mutex::new(Store::new(root, & format!("{:?}-path-strings", kind), readonly)),
+            paths : Mutex::new(Mapping::new(root, & format!("{:?}-{}", kind, Substore::PATHS), readonly)),
+            path_strings : Mutex::new(Store::new(root, & format!("{:?}-{}", kind, Substore::PATHS_STRINGS), readonly)),
 
-            users : Mutex::new(IndirectMapping::new(root, & format!("{:?}-users", kind), readonly)),
-            users_metadata : Mutex::new(LinkedStore::new(root, & format!("{:?}-users-metadata", kind), readonly)),
+            users : Mutex::new(IndirectMapping::new(root, & format!("{:?}-{}", kind, Substore::USERS), readonly)),
+            users_metadata : Mutex::new(LinkedStore::new(root, & format!("{:?}-{}", kind, Substore::USERS_METADATA), readonly)),
 
         };
         // add sentinels (0 index values) for commits, hashes, paths and users
