@@ -199,7 +199,7 @@ impl Serializable for String {
  
     The table provides basic implementation for both iterator-like interface of reading and avancing the index and random access elements. 
  */
-pub trait Table : IntoIterator {
+pub trait Table : IntoIterator<Item = (<Self as Table>::Id, <Self as Table>::Value)> {
     type Id;
     type Value;
 
