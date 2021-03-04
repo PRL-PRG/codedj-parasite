@@ -187,25 +187,23 @@ fn datastore_update_project(project : & str, force_opt : Option<& String>) {
 
 /** Displays active projects per substore. 
  
-    A simple example of the library interface. Looks at heads of all projects on a per substore basis as the commit information is in a substore and calculates which active projects, which is projects whose latest commit has happened `max_age` before the savepoint time.
+    A simple example of the library interface. Looks at heads of all projects on a per substore basis as the commit information is in a substore and calculates which active projects, which is projects whose latest commit has happened `max_age` before now.
  */
 fn example_active_projects(max_age : i64) {
-    /*
-    // create the datastore view with latest info (the latest savepoint is created ad hoc for the current state of the datastore)
     let ds = DatastoreView::from(& SETTINGS.datastore_root);
-    let sp = ds.current_savepoint();
     // get all projects 
-    let projects = ds.projects(& sp);
+    let projects = Project::assemble(& ds);
     let mut total_valid = 0;
     let mut total_active = 0;
+    let now = helpers::now();
     println!("value,name");
     // on a per substore basis, determine the heads, then get their times from the substore and report
-    for substore in ds.substores() {
+    for substore in StoreKind::all() {
         let mut heads = HashMap::<CommitId, i64>::new();
         let mut valid = 0;
         let mut total = 0;
-        let mut commits = substore.commits_info();
-        for (_id, p) in projects.iter().filter(|(_, p)| { p.substore == substore.kind() }) {
+        let mut commits = ds.commits_info(substore);
+        for (_id, p) in projects.iter().filter(|(_, p)| { p.substore == substore }) {
             total += 1;
             if let Some(_) = p.latest_valid_update_time() {
                 for (_branch, (commit_id, _hash)) in p.heads.iter() {
@@ -217,26 +215,25 @@ fn example_active_projects(max_age : i64) {
             }
         }
         // calculate which projects are active
-        let active = projects.iter().filter(|(_, p)| { p.substore == substore.kind() }).filter(|(_id, p)| {
+        let active = projects.iter().filter(|(_, p)| { p.substore == substore }).filter(|(_id, p)| {
             for (_branch, (commit_id, _hash)) in p.heads.iter() {
                 if let Some(time) = heads.get(& commit_id) {
-                    if sp.time() - time <= max_age {
+                    if now - time <= max_age {
                         return true;
                     }
                 }
             }
             return false;
         }).count();
-        println!("{}, {:?}_projects", total, substore.kind());
-        println!("{}, {:?}_valid_projects", valid, substore.kind());
-        println!("{}, {:?}_active_projects", active, substore.kind());
+        println!("{}, {:?}_projects", total, substore);
+        println!("{}, {:?}_valid_projects", valid, substore);
+        println!("{}, {:?}_active_projects", active, substore);
         total_valid += total;
         total_active += active;
     }
     println!("{}, total_projects", projects.len());
     println!("{}, total_valid_projects", total_valid);
     println!("{}, total_active_projects", total_active);
-    */
 }
 
 /** Shows full information about given project. 

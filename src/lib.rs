@@ -1,6 +1,4 @@
-use std::hash::Hash;
 use std::collections::*;
-use std::io::{Seek, SeekFrom};
 
 #[macro_use]
 extern crate lazy_static;
@@ -34,9 +32,10 @@ mod reporter;
 pub use db::Table;
 pub use db::TableOwningIterator;
 pub use db::SplitTable;
-
-use crate::datastore::*;
 pub use crate::records::*;
+
+use crate::settings::SETTINGS;
+use crate::datastore::*;
 
 
 
@@ -169,6 +168,75 @@ impl<T : Table<Id = CommitId, Value = CommitInfo>> ProjectCommitsIterator<T> {
             visited : HashSet::new(),
             queue : heads.iter().map(|(_, (id, _))| *id).collect()
         };
+    }
+}
+
+/** Information about an assembled project. 
+ 
+    
+ */
+pub struct Project {
+    pub url : ProjectUrl, 
+    pub substore : StoreKind,
+    pub latest_status : ProjectLog,
+    pub latest_valid_status : ProjectLog,
+    pub heads : ProjectHeads,
+}
+
+impl Project {
+
+    fn new(url : ProjectUrl, substore : StoreKind) -> Project {
+        return Project{
+            url,
+            substore,
+            latest_status : ProjectLog::Error{time : 0, version : datastore::Datastore::VERSION, error : "no_data".to_owned()},
+            latest_valid_status : ProjectLog::Error{time : 0, version : datastore::Datastore::VERSION, error : "no_data".to_owned()},
+            heads : ProjectHeads::new(),
+        };
+    }
+
+    pub fn is_valid(& self) -> bool {
+        match self.latest_status {
+            ProjectLog::NoChange{time : _, version : _} => return true,
+            ProjectLog::Ok{time : _, version : _} => return true,
+            _ => return false,
+        }
+
+    }
+
+    pub fn latest_valid_update_time(& self) -> Option<i64> {
+        match self.latest_valid_status {
+            ProjectLog::NoChange{time, version : _} => return Some(time),
+            ProjectLog::Ok{time, version : _} => return Some(time),
+            _ => return None,
+        }
+    }
+
+    pub fn assemble(ds : & DatastoreView) -> HashMap<ProjectId, Project> {
+        let mut projects = HashMap::<ProjectId, Project>::new();
+        // we have to start with urls as these are the only ones guaranteed to exist
+        LOG!("Loading latest project urls...");
+        for (id, url) in ds.project_urls() {
+            projects.insert(id, Project::new(url, StoreKind::Unspecified));
+        }
+        LOG!("    {} projects found", projects.len());
+        LOG!("Loading project substores...");
+        for (id, kind) in ds.project_substores() {
+            projects.get_mut(&id).unwrap().substore = kind;
+        }
+        LOG!("Loading project state...");
+        for (id, status) in ds.project_updates() {
+            if let Some(p) = projects.get_mut(& id) {
+                p.latest_status = status;
+            }
+        }
+        LOG!("Loading project heads...");
+        for (id, heads) in ds.project_heads() {
+            if let Some(p) = projects.get_mut(& id) {
+                p.heads = heads;
+            }
+        }
+        return projects;
     }
 }
 
