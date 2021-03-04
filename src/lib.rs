@@ -103,7 +103,7 @@ impl DatastoreView {
     }
 
     pub fn contents(& self, substore : StoreKind) -> impl SplitTable<Id = HashId, Value = FileContents, Kind = ContentsKind, SplitIterator = db::SplitStorePart<FileContents, HashId>> {
-        return db::SplitStore::<FileContents, ContentsKind, HashId>::new(& self.root, & DatastoreView::substore_table_filename(substore, Substore::HASHES),true);
+        return db::SplitStore::<FileContents, ContentsKind, HashId>::new(& self.root, & DatastoreView::substore_table_filename(substore, Substore::CONTENTS),true);
     }
 
     pub fn contents_metadata(& self, substore : StoreKind) -> impl Iterator<Item = (HashId, Metadata)> {

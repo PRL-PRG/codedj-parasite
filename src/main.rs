@@ -300,31 +300,20 @@ fn example_show_project(url : & str) {
 }
 
 fn datastore_contents_compression() {
-    /*
     let ds = DatastoreView::from(& SETTINGS.datastore_root);
+    let mut total_compressed = 0;
+    let mut total_uncompressed = 0;
     for substore in StoreKind::all() {
-        let contents = ds.contents(substore);
-
+        let mut contents = ds.contents(substore);
+        let compressed = contents.filesize();
+        let uncompressed = contents.into_iter().fold(0, |sum, (_, data)| sum + data.len());
+        println!("{:?}: compressed : {}, uncompressed : {}", substore, compressed, uncompressed);
+        total_compressed += compressed;
+        total_uncompressed += uncompressed;
     }
-    */
-    /*
-    let ds = DatastoreView::from(& SETTINGS.datastore_root);
-    let sp = ds.current_savepoint();
-    let mut compressed : usize = 0;
-    let mut uncompressed : usize = 0;
-    for ss in ds.substores() {
-        let comp = ss.contents_size().contents;
-        compressed = compressed + comp;
-        let mut uncomp = 0;
-        for (_id, _kind, contents) in ss.contents().iter(& sp) {
-            uncomp = uncomp + 16 + contents.len(); // id + size
-        }
-        uncompressed += uncomp;
-        println!("{:?}: compressed : {}, uncompressed : {}", ss.kind(), comp, uncomp);
-    }
-    println!("TOTAL: compressed : {}, uncompressed : {}", compressed, uncompressed);
-    */
+    println!("TOTAL: compressed : {}, uncompressed : {}", total_compressed, total_uncompressed);
 }
+
 fn datastore_debug() {
     /*
     let ds = DatastoreView::from(& SETTINGS.datastore_root);

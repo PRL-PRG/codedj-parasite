@@ -208,6 +208,10 @@ pub trait Table : IntoIterator<Item = (<Self as Table>::Id, <Self as Table>::Val
     fn get_next(& mut self) -> Option<(Self::Id, Self::Value)>;
 
     fn get(& mut self, id : Self::Id) -> Option<Self::Value>;
+
+    /** Returns the size of the underlying file.
+     */
+    fn filesize(& mut self) -> u64;
 }
 
 /** An iterator owning the table.
@@ -231,31 +235,6 @@ impl<T : Table> Iterator for TableOwningIterator<T> {
     fn next(& mut self) -> Option<Self::Item> {
         return self.table.get_next();
     }
-}
-
-
-// TODO DELETE DELETE DELETE DELETE DELETE DELETE DELETE DELETE DELETE DELETE DELETE DELETE DELETE DELETE DELETE DELETE DELETE
-
-/** Basic requirements for a table.
- */
-pub trait TableImplementation {
-    type Item;
-    type Id; 
-
-    /**  */
-    fn seek_start(& mut self);
-
-    /** Because seeking in rust is really expensive, we actually require the readers to return the number of bytes they have read. 
-     */
-    fn read_and_advance(& mut self) -> Option<(Self::Id, Self::Item)>;
-}
-
-
-pub trait RandomAccessImplementation {
-    type Item;
-    type Id; 
-
-    fn get(& mut self, id : Self::Id) -> Option<Self::Item>;
 }
 
 /** Holds indices for each id.
@@ -403,6 +382,10 @@ impl<T:Serializable<Item = T>, ID : Id> Table for Store<T, ID> {
             return None;
         }
     }
+
+    fn filesize(& mut self) -> u64 {
+        return self.f.seek(SeekFrom::End(0)).unwrap();
+    }
 }
 
 impl<T:Serializable<Item = T>, ID : Id> IntoIterator for Store<T, ID> {
@@ -413,21 +396,6 @@ impl<T:Serializable<Item = T>, ID : Id> IntoIterator for Store<T, ID> {
         return TableOwningIterator::new(self);
     }
 }
-
-/*
-impl<T:Serializable<Item = T>, ID : Id> TableImplementation for Store<T, ID> {
-    type Item = T;
-    type Id = ID;
-
-    fn seek_start(& mut self) {
-        self.f.seek(SeekFrom::Start(0)).unwrap();
-    }
-
-    fn read_and_advance(& mut self) -> Option<(ID, T)> {
-        return Store::<T,ID>::read_record(& mut self.f);
-    }
-} 
-*/
 
 impl<T: Serializable<Item = T>, ID : Id> Store<T, ID> {
 
@@ -521,20 +489,6 @@ impl<T: Serializable<Item = T>, ID : Id> Store<T, ID> {
     pub fn has(& mut self, id : ID) -> bool {
         return self.indexer.get(id).is_some();
     }
-
-    /** Gets the value for given id. 
-     */
-    /*
-    pub fn get(& mut self, id : ID) -> Option<T> {
-        if let Some(offset) = self.indexer.get(id) {
-            self.f.seek(SeekFrom::Start(offset)).unwrap();
-            let (record_id, value) = Self::read_record(& mut self.f).unwrap();
-            assert_eq!(id, record_id, "Corrupted store or index");
-            return Some(value);
-        } else {
-            return None;
-        }
-    } */
 
     /** Sets the value for given id. 
      */
@@ -677,6 +631,11 @@ impl<T: Serializable<Item = T>, ID : Id> Table for LinkedStore<T, ID> {
             return None;
         }
     }
+
+    fn filesize(& mut self) -> u64 {
+        return self.f.seek(SeekFrom::End(0)).unwrap();
+    }
+
 }
 
 impl<T: Serializable<Item = T>, ID : Id> IntoIterator for LinkedStore<T, ID> {
@@ -687,22 +646,6 @@ impl<T: Serializable<Item = T>, ID : Id> IntoIterator for LinkedStore<T, ID> {
         return TableOwningIterator::new(self);
     }
 }
-
-
-/*
-impl<T: Serializable<Item = T>, ID : Id> TableImplementation for LinkedStore<T, ID> {
-    type Item = T;
-    type Id = ID;
-
-    fn seek_start(& mut self) {
-        self.f.seek(SeekFrom::Start(0)).unwrap();
-    }
-
-    fn read_and_advance(& mut self) -> Option<(ID, T)> {
-        return LinkedStore::<T,ID>::read_record(& mut self.f).map(|(id, _last_offset, value)| (id, value));
-    }
-}
-*/
 
 impl<T: Serializable<Item = T>, ID : Id> LinkedStore<T, ID> {
 
@@ -808,23 +751,6 @@ impl<T: Serializable<Item = T>, ID : Id> LinkedStore<T, ID> {
         }
         return Ok(());
     }
-
-
-
-    /** Gets the value for given id. 
-     */
-    /*
-    pub fn get(& mut self, id : ID) -> Option<T> {
-        if let Some(offset) = self.indexer.get(id) {
-            self.f.seek(SeekFrom::Start(offset)).unwrap();
-            let (record_id, _, value) = Self::read_record(& mut self.f).unwrap();
-            assert_eq!(id, record_id, "Corrupted store or index");
-            return Some(value);
-        } else {
-            return None;
-        }
-    }
-    */
 
     /** Sets the value for given id. 
      */
@@ -1016,6 +942,12 @@ impl<T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone, ID : Id> Table for
         return Some(result);
     }
 
+    fn filesize(& mut self) -> u64 {
+        // no need to seek
+        return self.size * T::SIZE;
+    }
+
+
 }
 
 impl<T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone, ID : Id> IntoIterator for Mapping<T, ID> {
@@ -1024,28 +956,6 @@ impl<T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone, ID : Id> IntoItera
 
     fn into_iter(self) -> TableOwningIterator<Mapping<T,ID>> {
         return TableOwningIterator::new(self);
-    }
-}
-
-
-impl<T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone, ID : Id> TableImplementation for Mapping<T, ID> {
-    type Item = T;
-    type Id = ID;
-
-    fn seek_start(& mut self) {
-        self.f.seek(SeekFrom::Start(0)).unwrap();
-        self.read_index = 0;
-    }
-
-    fn read_and_advance(& mut self) -> Option<(ID, T)> {
-        if self.read_index >= self.size {
-            return None;
-        } else {
-            let value = T::deserialize(& mut self.f);
-            let id = ID::from(self.read_index);
-            self.read_index += 1;
-            return Some((id, value));
-        }
     }
 }
 
@@ -1148,20 +1058,6 @@ impl<T : FixedSizeSerializable<Item = T> + Eq + Hash + Clone, ID : Id> Mapping<T
         }
     }
 
-    /*
-    pub fn get(& mut self, id : ID) -> Option<T> {
-        if id.into() >= self.size {
-            return None;
-        }
-        let offset = T::SIZE * id.into();
-        self.f.seek(SeekFrom::Start(offset)).unwrap();
-        let result = T::deserialize(& mut self.f);
-        self.f.seek(SeekFrom::End(0)).unwrap();
-        self.read_index = self.size;
-        return Some(result);
-    }
-    */
-
     /** Updates the already stored mapping. 
      */
     pub fn update(& mut self, id : ID, value : & T) {
@@ -1240,6 +1136,11 @@ impl<T : Serializable<Item = T> + Eq + Hash + Clone, ID : Id> Table for Indirect
     fn get(& mut self, id : ID) -> Option<Self::Value> {
         return self.store.get(id);
     }
+
+    fn filesize(& mut self) -> u64 {
+        return self.store.filesize();
+    }
+
 }
 
 impl<T : Serializable<Item = T> + Eq + Hash + Clone, ID : Id> IntoIterator for IndirectMapping<T, ID> {
@@ -1470,6 +1371,10 @@ impl<T : Serializable<Item = T>, ID : Id> SplitStorePart<T, ID> {
     fn get_next(& mut self) -> Option<(ID, T)> {
         return Store::<T,ID>::read_record(& mut self.f);
     }
+
+    fn filesize(& mut self) -> u64 {
+        return self.f.seek(SeekFrom::End(0)).unwrap();
+    }
 }
 
 impl<T : Serializable<Item = T>, ID : Id> Iterator for SplitStorePart<T, ID> {
@@ -1535,6 +1440,13 @@ impl<T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>, ID : Id> Table fo
         }
         return None;
     }
+
+    /** Go over all files and sum their sizes.
+     */
+    fn filesize(& mut self) -> u64 {
+        return self.files.iter_mut().fold(0u64, |sum, x| sum + x.filesize());
+    }
+
 
 }
 
