@@ -131,46 +131,39 @@ fn datastore_savepoints() {
 /** Adds the given project or projects specified in a csv file to the datastore. 
  */
 fn datastore_add(url_or_file : & str) {
-    /*
     TerminalReporter::report(|reporter : & TerminalReporter| {
         let ds = Datastore::new(& SETTINGS.datastore_root, false);
         reporter.run_task(Task::AddProjects{source : url_or_file.to_owned()}, |ts| {
             return datastore_maintenance_tasks::task_add_projects(& ds, url_or_file.to_owned(), ts);
         });
     });
-    */
 }
 
 /** Creates a savepoint of given name from the current datastore state. 
  */
 fn datastore_create_savepoint(name : & str) {
-    /*
     TerminalReporter::report(|reporter : & TerminalReporter| {
         let ds = Datastore::new(& SETTINGS.datastore_root, false);
         reporter.run_task(Task::CreateSavepoint{name : name.to_owned()}, |ts| {
             return datastore_maintenance_tasks::task_create_savepoint(& ds, ts);
         });
     });
-    */
 }
 
 /** Reverts the datastore to given saveopoint. 
  */
 fn datastore_revert_to_savepoint(name : & str) {
-    /*
     {
         let ds = Datastore::new(& SETTINGS.datastore_root, false);
         let sp = ds.get_savepoint(name).unwrap();
         ds.revert_to_savepoint(&sp);
     }
     datastore_size();
-    */
 }
 
 /** Forces the update of given project. 
  */
 fn datastore_update_project(project : & str, force_opt : Option<& String>) {
-    /*
     let mut force = false;
     if let Some(opt) = force_opt {
         if opt == "--force" {
@@ -194,7 +187,6 @@ fn datastore_update_project(project : & str, force_opt : Option<& String>) {
             panic!("No project named {} found", project);
         }
     });
-    */
 }
 
 /** Displays active projects per substore. 
