@@ -84,7 +84,6 @@ fn execute_command() {
         ),
         "show-project" => example_show_project(
             SETTINGS.command.get(1).unwrap(),
-            SETTINGS.command.get(2).map(|x| x.as_str())
         ),
         // debug commands
         "contents-compression" => datastore_contents_compression(),
@@ -116,16 +115,13 @@ fn datastore_size() {
 }
 
 fn datastore_savepoints() {
-    /*
     let ds = DatastoreView::from(& SETTINGS.datastore_root);
-    let mut s = ds.savepoints();
     let mut num = 0;
-    for (_, sp) in s.iter() {
+    for sp in ds.savepoints() {
         println!("{}", sp);
         num += 1;
     }
     println!("Total {} savepoints found.", num);
-    */
 }
 
 /** Adds the given project or projects specified in a csv file to the datastore. 
@@ -251,60 +247,56 @@ fn example_active_projects(max_age : i64) {
 
     Change paths and commit hashes are displayed as terminal links, where supported. 
  */
-fn example_show_project(url : & str, savepoint : Option<& str>) {
-    /*
+fn example_show_project(url : & str) {
     // create the datastore and savepoint
     let ds = DatastoreView::from(& SETTINGS.datastore_root);
-    let sp = ds.get_savepoint(savepoint).unwrap();
     // determine the ID of the project
-    let p = ds.project_urls().iter(& sp).filter(|(_, p)| p.matches_url(url)).next();
-    if let Some((id, _)) = p {
+    let p = ds.project_urls().filter(|(_, p)| p.matches_url(url)).next();
+    if let Some((pid, purl)) = p {
         // get the project
-        let projects = ds.projects(& sp);
-        let p = projects.get(& id).unwrap(); // must be valid
-        println!("Project id: {}, url: {}", id, p.url.clone_url());
+        println!("Project id: {}, url: {}", pid, purl.clone_url());
         // now get all log entries and filter those of our project
-        let log : Vec<ProjectLog> = ds.project_log().iter(& sp).filter(|(log_id, _)| id == *log_id ).map(|(_, p)| p).collect();
+        let log : Vec<ProjectLog> = ds.project_updates().filter(|(log_id, _)| pid == *log_id ).map(|(_, p)| p).collect();
         println!("log: {} entries", log.len());
         for l in log {
             println!("    {}", l);
         }
-        // print the heads too
-        println!("heads: {} entries", p.heads.len());
-        for (name, (id, hash)) in p.heads.iter() {
-            println!("    {}: {} (id {})", name, p.url.get_commit_terminal_link(*hash), id);
-        }
-        // and get all commits, for which we have a convenience function in the API, because why not 
-        let commits = ds.project_commits(&p);
-        let ss = ds.get_substore(p.substore);
-        let mut commit_hashes = ss.commits();
-        let mut users = ss.users();
-        let mut paths = ss.paths_strings();
-        let mut hashes = ss.hashes();
-        println!("commits: {} entries", commits.len());
-        for (id, commit) in commits {
-            let commit_hash = commit_hashes.get(id).unwrap();
-            println!("    {}", p.url.get_commit_terminal_link(commit_hash));
-            println!("        committer: {} (id {}), time {}", users.get(commit.committer).unwrap(), commit.committer, helpers::pretty_timestamp(commit.committer_time));
-            println!("        author: {} (id {}), time {}", users.get(commit.author).unwrap(), commit.author, helpers::pretty_timestamp(commit.author_time));
-            print!("        parents:");
-            for pid in commit.parents {
-                print!(" {} (id {})", p.url.get_commit_terminal_link(commit_hashes.get(pid).unwrap()), pid);
+        // determine the project's substore
+        let substore = ds.project_substores().filter(|(id, _)| *id == pid).map(|(_, s)| s).last().unwrap();
+        println!("substore: {:?}", substore);
+        // if they exist, print heads and then the rest of the commits and their changes
+        if let Some((_, heads)) =  ds.project_heads().filter(|(id, _)| *id == pid).last() {
+            println!("heads: {} entries", heads.len());
+            for (name, (id, hash)) in heads.iter() {
+                println!("    {}: {} (id {})", name, purl.get_commit_terminal_link(*hash), id);
             }
-            println!("");
-            println!("        message: {}", commit.message);
-            println!("        changes:");
-            for (path_id, hash_id) in commit.changes {
-                let hash = hashes.get(hash_id).unwrap();
-                println!("            {} : {} (id {} : id {})", p.url.get_change_terminal_link(commit_hash, & paths.get(path_id).unwrap(), hash), hash, path_id, hash_id);
+            let mut commit_hashes = ds.commits(substore);
+            let mut users = ds.users(substore);
+            let mut paths = ds.paths_strings(substore);
+            let mut hashes = ds.hashes(substore);
+            for (commit_id, commit) in ProjectCommitsIterator::new(& heads, ds.commits_info(substore)) {
+                let commit_hash = commit_hashes.get(commit_id).unwrap();
+                println!("    {}", purl.get_commit_terminal_link(commit_hash));
+                println!("        committer: {} (id {}), time {}", users.get(commit.committer).unwrap(), commit.committer, helpers::pretty_timestamp(commit.committer_time));
+                println!("        author: {} (id {}), time {}", users.get(commit.author).unwrap(), commit.author, helpers::pretty_timestamp(commit.author_time));
+                print!("        parents:");
+                for pid in commit.parents {
+                    print!(" {} (id {})", purl.get_commit_terminal_link(commit_hashes.get(pid).unwrap()), pid);
+                }
+                println!("");
+                println!("        message: {}", commit.message);
+                println!("        changes:");
+                for (path_id, hash_id) in commit.changes {
+                    let hash = hashes.get(hash_id).unwrap();
+                    println!("            {} : {} (id {} : id {})", purl.get_change_terminal_link(commit_hash, & paths.get(path_id).unwrap(), hash), hash, path_id, hash_id);
+                }
+                println!("");
+    
             }
-            println!("");
-        }
-
+        }       
     } else {
         println!("ERROR: No project matches the given url {}", url);
     }
-    */
 }
 
 fn datastore_contents_compression() {

@@ -80,6 +80,10 @@ impl DatastoreView {
         return db::LinkedStore::new(& self.root, & DatastoreView::table_filename(Datastore::PROJECT_METADATA), true).into_iter();
     }
 
+    pub fn savepoints(& self) -> impl Iterator<Item = db::Savepoint> {
+        return db::LinkedStore::<db::Savepoint, u64>::new(& self.root, & DatastoreView::table_filename(Datastore::SAVEPOINTS), true).into_iter().map(|(_, sp)| sp);
+    }
+
     /* Substore contents getters and iterators. 
      */
     pub fn commits(& self, substore : StoreKind) -> impl Table<Id = CommitId, Value = SHA> {
@@ -127,10 +131,46 @@ impl DatastoreView {
     }
 
     fn substore_table_filename(kind : StoreKind, table : & str) -> String {
-        return format!("{:?}-{}", kind, table);
+        return format!("{:?}/{:?}-{}", kind, kind, table);
     }
 }
 
+pub struct ProjectCommitsIterator<T : Table<Id = CommitId, Value = CommitInfo>> {
+    commits : T,
+    visited : HashSet<CommitId>,
+    queue : Vec<CommitId>
+}
+
+impl<T : Table<Id = CommitId, Value = CommitInfo>> Iterator for ProjectCommitsIterator<T> {
+    type Item = (CommitId, CommitInfo);
+
+    fn next(& mut self) -> Option<(CommitId, CommitInfo)> {
+        loop {
+            if let Some(id) = self.queue.pop() {
+                if self.visited.contains(&id) {
+                    continue;
+                }
+                self.visited.insert(id);
+                let cinfo = self.commits.get(id).unwrap(); // this would mean inconsistent data, so we panic
+                // add parents to queue
+                self.queue.extend(cinfo.parents.iter());
+                return Some((id, cinfo));
+            } else {
+                return None;
+            }
+        }  
+    }
+}
+
+impl<T : Table<Id = CommitId, Value = CommitInfo>> ProjectCommitsIterator<T> {
+    pub fn new(heads : & ProjectHeads, commits : T) -> ProjectCommitsIterator<T> {
+        return ProjectCommitsIterator {
+            commits, 
+            visited : HashSet::new(),
+            queue : heads.iter().map(|(_, (id, _))| *id).collect()
+        };
+    }
+}
 
 /*
 

@@ -501,7 +501,7 @@ impl Substore {
     pub (crate) const CONTENTS : &'static str = "contents";
     pub (crate) const CONTENTS_METADATA : &'static str = "contents-metadata";
     pub (crate) const PATHS : &'static str = "paths";
-    pub (crate) const PATHS_STRINGS : &'static str = "paths-strings";
+    pub (crate) const PATHS_STRINGS : &'static str = "path-strings";
     pub (crate) const USERS : &'static str = "users";
     pub (crate) const USERS_METADATA : &'static str = "users-metadata";
     
