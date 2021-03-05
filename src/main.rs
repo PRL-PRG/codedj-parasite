@@ -303,7 +303,7 @@ fn datastore_contents_compression() {
     for substore in StoreKind::all() {
         let mut contents = ds.contents(substore);
         let compressed = contents.filesize();
-        let uncompressed = contents.into_iter().fold(0, |sum, (_, data)| sum + data.len());
+        let uncompressed = contents.into_iter().fold(0, |sum, (_, (_kind, data))| sum + data.len());
         println!("{:?}: compressed : {}, uncompressed : {}", substore, compressed, uncompressed);
         total_compressed += compressed;
         total_uncompressed += uncompressed;

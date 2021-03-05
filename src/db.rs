@@ -1387,7 +1387,7 @@ impl<T : Serializable<Item = T>, ID : Id> Iterator for SplitStorePart<T, ID> {
 
 pub trait SplitTable : Table + Sized {
     type Kind;
-    type SplitIterator : Iterator<Item = (Self::Id, Self::Value)>;
+    type SplitIterator : Iterator;
 
     fn split_iter(self, kind : Self::Kind) -> Self::SplitIterator;
 }
@@ -1405,14 +1405,14 @@ pub struct SplitStore<T : Serializable<Item = T>, KIND : SplitKind<Item = KIND>,
 
 impl<T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>, ID : Id> Table for SplitStore<T, KIND, ID> {
     type Id = ID;
-    type Value = T;
+    type Value = (KIND, T);
 
     fn get_reset(& mut self) {
         self.file_index = 0;
         self.files[0].get_reset();
     }
 
-    fn get(& mut self, id : ID) -> Option<T> {
+    fn get(& mut self, id : ID) -> Option<(KIND, T)> {
         match self.indexer.get(id) {
             Some(offset) => {
                 self.file_index = offset.kind.to_number() as usize;
@@ -1421,16 +1421,16 @@ impl<T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>, ID : Id> Table fo
                 // we can use default store reader
                 let (record_id, value) = Store::<T, ID>::read_record(& mut f.f).unwrap();
                 assert_eq!(id, record_id, "Corrupted store or index");
-                return Some(value);
+                return Some((KIND::from_number(self.file_index as u64), value));
             },
             None => None
         }
     }
 
-    fn get_next(& mut self) -> Option<(ID, T)> {
+    fn get_next(& mut self) -> Option<(ID, (KIND, T))> {
         while self.file_index < self.files.len() {
-            if let Some(x) = self.files[self.file_index].get_next() {
-                return Some(x);
+            if let Some((id, x)) = self.files[self.file_index].get_next() {
+                return Some((id, (KIND::from_number(self.file_index as u64), x)));
             } else {
                 self.file_index += 1;
                 if self.file_index < self.files.len() {
@@ -1446,12 +1446,10 @@ impl<T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>, ID : Id> Table fo
     fn filesize(& mut self) -> u64 {
         return self.files.iter_mut().fold(0u64, |sum, x| sum + x.filesize());
     }
-
-
 }
 
 impl<T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>, ID : Id> IntoIterator for SplitStore<T, KIND, ID> {
-    type Item = (ID, T);
+    type Item = (ID, (KIND, T));
 
     type IntoIter = TableOwningIterator<SplitStore<T,KIND,ID>>;
 
@@ -1572,20 +1570,13 @@ impl<T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>, ID : Id> SplitSto
         return Ok(());
     }
 
-
-    /** Determines the file that holds value for given id and returns the stored value. If the value has not been stored, returns None. 
+    /** Determines if given id is stored without actually reading its contents, which is slighjtly faster.
      */
-    pub fn get(& mut self, id : ID) -> Option<T> {
-        match self.indexer.get(id) {
-            Some(offset) => {
-                let f = self.files.get_mut(offset.kind.to_number() as usize).unwrap();
-                f.f.seek(SeekFrom::Start(offset.offset)).unwrap();
-                // we can use default store reader
-                let (record_id, value) = Store::<T, ID>::read_record(& mut f.f).unwrap();
-                assert_eq!(id, record_id, "Corrupted store or index");
-                return Some(value);
-            },
-            None => None
+    pub fn has(& mut self, id : ID) -> bool {
+        if let Some(_) = self.indexer.get(id) {
+            return true;
+        } else {
+            return false;
         }
     }
 

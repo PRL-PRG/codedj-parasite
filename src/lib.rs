@@ -29,6 +29,7 @@ mod reporter;
 
 //use crate::db::TableImplementation;
 
+pub use db::Id;
 pub use db::Table;
 pub use db::TableOwningIterator;
 pub use db::SplitTable;
@@ -40,9 +41,7 @@ use crate::datastore::*;
 
 
 /** A simple, read-only view into the datastore. 
-
-    
-
+ 
  */
 pub struct DatastoreView {
     root : String
@@ -101,7 +100,7 @@ impl DatastoreView {
         return db::Mapping::new(& self.root, & DatastoreView::substore_table_filename(substore, Substore::HASHES), true);
     }
 
-    pub fn contents(& self, substore : StoreKind) -> impl SplitTable<Id = HashId, Value = FileContents, Kind = ContentsKind, SplitIterator = db::SplitStorePart<FileContents, HashId>> {
+    pub fn contents(& self, substore : StoreKind) -> impl SplitTable<Id = HashId, Value = (ContentsKind, FileContents), Kind = ContentsKind, SplitIterator = db::SplitStorePart<FileContents, HashId>> {
         return db::SplitStore::<FileContents, ContentsKind, HashId>::new(& self.root, & DatastoreView::substore_table_filename(substore, Substore::CONTENTS),true);
     }
 
@@ -172,8 +171,6 @@ impl<T : Table<Id = CommitId, Value = CommitInfo>> ProjectCommitsIterator<T> {
 }
 
 /** Information about an assembled project. 
- 
-    
  */
 pub struct Project {
     pub url : ProjectUrl, 
@@ -240,153 +237,357 @@ impl Project {
     }
 }
 
-/*
-
-/** Table is a wrapper around actual implementation of the store. 
+/** A class that facilitates merging one datastore into another. 
  
-    Table wraps around the backing store and provides the generic interface. 
+    TODO datastoreviews into the merged datastore will be invalidated by the merge. Do we care? 
 
-    For now this means it simply allows itself to be converted into an iterator. In the future, more can be added. 
- */
-pub struct Table<T : TableImplementation> {
-    table : T
-}
+    Merges parts of the source datastore into the target datastore. The merge squishes any histories and source savepoints. 
 
-impl<T: TableImplementation> Table<T> {
-    fn new(table : T) -> Table<T> {
-        return Table{table};
-    }
-
-    fn into_iter(mut self) -> TableIterator<T> {
-        self.table.seek_start();
-        return TableIterator{table : self.table};
-    }
-}
-
-/** Random access table is like table, but does a bit more.  */
-pub struct RandomAccessTable<T : TableImplementation> {
-    table : T
-}
-
-impl<T: TableImplementation> RandomAccessTable<T> {
-    fn new(table : T) -> RandomAccessTable<T> {
-        return RandomAccessTable{table};
-    }
-
-    fn get(& mut self, id : T::Id) -> Option<T::Item> {
-        unimplemented!();
-        //return self.table.get(id);
-    }
-
-    fn into_iter(mut self) -> TableIterator<T> {
-        self.table.seek_start();
-        return TableIterator{table : self.table};
-    }
-}
-
-pub struct TableIterator<T : TableImplementation> {
-    table : T,
-}
-
-impl<T: TableImplementation> Iterator for TableIterator<T> {
-    type Item = (T::Id, T::Item);
-
-    fn next(& mut self) -> Option<Self::Item> {
-        return self.table.read_and_advance();
-    }
-}
-
-/** A simple, read-only view into the datastore. 
 
     
 
  */
-pub struct DatastoreView2 {
-    root : String
+pub struct DatastoreMerger {
+    target : DatastoreView,
+    source : DatastoreView,
+
+
 }
 
+impl DatastoreMerger {
 
-impl DatastoreView2 {
-    /** Returns new datastore with given root.
+    /** Creates new datastore merger that can be used to merge substores from source into the target datastore. 
      */
-    pub fn new(root : & str) -> DatastoreView2 {
-        // TODO check that there is a valid datastore on the path first
-        return DatastoreView2{
-            root : root.to_owned()
+    pub fn new(target : & str, source : & str) -> DatastoreMerger {
+        return DatastoreMerger{
+            target : DatastoreView::from(target),
+            source : DatastoreView::from(source)
         };
-    } 
-
-    /* Fine-grained access to project information. 
-
-       TODO Depending on the actual API information, this may be the api itself, of only latest information about a project is stored, or if entire history is stored then this needs a lot of processing to be assembled properly. 
-     */
-    pub fn project_urls(& self) -> Table<db::Store<ProjectUrl, ProjectId>> {
-        return Table::new(db::Store::new(& self.root, & DatastoreView2::table_filename(Datastore::PROJECTS), true));
     }
 
-    pub fn project_substores(& self) -> Table<db::Store<StoreKind, ProjectId>> {
-        return Table::new(db::Store::new(& self.root, & DatastoreView2::table_filename(Datastore::PROJECT_SUBSTORES), true));
-    }
-
-    pub fn project_updates(& self) -> Table<db::LinkedStore<ProjectLog, ProjectId>> {
-        return Table::new(db::LinkedStore::new(& self.root, & DatastoreView2::table_filename(Datastore::PROJECT_UPDATES), true));
-    }
-
-    pub fn project_heads(& self) -> Table<db::Store<ProjectHeads, ProjectId>> {
-        return Table::new(db::Store::new(& self.root, & DatastoreView2::table_filename(Datastore::PROJECT_HEADS), true));
-    }
-
-    pub fn project_metadata(& self) -> Table<db::LinkedStore<Metadata, ProjectId>> {
-        return Table::new(db::LinkedStore::new(& self.root, & DatastoreView2::table_filename(Datastore::PROJECT_METADATA), true));
-    }
     
-    /* Substore contents getters and iterators. 
+    /** Merges single substore from source datastore into selected substore in the target substore. 
+     
+        This may be the same substore, or multiple source substores can be joined in a single target substore by repeatedly calling the method for different source substores. 
+
+        TODO add validator as argument too
+    */
+    pub fn merge_substore<T : MergeValidator>(& mut self, target_substore : StoreKind, source_substore : StoreKind, validator : T) {
+        let mut context = MergeContext::new(& self.target, target_substore, source_substore, validator);
+        self.merge_users(& mut context);
+        self.merge_paths(& mut context);
+        self.merge_hashes(& mut context);
+        self.merge_contents(& mut context);
+        self.merge_commits(& mut context);
+        self.merge_projects(& mut context);
+    }
+
+    fn merge_users<T : MergeValidator>(& mut self, context : & mut MergeContext<T>) {
+        let target_substore = context.target.substore(context.target_substore); 
+        let mut users = target_substore.users.lock().unwrap();
+        users.load();
+        for (source_id, email) in self.source.users(context.source_substore) {
+            if context.validator.valid_user(source_id) {
+                let x = users.get_or_create_mapping(& email);
+                context.users.insert(source_id, x);
+                match x.1 {
+                    true => context.users_count.new += 1,
+                    false => context.users_count.existing += 1,
+                }
+            }
+            context.users_count.total += 1;
+        }
+        users.clear();
+        // merge users metadata
+        let mut users_metadata = target_substore.users_metadata.lock().unwrap();
+        for (source_id, mtd) in self.source.users_metadata(context.source_substore) {
+            // only add the information *if* there is a new mapping 
+            if let Some((target_id, true)) = context.users.get(& source_id) {
+                users_metadata.set(*target_id, & mtd);
+            }
+        }
+    }
+
+    fn merge_paths<T : MergeValidator>(& mut self, context : & mut MergeContext<T>) {
+        let target_substore = context.target.substore(context.target_substore); 
+        let mut paths = target_substore.paths.lock().unwrap();
+        paths.load();
+        for (source_id, hash) in self.source.paths(context.source_substore) {
+            if context.validator.valid_path(source_id) {
+                let x = paths.get_or_create_mapping(& hash);
+                context.paths.insert(source_id, x);
+                match x.1 {
+                    true => context.paths_count.new += 1,
+                    false => context.paths_count.existing += 1,
+                }
+            }
+            context.paths_count.total += 1;
+        }
+        paths.clear();
+        // merge path strings
+        let mut path_strings = target_substore.path_strings.lock().unwrap();
+        for (source_id, path) in self.source.paths_strings(context.source_substore) {
+            // only add the information *if* there is a new mapping 
+            if let Some((target_id, true)) = context.paths.get(& source_id) {
+                path_strings.set(*target_id, & path);
+            }
+        }
+    }
+
+    fn merge_hashes<T : MergeValidator>(& mut self, context : & mut MergeContext<T>) {
+        let target_substore = context.target.substore(context.target_substore); 
+        let mut hashes = target_substore.hashes.lock().unwrap();
+        hashes.load();
+        for (source_id, hash) in self.source.hashes(context.source_substore) {
+            if context.validator.valid_hash(source_id) {
+                let x = hashes.get_or_create_mapping(& hash);
+                context.hashes.insert(source_id, x);
+                match x.1 {
+                    true => context.hashes_count.new += 1,
+                    false => context.hashes_count.existing += 1,
+                }
+            }
+            context.hashes_count.total += 1;
+        }
+        hashes.clear();
+    }
+
+    fn merge_contents<T : MergeValidator>(& mut self, context : & mut MergeContext<T>) {
+        // add the contents if they have been selected *and* are new
+        let target_substore = context.target.substore(context.target_substore); 
+        let mut contents = target_substore.contents.lock().unwrap();
+        // added contents
+        let mut added_contents = HashMap::<HashId, HashId>::new();
+        for (source_id, (contents_kind, raw_contents)) in self.source.contents(context.source_substore) {
+            context.contents_count.total += 1;
+            if context.validator.valid_contents(source_id) {
+                match context.hashes.get(& source_id) {
+                    Some((target_id, true)) => {
+                        // it's a valid contents and a new hash, so it definitely does not exist in target
+                        contents.set(*target_id, contents_kind, & raw_contents);
+                        added_contents.insert(source_id, *target_id);
+                        context.contents_count.new += 1;
+                    },
+                    Some((target_id, false)) => {
+                        // it's a valid hash that already exists, we have to check first if the contents exists in target, and only add the contents if it does not
+                        if ! contents.has(*target_id) {
+                            contents.set(*target_id, contents_kind, & raw_contents);
+                            added_contents.insert(source_id, *target_id);
+                            context.contents_count.new += 1;
+                        } else {
+                            context.contents_count.existing += 1;
+
+                        }
+                    },
+                    None => {
+                        context.contents_count.existing += 1;
+                        // this is an inconsistency, we said this is a valid contents id, but not a hash id, so at this point it can't be added
+                        unimplemented!();
+                    }
+                }
+            }
+        }
+        // merge contents metadata
+        let mut contents_metadata = target_substore.contents_metadata.lock().unwrap();
+        for (source_id, mtd) in self.source.contents_metadata(context.source_substore) {
+            if let Some(target_id) = added_contents.get(& source_id) {
+                contents_metadata.set(*target_id, & mtd);
+            }
+        }
+    }
+
+    fn merge_commits<T : MergeValidator>(& mut self, context : & mut MergeContext<T>) {
+        let target_substore = context.target.substore(context.target_substore); 
+        let mut commits = target_substore.commits.lock().unwrap();
+        commits.load();
+        for (source_id, hash) in self.source.commits(context.source_substore) {
+            if context.validator.valid_commit(source_id) {
+                let x = commits.get_or_create_mapping(& hash);
+                context.commits.insert(source_id,x);
+                match x.1 {
+                    true => context.commits_count.new += 1,
+                    false => context.commits_count.existing += 1,
+                }
+
+            }
+            context.commits_count.total += 1;
+        }
+        commits.clear();
+        // commits info for the new commits, where we need to update the ids where necessary
+        let mut commits_info = target_substore.commits_info.lock().unwrap();
+        for (source_id, mut cinfo) in self.source.commits_info(context.source_substore) {
+            // only add the information *if* there was a new mapping 
+            if let Some((target_id, true)) = context.commits.get(& source_id) {
+                cinfo.committer = context.translate_user(cinfo.committer);
+                cinfo.author = context.translate_user(cinfo.author);
+                cinfo.parents = cinfo.parents.iter().map(|x| context.translate_commit(*x)).collect();
+                cinfo.changes = cinfo.changes.iter().map(|x| context.translate_change((*x.0, *x.1))).collect();
+                commits_info.set(*target_id, & cinfo);
+            }
+        }
+        // merge commits metadata
+        let mut commits_metadata = target_substore.commits_metadata.lock().unwrap();
+        for (source_id, mtd) in self.source.commits_metadata(context.source_substore) {
+            // only add the information *if* there is a new mapping 
+            if let Some((target_id, true)) = context.commits.get(& source_id) {
+                commits_metadata.set(*target_id, & mtd);
+            }
+        }
+    }
+
+    fn merge_projects<T : MergeValidator>(& mut self, context : & mut MergeContext<T>) {
+        
+    }
+
+}
+
+struct MergeCount {
+    /** Total number of items found in the source datastore.
      */
-    pub fn commits(& self, substore : StoreKind) -> Table<db::Mapping<SHA, CommitId>> {
-        return Table::new(db::Mapping::new(& self.root, & DatastoreView2::substore_table_filename(substore, Substore::COMMITS), true));
+    total : usize,
+    /** Number of items in source datastore that were already present in the target. 
+     */
+    existing : usize,
+    /** Number of items from the source that have been merged into the target datastore. 
+     */
+    new : usize,
+}
+
+impl MergeCount {
+    pub fn new() -> MergeCount {
+        return MergeCount {
+            total : 0, 
+            existing : 0,
+            new : 0,
+        };
+    }
+}
+
+struct MergeContext<T : MergeValidator> {
+    target : Datastore,
+    target_substore : StoreKind,
+    source_substore : StoreKind,
+    validator : T,
+    users : HashMap<UserId, (UserId, bool)>,
+    paths : HashMap<PathId, (PathId, bool)>,
+    hashes : HashMap<HashId, (HashId, bool)>,
+    commits : HashMap<CommitId, (CommitId, bool)>,
+    projects : HashMap<ProjectId, (ProjectId, bool)>,
+    users_count : MergeCount,
+    paths_count : MergeCount,
+    hashes_count : MergeCount,
+    contents_count : MergeCount,
+    commits_count : MergeCount,
+    projects_count : MergeCount,
+}
+
+impl<T : MergeValidator> MergeContext<T> {
+    fn new(target : & DatastoreView, target_substore : StoreKind, source_substore : StoreKind, validator : T) -> MergeContext<T> {
+        return MergeContext {
+            target : Datastore::new(target.root.as_str(), false),
+            target_substore,
+            source_substore,
+            validator,
+            users : HashMap::new(),
+            paths : HashMap::new(),
+            hashes : HashMap::new(),
+            commits : HashMap::new(),
+            projects : HashMap::new(),
+            users_count : MergeCount::new(),
+            paths_count : MergeCount::new(),
+            hashes_count : MergeCount::new(),
+            contents_count : MergeCount::new(),
+            commits_count : MergeCount::new(),
+            projects_count : MergeCount::new(),
+        };
     }
 
-    pub fn commits_info(& self, substore : StoreKind) -> Table<db::Store<CommitInfo, CommitId>> {
-        return Table::new(db::Store::new(& self.root, & DatastoreView2::substore_table_filename(substore, Substore::COMMITS_INFO), true));
+    fn translate_user(& self, src_id : UserId) -> UserId {
+        if let Some((target_id, _)) = self.users.get(& src_id) {
+            return *target_id;
+        } else {
+            // TODO report that the user does not exist as a warning
+            return UserId::NONE;
+        }
     }
 
-    pub fn commits_metadata(& self, substore : StoreKind) -> Table<db::LinkedStore<Metadata, CommitId>> {
-        return Table::new(db::LinkedStore::new(& self.root, & DatastoreView2::substore_table_filename(substore, Substore::COMMITS_METADATA), true));
+    fn translate_commit(& self, src_id : CommitId) -> CommitId {
+        if let Some((target_id, _)) = self.commits.get(& src_id) {
+            return *target_id;
+        } else {
+            // TODO report that the user does not exist as a warning
+            return CommitId::NONE;
+        }
     }
 
-    pub fn hashes(& self, substore : StoreKind) -> Table<db::Mapping<SHA, HashId>> {
-        return Table::new(db::Mapping::new(& self.root, & DatastoreView2::substore_table_filename(substore, Substore::HASHES), true));
+    fn translate_path(& self, src_id : PathId) -> PathId {
+        if let Some((target_id, _)) = self.paths.get(& src_id) {
+            return *target_id;
+        } else {
+            // TODO report that the user does not exist as a warning
+            return PathId::NONE;
+        }
     }
 
-    pub fn contents(& self, substore : StoreKind, contents_kind : ContentsKind) -> Table<db::SplitStorePart<FileContents, HashId>> {
-        return Table::new(db::SplitStorePart::new(& self.root, & DatastoreView2::substore_table_filename(substore, Substore::HASHES), contents_kind,true));
+    fn translate_hash(& self, src_id : HashId) -> HashId {
+        if let Some((target_id, _)) = self.hashes.get(& src_id) {
+            return *target_id;
+        } else {
+            // TODO report that the user does not exist as a warning
+            return HashId::NONE;
+        }
     }
 
-    pub fn paths(& self, substore : StoreKind) -> Table<db::Mapping<SHA, PathId>> {
-        return Table::new(db::Mapping::new(& self.root, & DatastoreView2::substore_table_filename(substore, Substore::PATHS), true));
+    fn translate_change(& self, (path_id, hash_id) : (PathId, HashId)) -> (PathId, HashId) {
+        return (
+            self.translate_path(path_id),
+            self.translate_hash(hash_id)
+        );
     }
 
-    pub fn paths_strings(& self, substore : StoreKind) -> Table<db::Store<PathString, PathId>> {
-        return Table::new(db::Store::new(& self.root, & DatastoreView2::substore_table_filename(substore, Substore::PATHS_STRINGS), true));
+}
+
+/** A simple trait that validates whether given ids from the source datastore are to be merged into the target. 
+ */
+pub trait MergeValidator {
+    fn valid_project(& self, id : ProjectId) -> bool;
+    fn valid_commit(& self, id : CommitId) -> bool;
+    fn valid_hash(& self, id : HashId) -> bool;
+    fn valid_contents(& self, id : HashId) -> bool;
+    fn valid_path(& self, id : PathId) -> bool;
+    fn valid_user(& self, id : UserId) -> bool;
+}
+
+/** A trivial validator that validates everything
+ */
+pub struct ValidateAll {
+}
+
+impl MergeValidator for ValidateAll {
+    fn valid_project(& self, _id : ProjectId) -> bool {
+        return true;
     }
 
-    pub fn users(& self, substore : StoreKind) -> Table<db::IndirectMapping<String, UserId>> {
-        return Table::new(db::IndirectMapping::new(& self.root, & DatastoreView2::substore_table_filename(substore, Substore::USERS), true));
+    fn valid_commit(& self, _id : CommitId) -> bool {
+        return true;
     }
 
-    pub fn users_metadata(& self, substore : StoreKind) -> Table<db::LinkedStore<Metadata, UserId>> {
-        return Table::new(db::LinkedStore::new(& self.root, & DatastoreView2::substore_table_filename(substore, Substore::USERS_METADATA), true));
+    fn valid_hash(& self, _id : HashId) -> bool {
+        return true;
     }
 
-
-
-    fn table_filename(table : & str) -> String {
-        return format!("{}", table);
+    fn valid_contents(& self, _id : HashId) -> bool {
+        return true;
     }
 
-    fn substore_table_filename(kind : StoreKind, table : & str) -> String {
-        return format!("{:?}-{}", kind, table);
+    fn valid_path(& self, _id : PathId) -> bool {
+        return true;
     }
+
+    fn valid_user(& self, _id : UserId) -> bool {
+        return true;
+    }
+
 }
 
 
@@ -394,6 +595,7 @@ impl DatastoreView2 {
 
 
 
+/*
 use crate::settings::SETTINGS;
 use crate::db::Indexable;
 //use crate::db::Id;
@@ -1277,182 +1479,7 @@ impl std::fmt::Display for Summary {
 
  */
 
-
- /** Merger of two substores. 
-  
-     Merges the optionally filtered elements from the source substore to the target substore.
-
-     Note that the target substore must be from a datastore opened via the append method. 
-  */
-struct SubstoreMerger<'a> {
-   target : &'a SubstoreView<'a>,
-   source : &'a SubstoreView<'a>,
-   projects : HashMap<ProjectId, (ProjectId, bool)>,
-   commits : HashMap<CommitId, (CommitId, bool)>,
-   hashes : HashMap<HashId, (HashId, bool)>,
-   contents : HashSet<HashId>, // we only need hashset here as the translation can be used from hashes
-   paths : HashMap<PathId, (PathId, bool)>,
-   users : HashMap<UserId, (UserId, bool)>,
-}
-
 impl<'a> SubstoreMerger<'a> {
-    pub fn new(target : &'a SubstoreView<'a>, source : &'a SubstoreView<'a>) -> SubstoreMerger<'a> {
-        return SubstoreMerger{
-            target, 
-            source,
-            projects : HashMap::new(),
-            commits : HashMap::new(),
-            hashes : HashMap::new(),
-            contents : HashSet::new(), 
-            paths : HashMap::new(),
-            users : HashMap::new()
-        };
-    }
-
-    pub fn add_project(& mut self, id : ProjectId) {
-        self.projects.insert(id, (ProjectId::NONE, false));
-    }
-
-    pub fn add_commit(& mut self, id : CommitId) {
-        self.commits.insert(id, (CommitId::NONE, false));
-    }
-
-    pub fn add_hash(& mut self, id : HashId) {
-        self.hashes.insert(id, (HashId::NONE, false));
-    }
-
-    pub fn add_contents(& mut self, id : HashId) {
-        self.add_hash(id);
-        self.contents.insert(id);
-    }
-
-    pub fn add_path(& mut self, id : PathId) {
-        self.paths.insert(id, (PathId::NONE, false));
-    }
-
-    pub fn add_user(& mut self, id : UserId) {
-        self.users.insert(id, (UserId::NONE, false));
-    }
-
-    /** Merges the selected parts from the source substore to the target.
-     
-        
-     */
-    pub fn merge(& mut self, sp : & Savepoint) {
-        // this is the order
-        self.merge_users(sp);
-        self.merge_paths(sp);
-        self.merge_hashes(sp);
-        self.merge_contents(sp);
-        self.merge_commits(sp);
-        self.merge_projects(sp);
-    }
-
-    fn merge_users(& mut self, sp : & Savepoint) {
-        // load user mappings
-        let mut users = self.target.users();
-        users.guard.load();
-        for (src_id, email) in self.source.users().iter(sp) {
-            self.users.entry(src_id).and_modify(|e| {
-                *e = users.guard.get_or_create(& email);
-            });
-        }
-        users.guard.clear();
-        // merge users metadata
-        let mut commits_metadata = self.target.commits_metadata();
-        for (src_id, mtd) in self.source.commits_metadata().iter(sp) {
-            // only add the information *if* there is a new mapping 
-            if let Some((target_id, true)) = self.commits.get(& src_id) {
-                commits_metadata.guard.set(*target_id, & mtd);
-            }
-        }
-    }
-
-    fn merge_paths(& mut self, sp : & Savepoint) {
-        // load path mappings
-        let mut paths = self.target.paths();
-        paths.guard.load();
-        for (src_id, path_hash) in self.source.paths().iter(sp) {
-            self.paths.entry(src_id).and_modify(|e| {
-                *e = paths.guard.get_or_create(& path_hash);
-            });
-        }
-        paths.guard.clear();
-        // merge path strings
-        let mut path_strings = self.target.paths_strings();
-        for (src_id, path) in self.source.paths_strings().iter(sp) {
-            // only add the information *if* there is a new mapping 
-            if let Some((target_id, true)) = self.paths.get(& src_id) {
-                path_strings.guard.set(*target_id, & path);
-            }
-        }
-    }
-
-    fn merge_hashes(& mut self, sp : & Savepoint) {
-        // load hashes mappings
-        let mut hashes = self.target.hashes();
-        hashes.guard.load();
-        for (src_id, hash) in self.source.hashes().iter(sp) {
-            self.hashes.entry(src_id).and_modify(|e| {
-                *e = hashes.guard.get_or_create(& hash);
-            });
-        }
-        hashes.guard.clear();
-    }
-
-    fn merge_contents(& mut self, sp : & Savepoint) { 
-        // add the contents if they have been selected *and* are new
-        let mut contents = self.target.contents();
-        for (src_id, contents_kind, raw_contents) in self.source.contents().iter(sp) {
-            if self.contents.contains(& src_id) {
-                if let Some((target_id, true)) = self.hashes.get(& src_id) {
-                    contents.guard.set(*target_id, contents_kind, & raw_contents);
-                }
-            }
-        }
-        // merge contents metadata
-        let mut contents_metadata = self.target.contents_metadata();
-        for (src_id, mtd) in self.source.contents_metadata().iter(sp) {
-            if self.contents.contains(& src_id) {
-                if let Some((target_id, true)) = self.hashes.get(& src_id) {
-                    contents_metadata.guard.set(*target_id, & mtd);
-                }
-            }
-        }
-    }
-
-    fn merge_commits(& mut self, sp : & Savepoint) {
-        // load commit mappings
-        let mut commits = self.target.commits();
-        commits.guard.load();
-        // now iterate over source commits and add those that have been filtered, remembering their new id and whether they are new
-        for (src_id, hash) in self.source.commits().iter(sp) {
-            self.commits.entry(src_id).and_modify(|e| {
-                *e = commits.guard.get_or_create(& hash);
-            });
-        }
-        commits.guard.clear();
-        // now merge commits info for the commits we store
-        let mut commits_info = self.target.commits_info();
-        for (src_id, mut cinfo) in self.source.commits_info().iter(sp) {
-            // only add the information *if* there is a new mapping 
-            if let Some((target_id, true)) = self.commits.get(& src_id) {
-                cinfo.committer = self.translate_user(cinfo.committer);
-                cinfo.author = self.translate_user(cinfo.author);
-                cinfo.parents = cinfo.parents.iter().map(|x| self.translate_commit(*x)).collect();
-                cinfo.changes = cinfo.changes.iter().map(|x| self.translate_change((*x.0, *x.1))).collect();
-                commits_info.guard.set(*target_id, & cinfo);
-            }
-        }
-        // and do the same for commits metadata
-        let mut commits_metadata = self.target.commits_metadata();
-        for (src_id, mtd) in self.source.commits_metadata().iter(sp) {
-            // only add the information *if* there is a new mapping 
-            if let Some((target_id, true)) = self.commits.get(& src_id) {
-                commits_metadata.guard.set(*target_id, & mtd);
-            }
-        }
-    }
 
     /** Merges projects. 
      
@@ -1524,48 +1551,6 @@ impl<'a> SubstoreMerger<'a> {
 
     }
 
-    fn translate_user(& self, src_id : UserId) -> UserId {
-        if let Some((target_id, _)) = self.users.get(& src_id) {
-            return *target_id;
-        } else {
-            // TODO report that the user does not exist as a warning
-            return UserId::NONE;
-        }
-    }
-
-    fn translate_commit(& self, src_id : CommitId) -> CommitId {
-        if let Some((target_id, _)) = self.commits.get(& src_id) {
-            return *target_id;
-        } else {
-            // TODO report that the user does not exist as a warning
-            return CommitId::NONE;
-        }
-    }
-
-    fn translate_path(& self, src_id : PathId) -> PathId {
-        if let Some((target_id, _)) = self.paths.get(& src_id) {
-            return *target_id;
-        } else {
-            // TODO report that the user does not exist as a warning
-            return PathId::NONE;
-        }
-    }
-
-    fn translate_hash(& self, src_id : HashId) -> HashId {
-        if let Some((target_id, _)) = self.hashes.get(& src_id) {
-            return *target_id;
-        } else {
-            // TODO report that the user does not exist as a warning
-            return HashId::NONE;
-        }
-    }
-
-    fn translate_change(& self, (path_id, hash_id) : (PathId, HashId)) -> (PathId, HashId) {
-        return (
-            self.translate_path(path_id),
-            self.translate_hash(hash_id)
-        );
-    }
 
 
 
