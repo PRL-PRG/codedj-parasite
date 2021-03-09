@@ -52,6 +52,12 @@ Create a GitHub token file, eg:
 Parasite needs at least one token to work. You can generate a token for your GH account by following the instructions 
 [here](https://docs.github.com/en/github/authenticating-to-github/creating-a-personal-access-token).
 
+**Quickfix** To avoid an error later on, create a scratch space for cloning GH repos.  
+
+```
+mkdir -p /data/djcode/example-dataset/repo_clones
+```
+
 The next step is to enter *interactive* console in Parasite. Provide a path to the GitHub token file via the `ght` flag. You can also 
 specify the number of threads that the downloader will use with the `n` flag (here we use 8).
 
