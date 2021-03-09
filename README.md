@@ -13,6 +13,74 @@ To build, clone the repository and then run the following command:
 
 Parasite's executable can then be found in `target/release`.
 
+# Getting started
+
+To create a basic dataset, first create a directory that will contain the data.
+
+```
+mkdir -p /data/djcode/example-dataset/
+```
+
+This can be anywhere on your disk, but be aware that datasets tend to be large.
+
+Next, specify the list of repositories to include in the dataset:
+
+```
+parasite --datastore /data/djcode/example-dataset/ add https://github.com/nodejs/node.git
+parasite --datastore /data/djcode/example-dataset/ add https://github.com/pixijs/pixi.js.git
+parasite --datastore /data/djcode/example-dataset/ add https://github.com/angular/angular.git
+parasite --datastore /data/djcode/example-dataset/ add https://github.com/apache/airflow.git
+parasite --datastore /data/djcode/example-dataset/ add https://github.com/facebook/react.git
+parasite --datastore /data/djcode/example-dataset/ add https://github.com/vuejs/vue.git
+parasite --datastore /data/djcode/example-dataset/ add https://github.com/xonsh/xonsh.git
+parasite --datastore /data/djcode/example-dataset/ add https://github.com/meteor/meteor.git
+parasite --datastore /data/djcode/example-dataset/ add https://github.com/3b1b/manim.git
+parasite --datastore /data/djcode/example-dataset/ add https://github.com/s0md3v/photon.git
+```
+
+Create a GitHub token file, eg:
+
+`vim /data/djcode/ghtokens.csv`
+ 
+ The contents of this file should be one column with the header `token` containing a list of GitHub OAuth tokens, 
+ one on each line. For example:
+
+    token
+    fa56454....
+    hj73647.... 
+    
+Parasite needs at least one token to work. You can generate a token for your GH account by following the instructions 
+[here](https://docs.github.com/en/github/authenticating-to-github/creating-a-personal-access-token).
+
+The next step is to enter *interactive* console in Parasite. Provide a path to the GitHub token file via the `ght` flag. You can also 
+specify the number of threads that the downloader will use with the `n` flag (here we use 8).
+
+```
+parasite --datastore /data/djcode/example-dataset/ -ght /data/djcode/ghtokens.csv -n 8 --interactive  
+```
+
+![](img/interactive.png)
+
+In *interactive* console: execute the `loadall` command to load substore information into memory.
+
+```
+ > loadall 
+```
+
+![](img/loadall.png)
+
+Then, also in *interactive* console: execute `updateall` to start the downloader. This will cause parasite to download, 
+process and store information about each added repository using 8 threads.
+
+```
+ > updateall
+```
+
+![](img/updateall.png)
+
+Wait until the download completes (about 15 minutes for the example dataset). Exit the downloader (`^C`). The example 
+dataset is ready for querying. 
+
 # Usage
 
 Parasite can be executed using the `parasite` command and expects the following arguments:
