@@ -60,7 +60,7 @@ impl Github {
                 ct.perform()?;
             }
             let rhdr = helpers::to_string(& response_headers);
-            if rhdr.starts_with("HTTP/1.1 200 OK") || rhdr.starts_with("HTTP/1.1 301") || rhdr.starts_with("HTTP/2 200 OK") || rhdr.starts_with("HTTP/2 301") {
+            if rhdr.starts_with("HTTP/1.1 200 OK") || rhdr.starts_with("HTTP/1.1 301") || rhdr.starts_with("HTTP/2 200") || rhdr.starts_with("HTTP/2 301") {
                 let result = json::parse(& helpers::to_string(& response));
                 match result {
                     Ok(value) => return Ok(value),
