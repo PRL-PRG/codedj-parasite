@@ -59,8 +59,8 @@ impl Github {
                 })?;
                 ct.perform()?;
             }
-            let rhdr = helpers::to_string(& response_headers);
-            if rhdr.starts_with("HTTP/1.1 200 OK") || rhdr.starts_with("HTTP/1.1 301") || rhdr.starts_with("HTTP/2 200") || rhdr.starts_with("HTTP/2 301") {
+            let rhdr = helpers::to_string(& response_headers).to_lowercase();
+            if rhdr.starts_with("http/1.1 200") || rhdr.starts_with("http/1.1 301") || rhdr.starts_with("http/2 200") || rhdr.starts_with("http/2 301") {
                 let result = json::parse(& helpers::to_string(& response));
                 match result {
                     Ok(value) => return Ok(value),
@@ -68,7 +68,7 @@ impl Github {
                         return Err(std::io::Error::new(std::io::ErrorKind::Other, "Cannot parse json result"));
                     }
                 }
-            } else if rhdr.starts_with("HTTP/1.1 401") || rhdr.starts_with("HTTP/1.1 403") || rhdr.starts_with("HTTP/2 401") || rhdr.starts_with("HTTP/2 403") {
+            } else if rhdr.starts_with("http/1.1 401") || rhdr.starts_with("http/1.1 403") || rhdr.starts_with("http/2 401") || rhdr.starts_with("http/2 403") {
                 if rhdr.contains("x-ratelimit-remaining: 0") {
                     // move to next token
                     self.tokens.lock().unwrap().next_token(token.1);
@@ -76,7 +76,7 @@ impl Github {
                 } else {
                     return Err(std::io::Error::new(std::io::ErrorKind::Other, rhdr.split("\n").next().unwrap()));
                 }
-            } else if rhdr.starts_with("HTTP/ ") {
+            } else{
                 return Err(std::io::Error::new(std::io::ErrorKind::Other, rhdr.split("\n").next().unwrap()));
             }
             attempts += 1;
