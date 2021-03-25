@@ -2,11 +2,21 @@ Parasite is a perpetual git & github scrapper that maintains a datastore of down
 
 # Setup
 
-Rust must be installed in latest version. The following packages are required on Ubuntu, other systems will be similar. Only Linux is supported. 
+## Dependencies
+Rust must be installed in latest version.
+
+### Ubuntu
 
     sudo apt-get install libssl-dev libgit2-dev cmake pkg-config libicu-dev zlib1g-dev libcurl4-gnutls-dev ruby-dev cloc
-    gem install github-linguist    
+    gem install github-linguist
+    
+### OSX
 
+    brew install openssl libgit2 cmake cloc ruby
+    sudo gem install charlock_holmes -- --with-icu-dir=/usr/local/opt/icu4c --with-cxxflags=‘-Wno-reserved-user-defined-literal -std=c++11’
+    gem install github-linguist --user-install
+
+# Build
 To build, clone the repository and then run the following command:
 
     cargo build --release
