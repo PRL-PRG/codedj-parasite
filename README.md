@@ -2,15 +2,15 @@ Parasite is a perpetual git & github scrapper that maintains a datastore of down
 
 # Setup
 
-## Dependencies
 Rust must be installed in latest version.
 
-### Ubuntu
+## Ubuntu
 
     sudo apt-get install libssl-dev libgit2-dev cmake pkg-config libicu-dev zlib1g-dev libcurl4-gnutls-dev ruby-dev cloc
     gem install github-linguist
     
-### OSX
+## OSX
+Works with Rosetta2 on chip M1
 
     brew install openssl libgit2 cmake cloc ruby
     sudo gem install charlock_holmes -- --with-icu-dir=/usr/local/opt/icu4c --with-cxxflags=‘-Wno-reserved-user-defined-literal -std=c++11’
