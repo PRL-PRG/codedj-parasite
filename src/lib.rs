@@ -435,8 +435,109 @@ impl DatastoreMerger {
         }
     }
 
+    /** Merges projects from the source dataset to. 
+
+        If a project exists in target, it's ignored. Projects that have multiple updates will only keep the latest update. 
+     */
     fn merge_projects<T : MergeValidator>(& mut self, context : & mut MergeContext<T>) {
-        
+        let mut projects = HashMap::<ProjectId, ProjectId>::new();
+        // only add projects that have completely new urls, i.e. this is a two pass step. First we create list of all projects that have only new urls and then add these projects and all of their urls
+        context.target.load_all_project_urls();
+        {
+            let mut new_projects = HashSet::<ProjectId>::new();
+            let mut existing_projects = HashSet::<ProjectId>::new();
+            {
+                let target_urls = context.target.project_urls.lock().unwrap();
+                for (project_id, url) in self.source.project_urls() {
+                    if context.validator.valid_project(project_id) {
+                        // if the url exists in target flag the project as existing
+                        if target_urls.contains(& url) {
+                            existing_projects.insert(project_id);
+                            new_projects.remove(& project_id);
+                        // otherwise if the project is not marked as existing, add it to new projects
+                        } else if ! existing_projects.contains(& project_id) {
+                            new_projects.insert(project_id);
+                        }
+                    }
+                }
+            }
+            for (project_id, url) in self.source.project_urls() {
+                if new_projects.contains(& project_id) { 
+                    if let Some(target_id) = projects.get(& project_id) {
+                        context.target.update_project(* target_id, & url);
+                    } else {
+                        projects.insert(project_id, context.target.add_project(&url).unwrap());
+                    }
+                }
+            }
+        }
+        // now do project substores - we only take the latest substore and we assume that the latest substore is the source substore. If not, the data is inconsistent and a warning should be reported. To do this we can actually seek reads
+        {
+            let mut latest_substore = HashMap::<ProjectId, StoreKind>::new();
+            for (source_id, substore) in self.source.project_substores() {
+                if projects.contains_key(& source_id) {
+                    latest_substore.insert(source_id, substore);
+                }
+            }
+            // if the latest substore is not the source substore, report error and remove the project, also remove projects that do not have substores defined, this will leave the project url in the target, so that it can be analyzed later
+            projects.retain(|source_id, _| {
+                if let Some(kind) = latest_substore.get(source_id) {
+                    if *kind == context.target_substore {
+                        return true;
+                    } else {
+                        // REPORT invalid substore for project
+                    }
+                } else {
+                    // REPORT no substore given for project 
+                }
+                return false;
+            });
+            // write substore information for the surviving projects
+            let mut target_substores = context.target.project_substores.lock().unwrap();
+            for (_, target_id) in projects.iter() {
+                target_substores.set(*target_id, & context.target_substore);
+            }
+        }
+        // project updates - only take the latest updates
+        {
+            let mut latest_update = HashMap::<ProjectId, ProjectLog>::new();
+            for (source_id, log) in self.source.project_updates() {
+                if projects.contains_key(& source_id) {
+                    latest_update.insert(source_id, log);
+                }
+            }
+            let mut target_updates = context.target.project_updates.lock().unwrap();
+            for (source_id, log) in latest_update {
+                target_updates.set(projects[& source_id], & log);
+            }
+        }
+        // project heads - only take latest change as well
+        {
+            let mut latest_heads = HashMap::<ProjectId, ProjectHeads>::new();
+            for (source_id, heads) in self.source.project_heads() {
+                if projects.contains_key(& source_id) {
+                    latest_heads.insert(source_id, heads);
+                }
+            }
+            let mut target_heads = context.target.project_heads.lock().unwrap();
+            for (source_id, heads) in latest_heads {
+                let translated_heads : ProjectHeads = heads.iter().map(|(name, (commit_id, sha))|{
+                    return (name.clone(),  (context.translate_commit(*commit_id), *sha));
+                }).collect();
+                target_heads.set(projects[&source_id], & translated_heads);
+            }
+            }
+        // and finally, merge metadata, since we do not know what is in metadata, we'll merge them all
+        {
+            let mut projects_metadata = context.target.project_metadata.lock().unwrap();
+            for (source_id, mtd) in self.source.project_metadata() {
+                // only add the information *if* there is a new mapping 
+                if let Some(target_id) = projects.get(& source_id) {
+                    projects_metadata.set(*target_id, & mtd);
+                }
+            }
+    
+        }
     }
 
 }
@@ -472,7 +573,7 @@ struct MergeContext<T : MergeValidator> {
     paths : HashMap<PathId, (PathId, bool)>,
     hashes : HashMap<HashId, (HashId, bool)>,
     commits : HashMap<CommitId, (CommitId, bool)>,
-    projects : HashMap<ProjectId, (ProjectId, bool)>,
+    //projects : HashMap<ProjectId, (ProjectId, bool)>,
     users_count : MergeCount,
     paths_count : MergeCount,
     hashes_count : MergeCount,
@@ -492,7 +593,7 @@ impl<T : MergeValidator> MergeContext<T> {
             paths : HashMap::new(),
             hashes : HashMap::new(),
             commits : HashMap::new(),
-            projects : HashMap::new(),
+            //projects : HashMap::new(),
             users_count : MergeCount::new(),
             paths_count : MergeCount::new(),
             hashes_count : MergeCount::new(),
