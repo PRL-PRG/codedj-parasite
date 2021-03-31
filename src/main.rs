@@ -83,6 +83,10 @@ fn execute_command() {
             SETTINGS.command.get(2).unwrap(), // source substore
             SETTINGS.command.get(3).unwrap() // target substore
         ),
+        "merge-all" => datastore_merge_all(
+            SETTINGS.command.get(1).unwrap(), // source path
+            SETTINGS.command.get(2).unwrap() // target substore
+        ),
         // example commands
         "active-projects" => example_active_projects(
             SETTINGS.command.get(1).map(|x| { x.parse::<i64>().unwrap() }).unwrap_or(90 * 24 * 3600)
@@ -193,16 +197,31 @@ fn datastore_update_project(project : & str, force_opt : Option<& String>) {
 /** Merges specific substore of given source datastore to itself. 
  */
 
- fn datastore_merge(source_path : & str, source_substore : & str, target_substore : & str) {
-     // TODO check that we are not merging same substore of same datastore
-     // TODO can we actually merge same datastore but different substores?
+fn datastore_merge(source_path : & str, source_substore : & str, target_substore : & str) {
+    // TODO check that we are not merging same substore of same datastore
+    // TODO can we actually merge same datastore but different substores?
     let mut merger = DatastoreMerger::new(& SETTINGS.datastore_root, source_path);
     merger.merge_substore(
         StoreKind::from_string(target_substore).unwrap(),
         StoreKind::from_string(source_substore).unwrap(),
         ValidateAll::new(),
     );
- }
+}
+
+/** Merges all substores from source to given substore in target.
+ */
+fn datastore_merge_all(source_path : & str, target_substore : & str) {
+    // TODO check that we are not merging same substore of same datastore
+    // TODO can we actually merge same datastore but different substores?
+    let mut merger = DatastoreMerger::new(& SETTINGS.datastore_root, source_path);
+    for substore in StoreKind::all() {
+        merger.merge_substore(
+            StoreKind::from_string(target_substore).unwrap(),
+            substore,
+            ValidateAll::new(),
+        );
+    }
+}
 
 /** Displays active projects per substore. 
  

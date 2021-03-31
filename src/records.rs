@@ -213,6 +213,7 @@ impl StoreKind {
      */
     pub fn from_string(name : & str) -> Option<StoreKind> {
         match name.to_lowercase().as_str() {
+            "generic" => Some(StoreKind::Generic),
             "small" | "smallprojects" => Some(StoreKind::SmallProjects),
             "c" => Some(StoreKind::C),
             "cpp" | "c++" => Some(StoreKind::Cpp),
