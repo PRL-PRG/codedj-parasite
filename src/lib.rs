@@ -465,10 +465,29 @@ impl DatastoreMerger {
         context.target.load_all_project_urls();
         {
             let mut new_projects = HashSet::<ProjectId>::new();
+            {
+                // first get all projects that are marked as valid that currently belong to the source substore
+                let mut latest_substore = HashMap::<ProjectId, StoreKind>::new();
+                for (source_id, substore) in self.source.project_substores() {
+                    latest_substore.insert(source_id, substore);
+                }
+                for (id, substore) in latest_substore.iter() {
+                    if *substore == context.source_substore {
+                        new_projects.insert(*id);
+                    }
+                }
+                println!("    total:    {}", latest_substore.len());
+                println!("    substore: {}", new_projects.len());
+            }
             let mut existing_projects = HashSet::<ProjectId>::new();
             {
                 let target_urls = context.target.project_urls.lock().unwrap();
                 for (project_id, url) in self.source.project_urls() {
+                    // if the project belongs to a different  substore, or is actually in existing projects, don't do anything with it
+                    if ! new_projects.contains(& project_id) {
+                        continue;
+                    }
+                    // if it is valid project
                     if context.validator.valid_project(project_id) {
                         // if the url exists in target flag the project as existing
                         if target_urls.contains(& url) {
@@ -494,7 +513,6 @@ impl DatastoreMerger {
                 }
             }
         }
-        println!("    total:    {}", context.projects_count.total);
         println!("    existing: {}", context.projects_count.existing);
         println!("    new:      {}", context.projects_count.new);
         println!("merging projects substore information...");
