@@ -9,7 +9,8 @@
             "type": "lldb",
             "request": "launch",
             "program": "${workspaceFolder}/target/debug/parasite",
-            "args": ["-i", "-ds", "/home/peta/test-julia"],
+            //"args": ["-i", "-ds", "/home/peta/test-julia"],
+            "args": ["-ds", "/home/peta/test-julia", "convert-1", "/mnt/data/v1","/mnt/data/v3"],
             "cwd": "${workspaceFolder}",
             "env" : {
                 "RUST_BACKTRACE" : "1"

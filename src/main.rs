@@ -1,4 +1,7 @@
 use std::collections::*;
+use std::io::Read;
+use std::fs::*;
+use byteorder::*;
 
 #[macro_use]
 extern crate lazy_static;
@@ -333,6 +336,8 @@ fn example_show_project(url : & str) {
         println!("ERROR: No project matches the given url {}", url);
     }
 }
+
+
 
 fn datastore_contents_compression() {
     let ds = DatastoreView::from(& SETTINGS.datastore_root);

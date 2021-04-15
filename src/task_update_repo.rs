@@ -219,7 +219,7 @@ impl<'a> RepoUpdater<'a> {
         let path = std::path::Path::new(& self.local_folder);
         if path.exists() {
             std::fs::remove_dir_all(& path).unwrap();
-        }
+        } 
         // create the repository and add its remote
         let repo = git2::Repository::init_bare(self.local_folder.clone())?;
         let mut remote = repo.remote("dcd", & self.project.clone_url())?;

@@ -16,6 +16,10 @@ path = "src/main.rs"
 name = "ght-filter"
 path = "src/ght_filter.rs"
 
+[[bin]]
+name = "ecoop-artifact"
+path = "src/ecoop_artifact.rs"
+
 #[[bin]]
 #name = "dcd-view"
 #path = "src/dcd_view.rs"
@@ -41,3 +45,6 @@ num-traits = "0.2"
 # not this one, really, really bad dependencies
 #sysinfo = "0.15.0"
 lazy_static = "1.4.0"
+
+[profile.release]
+debug = true
