@@ -603,7 +603,7 @@ fn export(projects : & str, output_file : & str, max_time : Option<& std::string
 
 
 fn export_filtered_projects(dcd : & DatastoreView, filter : & str, output : & str, max_t : i64) {
-    let mut reader = csv::ReaderBuilder::new().has_headers(false).double_quote(false).escape(Some(b'\\')).from_path(filter).unwrap();
+    let mut reader = csv::ReaderBuilder::new().has_headers(true).double_quote(false).escape(Some(b'\\')).from_path(filter).unwrap();
     let filtered : HashSet<ProjectId> = reader.records().map(|x| {
         let record = x.unwrap();
         return ProjectId::from(record[0].parse::<u64>().unwrap());
