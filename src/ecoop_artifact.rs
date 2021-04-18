@@ -52,8 +52,8 @@ fn main() {
         ),
         "compact" => compact(
             SETTINGS.command.get(1).unwrap(), // input
-            SETTINGS.command.get(2).unwrap(), // output pl
-            SETTINGS.command.get(3).unwrap(), // output p
+            SETTINGS.command.get(2).unwrap(), // output p
+            SETTINGS.command.get(3).unwrap(), // output pl
         ),
         "export" => export(
             SETTINGS.command.get(1).unwrap(), // input projects (file or --all)
@@ -77,7 +77,9 @@ fn convert_project(id : u64, source_path : & str, ds : & Datastore, target_subst
     use crate::db::Id;
 
     let mut url = String::new();
-    let mut metadata = Vec::<(String, String)>::new();
+    let mut stars = 0;
+    let mut issues = 0;
+    let mut buggy_issues = 0;
     let mut heads = Vec::<(String, SHA)>::new();
     let mut ok = false;
     let mut reader = csv::ReaderBuilder::new()
@@ -106,7 +108,21 @@ fn convert_project(id : u64, source_path : & str, ds : & Datastore, target_subst
 
             },
             "meta" => {
-                metadata.push((record[3].to_owned(), record[4].to_owned()));
+                match & record[3] {
+                    "stars" => {
+                        stars = record[4].parse::<u64>().unwrap();
+
+                    },
+                    "ght_issue" => {
+                        issues = record[4].parse::<u64>().unwrap();
+
+                    },
+                    "ght_issue_bug" => {
+                        buggy_issues = record[4].parse::<u64>().unwrap();
+                    },
+                    _ => {}
+                }
+                //metadata.push((record[3].to_owned(), record[4].to_owned()));
             },
             "head" => {
                 if clear_heads {
@@ -130,16 +146,27 @@ fn convert_project(id : u64, source_path : & str, ds : & Datastore, target_subst
             ds.update_project_substore(target_id, target_substore);
 
             // translate the project heads (name -> (CommitID, SHA))
-            let target_heads : records::ProjectHeads = heads.iter().map(|(name, sha)| 
+            let target_heads : records::ProjectHeads = heads.iter().filter(|(name, sha)| commit_mapping.contains_key(sha)).map(|(name, sha)| 
             (name.to_owned(), (commit_mapping[sha], sha.to_owned()))
             ).collect();
             ds.update_project_heads(target_id, & target_heads);
 
             // add the metadata
+            ds.update_project_metadata_if_differ(
+                target_id,
+                records::Metadata::GITHUB_METADATA.to_owned(),
+                format!("{{ \"stargazers_count\" : {}, \"issues_count\" : {}, \"buggy_issues_count\" : {} }}", stars, issues, buggy_issues)
+            );
+            /*
             let mut pm = ds.project_metadata.lock().unwrap();
+            pm.set(target_id, & records::Metadata{
+                key = "".to_owned(),
+            });
+            */
+            /*
             for (key,value) in metadata {
                 pm.set(target_id, & records::Metadata{key, value})
-            }
+            }*/
 
             // and add the log
             ds.update_project_update_status(target_id, records::ProjectLog::Ok{time : helpers::now(), version : Datastore::VERSION});
@@ -177,6 +204,7 @@ fn convert_1(source_path : & str, target_substore : & str) {
     let mut hashes = HashMap::<HashId, HashId>::new();
     let mut commit_mapping = HashMap::<CommitId, CommitId>::new();
     let mut commit_hashes = HashMap::<SHA, CommitId>::new();
+    let mut valid_commits = HashSet::<u64>::new();
     {
         println!("Reading commit ids...");
         let mut reader = csv::ReaderBuilder::new()
@@ -230,12 +258,6 @@ fn convert_1(source_path : & str, target_substore : & str) {
             }
         }
         println!("    {} commit records loaded", commits.len());
-        println!("Adding users...");
-        for (_, ci) in commits.iter() {
-            users.insert(ci.committer, UserId::NONE);
-            users.insert(ci.author, UserId::NONE);
-        }
-        println!("    {} users found", users.len());
     }
     {
         println!("Loading commit messages...");
@@ -251,6 +273,7 @@ fn convert_1(source_path : & str, target_substore : & str) {
                         let ci = e.get_mut();
                         ci.message = helpers::to_string(& buffer);
                         msgs += 1;
+                        valid_commits.insert(id);
                     },
                     _ => {},
                 }
@@ -308,6 +331,7 @@ fn convert_1(source_path : & str, target_substore : & str) {
                             hashes.insert(hash_id, HashId::NONE);
                         }
                         changes += 1;
+                        valid_commits.insert(id);
                     },
                     _ => {
                         while num_changes > 0 {
@@ -323,6 +347,26 @@ fn convert_1(source_path : & str, target_substore : & str) {
         }
         println!("    {} changes commit records", changes);
     }
+    {
+        println!("purging commits...");
+        valid_commits.retain(|id| commits.contains_key(id));
+        commits.retain(|id, _| valid_commits.contains(id));
+        commit_ids.retain(|id, _| commits.contains_key(id));
+        commit_hashes.retain(|_, id| commits.contains_key(& u64::from(*id)));
+        println!("    {} commits", commits.len());
+        println!("    {} commit_ids", commit_ids.len());
+        println!("    {} commit_hashes", commit_hashes.len());
+        println!("Purging commit parents...");
+        for (_, ci) in commits.iter_mut() {
+            ci.parents.retain(|x| commit_ids.contains_key(& u64::from(*x)))
+        }
+    }
+    println!("Adding reachable users...");
+    for (_, ci) in commits.iter() {
+        users.insert(ci.committer, UserId::NONE);
+        users.insert(ci.author, UserId::NONE);
+    }
+    println!("    {} users found", users.len());
     // now add users & paths & hashes that were used in the commits
     {
         println!("Updating users...");
@@ -520,7 +564,7 @@ impl ProjectStats {
    }
 }
 
-fn compact(input : & str, output_pl : & str, output_p : & str) {
+fn compact(input : & str, output_p : & str, output_pl : & str) {
    let input_file = String::from(input);
    let mut fpl = File::create(output_pl).unwrap();
    let mut fp = File::create(output_p).unwrap();
@@ -623,12 +667,21 @@ fn export_projects(dcd : & DatastoreView, heads : HashMap<ProjectId, ProjectHead
     let mut commits = dcd.commits(StoreKind::Generic);
     let mut commits_info = dcd.commits_info(StoreKind::Generic);
     let mut paths = dcd.paths_strings(StoreKind::Generic);
+    let mut project_urls = dcd.project_urls();
     let mut path_langs = HashMap::<PathId, String>::new();
     for (pid, heads) in heads {
+        if pid != ProjectId::from(152834) {
+            continue;
+        }
+        println!("{}: {}", pid, project_urls.get(pid).unwrap().clone_url());
         let mut visited = HashSet::<CommitId>::new();
         let mut q : Vec<CommitId> = heads.iter().map(|(_, (id, _))| *id).collect();
+        for (name, (id, hash)) in heads.iter() {
+            println!("    {}: {} (id: {})", name, hash, id);
+        }
         while ! q.is_empty() {
             let id = q.pop().unwrap();
+            println!("    {}", id);
             if ! visited.contains(& id) {
                 let hash = commits.get(id).unwrap();
                 let ci = commits_info.get(id).unwrap();
@@ -641,6 +694,7 @@ fn export_projects(dcd : & DatastoreView, heads : HashMap<ProjectId, ProjectHead
                 // add parents
                 for p in ci.parents.iter() {
                     q.push(*p);
+                    println!("        {}", p);
                 }
                 visited.insert(id);
                 // and analyze the commit

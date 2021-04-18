@@ -289,7 +289,7 @@ fn example_show_project(url : & str) {
     // create the datastore and savepoint
     let ds = DatastoreView::from(& SETTINGS.datastore_root);
     // determine the ID of the project
-    let p = ds.project_urls().filter(|(_, p)| p.matches_url(url)).next();
+    let p = ds.project_urls().into_iter().filter(|(_, p)| p.matches_url(url)).next();
     if let Some((pid, purl)) = p {
         // get the project
         println!("Project id: {}, url: {}", pid, purl.clone_url());

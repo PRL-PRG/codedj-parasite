@@ -54,8 +54,8 @@ impl DatastoreView {
         };
     } 
 
-    pub fn project_urls(& self) -> impl Iterator<Item = (ProjectId, ProjectUrl)> {
-        return db::Store::new(& self.root, & DatastoreView::table_filename(Datastore::PROJECTS), true).into_iter();
+    pub fn project_urls(& self) -> impl Table<Id = ProjectId, Value = ProjectUrl>  {// impl Iterator<Item = (ProjectId, ProjectUrl)> {
+        return db::Store::new(& self.root, & DatastoreView::table_filename(Datastore::PROJECTS), true); //.into_iter();
     }
 
     pub fn project_substores(& self) -> impl Iterator<Item = (ProjectId, StoreKind)> {
