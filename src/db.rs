@@ -402,9 +402,11 @@ impl<T: Serializable<Item = T>, ID : Id> Store<T, ID> {
     pub fn new(root : & str, name : & str, readonly : bool) -> Store<T, ID> {
         let f;
         if readonly {
-            f = OpenOptions::new().read(true).open(format!("{}/{}.store", root, name)).unwrap();
+            f = OpenOptions::new().read(true).open(format!("{}/{}.store", root, name))
+                .expect(&format!("Error opening file {}/{}.store", root, name))
         } else {
-            f = OpenOptions::new().read(true).write(true).create(true).open(format!("{}/{}.store", root, name)).unwrap();
+            f = OpenOptions::new().read(true).write(true).create(true).open(format!("{}/{}.store", root, name))
+                .expect(&format!("Error creating file {}/{}.store", root, name));
         }
         let mut result = Store{
             indexer : Indexer::new(root, name, readonly),
