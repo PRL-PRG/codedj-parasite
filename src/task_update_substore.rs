@@ -19,7 +19,8 @@ pub (crate) fn task_update_substore(updater : & Updater, store : StoreKind, mode
         while i < total_projects {
             let id = ProjectId::from(i as u64);
             let pstore = updater.ds.get_project_substore(id);
-            if pstore == store || pstore == StoreKind::Unspecified {
+            // errors take *all* stores at once, and updates if the store is loaded
+            if pstore == store || pstore == StoreKind::Unspecified || mode == UpdateMode::Errors {
                 // its a possibly valid project, so determine the last time it was updated
                 if let Some(last_update) = updater.ds.get_project_last_update(id) {
                     if ! last_update.is_error() || mode == UpdateMode::Errors {
@@ -64,7 +65,7 @@ pub (crate) fn task_update_substore(updater : & Updater, store : StoreKind, mode
         if next_substore == StoreKind::Unspecified && mode == UpdateMode::Continuous {
             next_substore = StoreKind::from_number(0);
         }
-        if next_substore != StoreKind::Unspecified {
+        if next_substore != StoreKind::Unspecified && mode != UpdateMode::Errors {
             updater.schedule(Task::UpdateSubstore{store : next_substore, mode});
         }
     }
