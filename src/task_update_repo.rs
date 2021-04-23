@@ -141,10 +141,6 @@ impl<'a> RepoUpdater<'a> {
     fn can_be_updated(& mut self) -> bool {
         // check if there was error during the update, in which case we do not attempt to update the project again
         if let Some(last_update) = self.ds.get_project_last_update(self.id) {
-            match last_update {
-                ProjectLog::Error{time : _, version : _, error : _ } => return false,
-                _ => {}
-            }
             // if the version of the last update differs from current version of the datastore, we might need to do something special
             if Datastore::VERSION != last_update.version() {
                 self.new_version_update(last_update.version(), Datastore::VERSION);

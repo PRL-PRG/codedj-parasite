@@ -22,12 +22,12 @@ pub (crate) fn task_update_substore(updater : & Updater, store : StoreKind, mode
             if pstore == store || pstore == StoreKind::Unspecified {
                 // its a possibly valid project, so determine the last time it was updated
                 if let Some(last_update) = updater.ds.get_project_last_update(id) {
-                    if mode != UpdateMode::Errors || last_update.is_error() {
+                    if ! last_update.is_error() || mode == UpdateMode::Errors {
                         updater.schedule(Task::UpdateRepo{id, last_update_time : last_update.time()});
                         num_projects += 1;
                     }
                 } else {
-                    if mode == UpdateMode::Errors {
+                    if mode != UpdateMode::Errors {
                         updater.schedule(Task::UpdateRepo{id, last_update_time : 0});
                         num_projects += 1;
                     }
