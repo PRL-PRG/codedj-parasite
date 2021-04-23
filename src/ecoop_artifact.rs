@@ -22,17 +22,14 @@ mod task_update_substore;
 mod task_verify_substore;
 mod github;
 mod settings;
+#[allow(dead_code)]
 mod reporter;
 
 use datastore::*;
-use updater::*;
-use github::*;
 
 use parasite::*;
-use reporter::*;
 
 use settings::SETTINGS;
-use task_update_repo::*;
 
 /** The incremental downloader and command-line interface
  
@@ -74,8 +71,6 @@ fn main() {
 time,source,kind,key,value
  */
 fn convert_project(id : u64, source_path : & str, ds : & Datastore, target_substore : records::StoreKind, commit_mapping : & HashMap<SHA,records::CommitId>) -> Result<bool, Box<dyn std::error::Error>> {
-    use crate::db::Id;
-
     let mut url = String::new();
     let mut stars = 0;
     let mut issues = 0;
@@ -146,7 +141,7 @@ fn convert_project(id : u64, source_path : & str, ds : & Datastore, target_subst
             ds.update_project_substore(target_id, target_substore);
 
             // translate the project heads (name -> (CommitID, SHA))
-            let target_heads : records::ProjectHeads = heads.iter().filter(|(name, sha)| commit_mapping.contains_key(sha)).map(|(name, sha)| 
+            let target_heads : records::ProjectHeads = heads.iter().filter(|(_name, sha)| commit_mapping.contains_key(sha)).map(|(name, sha)| 
             (name.to_owned(), (commit_mapping[sha], sha.to_owned()))
             ).collect();
             ds.update_project_heads(target_id, & target_heads);
@@ -303,7 +298,7 @@ fn convert_1(source_path : & str, target_substore : & str) {
                         ci.parents.push(CommitId::from(parent_id));
                         records += 1;
                     },
-                    hash_map::Entry::Vacant(e) => { }
+                    hash_map::Entry::Vacant(_) => { }
                 }
             }
         }
@@ -704,7 +699,7 @@ fn export_projects(dcd : & DatastoreView, heads : HashMap<ProjectId, ProjectHead
     }
 }
 
-fn analyze_commit(pid : ProjectId, hash : SHA, ci : CommitInfo, f : & mut File, id : CommitId, max_t : i64, path_langs : & HashMap<PathId, String> ) {
+fn analyze_commit(pid : ProjectId, hash : SHA, ci : CommitInfo, f : & mut File, _id : CommitId, _max_t : i64, path_langs : & HashMap<PathId, String> ) {
     let is_bug = is_bugfixing_commit(& ci);
     let mut language_counts = HashMap::<String, u64>::new();
     for (path_id, _) in ci.changes.iter() {

@@ -1,7 +1,4 @@
 use std::collections::*;
-use std::io::Read;
-use std::fs::*;
-use byteorder::*;
 
 #[macro_use]
 extern crate lazy_static;
@@ -21,6 +18,7 @@ mod task_update_substore;
 mod task_verify_substore;
 mod github;
 mod settings;
+#[allow(dead_code)]
 mod reporter;
 
 use datastore::*;

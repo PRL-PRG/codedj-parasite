@@ -484,6 +484,17 @@ impl Updater {
                     self.display_prompt("Updating all substores , see task progress...");
                 }
             },
+            /* Retries projects that were marked as errors. 
+             */
+            "updateerrors" => {
+                if cmd.len() != 1 {
+                    self.display_error("Invalid arguments");
+                } else {
+                    self.schedule(Task::UpdateSubstore{store : StoreKind::from_number(0), mode : UpdateMode::Errors});
+                    self.display_prompt("Checking all errors , see task progress...");
+                }
+
+            },
             /* Continuously updates all projects store by store
              */
             "updatecontinuous" => {
@@ -622,6 +633,7 @@ pub enum UpdateMode {
     Single,
     All,
     Continuous,
+    Errors,
 }
 
 #[derive(Eq, PartialEq, Debug)] 

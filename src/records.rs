@@ -535,7 +535,13 @@ impl ProjectLog {
             ProjectLog::ChangeStore{time, version : _, new_kind : _ } => return *time,
             ProjectLog::Error{time, version : _, error: _ } => return *time,
         }
+    }
 
+    pub fn is_error(& self) -> bool {
+        match self {
+            ProjectLog::Error{time : _, version : _, error : _} => return true, 
+            _ => return false,
+        }
     }
 }
 
