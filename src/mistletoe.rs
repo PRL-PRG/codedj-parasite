@@ -31,10 +31,15 @@ fn main() {
         .subcommand(SubCommand::with_name("export-project")
             .about("Creates a copy of the given project storing all files in the datastore as they existed in the project")
             .arg(Arg::with_name("project")
-                .index(1)
-                .required(true)
+                .long("project")
+                .short("p")
                 .takes_value(true)
-                .help("Project to be copied"))
+                .help("name/url of the project to be exported"))
+            .arg(Arg::with_name("id")
+                .long("id")
+                .short("id")
+                .takes_value(true)
+                .help("Id of the project to be exported"))
             .arg(Arg::with_name("into")
                 .long("into")
                 .takes_value(true)
@@ -124,9 +129,13 @@ fn show_project(cmdline : & clap::ArgMatches, args : & clap::ArgMatches) {
 fn export_project(cmdline : & clap::ArgMatches, args : & clap::ArgMatches) {
     // create the datastore and savepoint
     let ds = DatastoreView::from(cmdline.value_of("datastore").unwrap_or("."));
+    let project = get_project_id(& ds, args);
+    /*
     let project = args.value_of("project").unwrap();
     let p = ds.project_urls().into_iter().filter(|(_, p)| p.matches_url(project)).next();
     if let Some((pid, purl)) = p {
+        */
+    if let Some(pid) = project {
         // get the project
         // determine the project's substore
         let substore = ds.project_substores().filter(|(id, _)| *id == pid).map(|(_, s)| s).last().unwrap();
@@ -152,7 +161,7 @@ fn export_project(cmdline : & clap::ArgMatches, args : & clap::ArgMatches) {
             }
         }
     } else {
-        println!("ERROR: No project matches the given url {}", project);
+        println!("ERROR: No matching project found");
     }
 }
 
@@ -167,7 +176,16 @@ fn pretty_timestamp(ts : i64) -> String {
 }
 
 
-
+fn get_project_id(ds : & DatastoreView, args : & clap::ArgMatches) -> Option<ProjectId> {
+    if let Some(id) = args.value_of("id") {
+        return Some(ProjectId::from(id.parse::<u64>().unwrap()));
+    } else if let Some(project) = args.value_of("project") {
+        if let Some((pid, _)) = ds.project_urls().into_iter().filter(|(_, p)| p.matches_url(project)).next() {
+            return Some(pid);
+        }
+    } 
+    return None;
+}
 
 fn get_project_main_branch(ds : & DatastoreView, pid : ProjectId) -> Option<String> {
     let metadata = ds.project_metadata();
