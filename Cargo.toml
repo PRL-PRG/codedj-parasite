@@ -4,25 +4,30 @@ version = "0.3.0"
 authors = ["peta <peta.maj82@gmail.com>"]
 edition = "2018"
 
+# Datastore access and merging API to be used from other rust programs (namely djanco). 
 [lib]
 name = "parasite"
 path = "src/lib.rs"
 
+# The actual parasite executable that runs the incremental downloader and deals with datastore updates. 
 [[bin]]
 name = "parasite"
 path = "src/main.rs"
 
+# Basic viewer and commandline interface to a parasite datastore.
+[[bin]]
+name = "mistletoe"
+path = "src/mistletoe.rs"
+
+# Helper application that provides some basic filtering of project URLs from GHTorrent data as seeding urls for the parasite downloader. 
 [[bin]]
 name = "ght-filter"
 path = "src/ght_filter.rs"
 
+# Helper commands for the ECOOP 2021 artifact of the our CodeDJ paper. For more details, see the artifact repository at https://github.com/PRL-PRG/codedj-ecoop-artifact
 [[bin]]
 name = "ecoop-artifact"
 path = "src/ecoop_artifact.rs"
-
-#[[bin]]
-#name = "dcd-view"
-#path = "src/dcd_view.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -34,7 +39,6 @@ crossbeam-channel="0.5.0"
 curl="0.4"
 json="0.12"
 chrono="0.4"
-#bincode="1.3.1"
 byteorder="1.3.4"
 rand="0.7"
 sha-1="0.9"
@@ -42,9 +46,8 @@ flate2="1.0"
 num = "0.3"
 num-derive = "0.3"
 num-traits = "0.2"
-# not this one, really, really bad dependencies
-#sysinfo = "0.15.0"
 lazy_static = "1.4.0"
+clap = "2.33.3"
 
 [profile.release]
 debug = true
