@@ -21,13 +21,16 @@ fn main() {
         .subcommand(SubCommand::with_name("show-project")
                     .about("Shows information about a given project in the datastore.")
                     .arg(Arg::with_name("project")
-                        .index(1)
-                        //.short("p")
-                        //.long("project")
-                        .required(true)
+                        .long("project")
+                        .short("p")
                         .takes_value(true)
-                        .help("the project to be displayed"))
-        )
+                        .help("name/url of the project to be exported"))
+                    .arg(Arg::with_name("id")
+                        .long("id")
+                        .short("id")
+                        .takes_value(true)
+                        .help("Id of the project to be exported"))
+            )
         .subcommand(SubCommand::with_name("export-project")
             .about("Creates a copy of the given project storing all files in the datastore as they existed in the project")
             .arg(Arg::with_name("project")
@@ -72,10 +75,10 @@ fn main() {
 fn show_project(cmdline : & clap::ArgMatches, args : & clap::ArgMatches) {
     // create the datastore and savepoint
     let ds = DatastoreView::from(cmdline.value_of("datastore").unwrap_or("."));
-    let project = args.value_of("project").unwrap();
-    let p = ds.project_urls().into_iter().filter(|(_, p)| { println!("{}", p.clone_url()); p.matches_url(project) }).next();
-    if let Some((pid, purl)) = p {
+    let project = get_project_id(& ds, args);
+    if let Some(pid) = project {
         // get the project
+        let purl = get_project_url(& ds, pid);
         println!("Project id: {}, url: {}", pid, purl.clone_url());
         // now get all log entries and filter those of our project
         let log : Vec<ProjectLog> = ds.project_updates().filter(|(log_id, _)| pid == *log_id ).map(|(_, p)| p).collect();
@@ -117,7 +120,7 @@ fn show_project(cmdline : & clap::ArgMatches, args : & clap::ArgMatches) {
             }
         }       
     } else {
-        println!("ERROR: No project matches the given url {}", project);
+        println!("ERROR: No matching project found");
     }
 }
 
@@ -185,6 +188,10 @@ fn get_project_id(ds : & DatastoreView, args : & clap::ArgMatches) -> Option<Pro
         }
     } 
     return None;
+}
+
+fn get_project_url(ds : & DatastoreView, id : ProjectId) -> ProjectUrl {
+    return ds.project_urls().get(id).unwrap();
 }
 
 fn get_project_main_branch(ds : & DatastoreView, pid : ProjectId) -> Option<String> {
