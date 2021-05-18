@@ -155,13 +155,16 @@ fn export_project(cmdline : & clap::ArgMatches, args : & clap::ArgMatches) {
         for x in reader.records() {
             let record = x.unwrap();
             let pid = ProjectId::from(record[col_id].parse::<u64>().unwrap());
+            println!("{}", pid);
             export_single_project(&ds, pid, & mut output);
         }
+        return;
     } else {
         let project = get_project_id(& ds, args);
         if let Some(pid) = project {
             export_single_project(& ds, pid, & mut output);
         }
+        return;
     }
     println!("ERROR: No matching project found");
 }
