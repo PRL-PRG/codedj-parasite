@@ -142,7 +142,7 @@ fn show_project(cmdline : & clap::ArgMatches, args : & clap::ArgMatches) {
 fn export_project(cmdline : & clap::ArgMatches, args : & clap::ArgMatches) {
     // create the datastore and savepoint
     let ds = DatastoreView::from(cmdline.value_of("datastore").unwrap_or("."));
-    let mut output = OpenOptions::new().write(true).create(true).open(cmdline.value_of("into").unwrap_or("export-project.csv")).unwrap();
+    let mut output = OpenOptions::new().write(true).create(true).open(args.value_of("into").unwrap_or("export-project.csv")).unwrap();
     writeln!(output, "pid,path,hash_id").unwrap();
     if let Some(projects) = args.value_of("projects") {
         println!("Exporting projects from {}", projects);
