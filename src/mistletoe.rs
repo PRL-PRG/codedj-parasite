@@ -1,6 +1,7 @@
 use std::time::{SystemTime, UNIX_EPOCH, Duration};
 use std::collections::*;
-
+use std::fs::{OpenOptions, File};
+use std::io::{Write};
 extern crate clap;
 use clap::{Arg, App, SubCommand};
 
@@ -43,10 +44,19 @@ fn main() {
                 .short("id")
                 .takes_value(true)
                 .help("Id of the project to be exported"))
+                .arg(Arg::with_name("projects")
+                .long("projects")
+                .takes_value(true)
+                .help("csv file that stores project ids to be exported"))
+            .arg(Arg::with_name("column")
+                .long("column")
+                .short("col")
+                .takes_value(true)
+                .help("column in the projects csv file to be used for the ids"))
             .arg(Arg::with_name("into")
                 .long("into")
                 .takes_value(true)
-                .help("Path into which the contents of the files will be saved"))
+                .help("Path into which the contents of the files will be saved, or where the summary will be written"))
             .arg(Arg::with_name("commit")
                 .required(false)
                 .takes_value(true)
@@ -132,44 +142,29 @@ fn show_project(cmdline : & clap::ArgMatches, args : & clap::ArgMatches) {
 fn export_project(cmdline : & clap::ArgMatches, args : & clap::ArgMatches) {
     // create the datastore and savepoint
     let ds = DatastoreView::from(cmdline.value_of("datastore").unwrap_or("."));
-    let project = get_project_id(& ds, args);
-    /*
-    let project = args.value_of("project").unwrap();
-    let p = ds.project_urls().into_iter().filter(|(_, p)| p.matches_url(project)).next();
-    if let Some((pid, purl)) = p {
-        */
-    if let Some(pid) = project {
-        // get the project
-        // determine the project's substore
-        let substore = ds.project_substores().filter(|(id, _)| *id == pid).map(|(_, s)| s).last().unwrap();
-        // let latest metadata and determine main branch
-        let main_branch = format!("refs/heads/{}", get_project_main_branch(& ds, pid).unwrap_or("master".to_owned()));
-        // now get the head commit
-        let mut commit : Option<CommitId> = None;
-        if let Some((_, heads)) = ds.project_heads().filter(|(id, _)| *id == pid).last() {
-            for (name, (id, _hash)) in heads.iter() {
-                if main_branch.eq(name) {
-                    commit = Some(*id);
-                    break;
-                }
-            }
-        }
-        // the csv line
-        println!("path,hash_id");
-        // we have the commit to checkout, perform the checkout
-        if let Some(id) = commit {
-            let changes = checkout_commit(& ds, id, substore);
-            for (path, hash) in changes {
-                println!("\"{}\",{}", path, hash); // hopefully enough escaping
-            }
+    let mut output = OpenOptions::new().read(true).open(cmdline.value_of("into").unwrap_or("export-project.csv")).unwrap();
+    writeln!(output, "pid,path,hash_id").unwrap();
+    if let Some(projects) = cmdline.value_of("projects") {
+        // read the csv 
+        let col_id = cmdline.value_of("column").unwrap_or("0").parse::<usize>().unwrap();
+        let mut reader = csv::ReaderBuilder::new()
+            .has_headers(true)
+            .double_quote(false)
+            .escape(Some(b'\\'))
+            .from_path(projects).unwrap();
+        for x in reader.records() {
+            let record = x.unwrap();
+            let pid = ProjectId::from(record[col_id].parse::<u64>().unwrap());
+            export_single_project(&ds, pid, & mut output);
         }
     } else {
-        println!("ERROR: No matching project found");
+        let project = get_project_id(& ds, args);
+        if let Some(pid) = project {
+            export_single_project(& ds, pid, & mut output);
+        }
     }
+    println!("ERROR: No matching project found");
 }
-
-
-
 
 /** Trivial pretty printer for unix epoch */
 fn pretty_timestamp(ts : i64) -> String {
@@ -208,6 +203,31 @@ fn get_project_main_branch(ds : & DatastoreView, pid : ProjectId) -> Option<Stri
         }
     }
     return None;
+}
+
+fn export_single_project(ds : & DatastoreView, pid : ProjectId, output : & mut File) {
+    // get the project
+    // determine the project's substore
+    let substore = ds.project_substores().filter(|(id, _)| *id == pid).map(|(_, s)| s).last().unwrap();
+    // let latest metadata and determine main branch
+    let main_branch = format!("refs/heads/{}", get_project_main_branch(& ds, pid).unwrap_or("master".to_owned()));
+    // now get the head commit
+    let mut commit : Option<CommitId> = None;
+    if let Some((_, heads)) = ds.project_heads().filter(|(id, _)| *id == pid).last() {
+        for (name, (id, _hash)) in heads.iter() {
+            if main_branch.eq(name) {
+                commit = Some(*id);
+                break;
+            }
+        }
+    }
+    // we have the commit to checkout, perform the checkout
+    if let Some(id) = commit {
+        let changes = checkout_commit(& ds, id, substore);
+        for (path, hash) in changes {
+            writeln!(output, "{},\"{}\",{}", pid, path, hash).unwrap();
+        }
+    }
 }
 
 /** Iterate over all parent commits and determine the tree state. 
