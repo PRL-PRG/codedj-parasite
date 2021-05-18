@@ -44,7 +44,7 @@ fn main() {
                 .short("id")
                 .takes_value(true)
                 .help("Id of the project to be exported"))
-                .arg(Arg::with_name("projects")
+            .arg(Arg::with_name("projects")
                 .long("projects")
                 .takes_value(true)
                 .help("csv file that stores project ids to be exported"))
@@ -145,6 +145,7 @@ fn export_project(cmdline : & clap::ArgMatches, args : & clap::ArgMatches) {
     let mut output = OpenOptions::new().write(true).create(true).open(cmdline.value_of("into").unwrap_or("export-project.csv")).unwrap();
     writeln!(output, "pid,path,hash_id").unwrap();
     if let Some(projects) = cmdline.value_of("projects") {
+        println!("Exporting projects from {}", projects);
         // read the csv 
         let col_id = cmdline.value_of("column").unwrap_or("0").parse::<usize>().unwrap();
         let mut reader = csv::ReaderBuilder::new()
@@ -163,8 +164,8 @@ fn export_project(cmdline : & clap::ArgMatches, args : & clap::ArgMatches) {
         let project = get_project_id(& ds, args);
         if let Some(pid) = project {
             export_single_project(& ds, pid, & mut output);
-        }
-        return;
+            return;
+        } 
     }
     println!("ERROR: No matching project found");
 }
