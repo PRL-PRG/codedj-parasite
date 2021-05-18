@@ -144,10 +144,10 @@ fn export_project(cmdline : & clap::ArgMatches, args : & clap::ArgMatches) {
     let ds = DatastoreView::from(cmdline.value_of("datastore").unwrap_or("."));
     let mut output = OpenOptions::new().write(true).create(true).open(cmdline.value_of("into").unwrap_or("export-project.csv")).unwrap();
     writeln!(output, "pid,path,hash_id").unwrap();
-    if let Some(projects) = cmdline.value_of("projects") {
+    if let Some(projects) = args.value_of("projects") {
         println!("Exporting projects from {}", projects);
         // read the csv 
-        let col_id = cmdline.value_of("column").unwrap_or("0").parse::<usize>().unwrap();
+        let col_id = args.value_of("column").unwrap_or("0").parse::<usize>().unwrap();
         let mut reader = csv::ReaderBuilder::new()
             .has_headers(true)
             .double_quote(false)
