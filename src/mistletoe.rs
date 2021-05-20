@@ -96,6 +96,10 @@ fn show_project(cmdline : & clap::ArgMatches, args : & clap::ArgMatches) {
         for l in log {
             println!("    {}", l);
         }
+        // show the metadata
+        if let Some(md) = ds.project_metadata().filter(|(id, _)| *id == pid).map(|(_, s)| s).last() {
+            println!("Metadata: {}", md.value);
+        }
         // determine the project's substore
         let substore = ds.project_substores().filter(|(id, _)| *id == pid).map(|(_, s)| s).last().unwrap();
         println!("substore: {:?}", substore);
@@ -200,9 +204,11 @@ fn get_project_main_branch(ds : & DatastoreView, pid : ProjectId) -> Option<Stri
         return *id == pid && metadata.key == Metadata::GITHUB_METADATA;
     }).last() {
         if let Ok(metadata_json) = json::parse(& metadata.1.value) {
-            match & metadata_json[0]["default_branch"] {
-                json::JsonValue::String(x) => return Some(x.to_owned()),
-                _ => return None
+            let x = & metadata_json["default_branch"];
+            if x.is_string() {
+                return Some(x.to_string());
+            } else {
+                return None;
             }
         }
     }
@@ -215,6 +221,7 @@ fn export_single_project(ds : & DatastoreView, pid : ProjectId, output : & mut F
     let substore = ds.project_substores().filter(|(id, _)| *id == pid).map(|(_, s)| s).last().unwrap();
     // let latest metadata and determine main branch
     let main_branch = format!("refs/heads/{}", get_project_main_branch(& ds, pid).unwrap_or("master".to_owned()));
+    println!("main branch: {}", main_branch);
     // now get the head commit
     let mut commit : Option<CommitId> = None;
     if let Some((_, heads)) = ds.project_heads().filter(|(id, _)| *id == pid).last() {
