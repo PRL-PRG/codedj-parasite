@@ -185,6 +185,7 @@ pub enum StoreKind {
     Html,
     Java,
     JavaScript,
+    Julia,
     ObjectiveC,
     Perl,
     Php,
@@ -226,6 +227,7 @@ impl StoreKind {
             "html" => Some(StoreKind::Html),
             "java" => Some(StoreKind::Java),
             "javascript" | "js" => Some(StoreKind::JavaScript),
+            "julia" => Some(StoreKind::Julia),
             "objectivec" | "objc" | "objective-c" => Some(StoreKind::ObjectiveC),
             "perl" => Some(StoreKind::Perl),
             "php" => Some(StoreKind::Php), 
@@ -277,6 +279,7 @@ impl Display for StoreKind {
             StoreKind::Html => write!(f, "HTML"),
             StoreKind::Java => write!(f, "Java"),
             StoreKind::JavaScript => write!(f, "JavaScript"),
+            StoreKind::Julia => write!(f, "Julia"),
             StoreKind::ObjectiveC => write!(f, "ObjectiveC"),
             StoreKind::Perl => write!(f, "Perl"),
             StoreKind::Php => write!(f, "PHP"),
@@ -754,6 +757,7 @@ pub enum ContentsKind {
     Html,
     Java,
     JavaScript,
+    Julia,
     JSON,
     ObjectiveC,
     Perl,
@@ -799,6 +803,8 @@ impl ContentsKind {
             "java" => Some(ContentsKind::Java),
             // JavaScript
             "js" | "mjs" => Some(ContentsKind::JavaScript),
+            // Julia
+            "jl" => Some(ContentsKind::Julia),
             // Objective-C
             "m" | "mm" | "M" => Some(ContentsKind::ObjectiveC),
             // Perl
