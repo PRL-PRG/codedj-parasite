@@ -31,6 +31,8 @@ use reporter::*;
 use settings::SETTINGS;
 use task_update_repo::*;
 
+use crate::db::Indexable;
+
 /** The incremental downloader and command-line interface
  
  */
@@ -89,6 +91,9 @@ fn execute_command() {
             SETTINGS.command.get(2).unwrap() // target substore
         ),
         // maintenance commands
+        "fix-moving-sentinel-values" => datastore_fix_moving_sentinel_values(
+
+        ),
         // example commands
         "active-projects" => example_active_projects(
             SETTINGS.command.get(1).map(|x| { x.parse::<i64>().unwrap() }).unwrap_or(90 * 24 * 3600)
@@ -223,6 +228,41 @@ fn datastore_merge_all(source_path : & str, target_substore : & str) {
             ValidateAll::new(),
         );
     }
+}
+
+/** Fixes the empty values for StoreKind and ContentsKind indices that the olden datasets used. 
+
+    This is used in the following things:alloc
+
+    - in each substore, kinds
+
+    So that we do not pollute the codebase with the fix and that the fix won't change with possible newer versions, the code is hardcoded here. 
+
+ */
+fn datastore_fix_moving_sentinel_values() {
+    let ds = Datastore::new(& SETTINGS.datastore_root, false);
+    // no need to check project substores as these never write the empty values in there (their target type is the ID)
+    // let mut substores = ds.project_substores.lock().unwrap();
+    // we have to do contents for each substore:
+    let mut t = 0;
+    for sstore in ds.substores {
+        let mut contents = sstore.contents.lock().unwrap();
+        let mut st = 0;
+        println!("Analyzing substore {}", sstore.prefix);
+        for i in 0..contents.indexer.len() {
+            let idx = records::HashId::from(i as u64);
+            if let Some(x) = contents.indexer.get(idx) {
+                if x.offset == u64::EMPTY && x.kind != records::ContentsKind::None {
+                    st += 1;
+                    contents.indexer.set(idx, & db::SplitOffset{offset : u64::EMPTY, kind : records::ContentsKind::None});
+                }
+            }
+        }
+        println!("    {} sentinels fixed", st);
+        t += st;
+    }
+    println!("TOTAL invalid sentinels: {}", t);
+
 }
 
 /** Displays active projects per substore. 
