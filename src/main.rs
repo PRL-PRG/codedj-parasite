@@ -1,4 +1,6 @@
 use std::collections::*;
+use std::io::{Seek, SeekFrom};
+use byteorder::*;
 
 #[macro_use]
 extern crate lazy_static;
@@ -31,7 +33,9 @@ use reporter::*;
 use settings::SETTINGS;
 use task_update_repo::*;
 
+use crate::db::Serializable;
 use crate::db::Indexable;
+use crate::db::SplitKind;
 
 /** The incremental downloader and command-line interface
  
@@ -241,7 +245,22 @@ fn datastore_merge_all(source_path : & str, target_substore : & str) {
  */
 fn datastore_fix_moving_sentinel_values() {
     let ds = Datastore::new(& SETTINGS.datastore_root, false);
-    // no need to check project substores as these never write the empty values in there (their target type is the ID)
+    // we need to update the stored project substores and add 1 so that we make space for the new sentinel
+    println!("Fixing project substores...");
+    let mut substores = ds.project_substores.lock().unwrap();
+    let ref mut f = substores.f;
+    f.seek(SeekFrom::Start(0)).unwrap();
+    loop {
+        let offset = f.seek(SeekFrom::Current(0)).unwrap();
+        if let Ok(id) = f.read_u64::<LittleEndian>() {
+            let sstore = records::StoreKind::deserialize(f);
+            f.seek(SeekFrom::Start(offset)).unwrap();
+            f.write_u64::<LittleEndian>(id).unwrap();
+            records::StoreKind::serialize(f, & records::StoreKind::from_number(sstore as u64 + 1));
+        } else {
+            break;
+        }
+    }
     // let mut substores = ds.project_substores.lock().unwrap();
     // we have to do contents for each substore:
     let mut t = 0;
@@ -255,6 +274,9 @@ fn datastore_fix_moving_sentinel_values() {
                 if x.offset == u64::EMPTY && x.kind != records::ContentsKind::None {
                     st += 1;
                     contents.indexer.set(idx, & db::SplitOffset{offset : u64::EMPTY, kind : records::ContentsKind::None});
+                } else {
+                    // otherwise increase the kind for the None kind that comes first
+                    contents.indexer.set(idx, & db::SplitOffset{offset : x.offset, kind : records::ContentsKind::from_number(x.kind as u64 + 1)});
                 }
             }
         }

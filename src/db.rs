@@ -1428,7 +1428,6 @@ impl<T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>, ID : Id> Table fo
             Some(offset) => {
                 self.file_index = offset.kind.to_number() as usize;
                 let f = self.files.get_mut(self.file_index).unwrap();
-                println!("Seeking offset to {}", offset.offset);
                 f.f.seek(SeekFrom::Start(offset.offset)).unwrap();
                 // we can use default store reader
                 let (record_id, value) = Store::<T, ID>::read_record(& mut f.f).unwrap();

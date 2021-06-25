@@ -1,8 +1,8 @@
-use std::time::{SystemTime, UNIX_EPOCH, Duration};
+use std::time::{UNIX_EPOCH, Duration};
 use std::collections::*;
 use std::fs::{OpenOptions, File};
 use std::io::{Write};
-use std::path::{Path, PathBuf};
+use std::path::{Path};
 extern crate clap;
 use clap::{Arg, App, SubCommand};
 
@@ -212,7 +212,6 @@ fn get_project_url(ds : & DatastoreView, id : ProjectId) -> ProjectUrl {
 }
 
 fn get_project_main_branch(ds : & DatastoreView, pid : ProjectId) -> Option<String> {
-    let metadata = ds.project_metadata();
     // since we do may not have an index available, just scan linearly
     if let Some(metadata) = ds.project_metadata().filter(|(id, metadata)| {
         return *id == pid && metadata.key == Metadata::GITHUB_METADATA;
