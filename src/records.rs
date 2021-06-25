@@ -747,6 +747,8 @@ impl FixedSizeSerializable for SHA {
 #[repr(u16)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, std::hash::Hash, FromPrimitive)]
 pub enum ContentsKind {
+    None, // no contents 
+    // *must* not use alphabetic order, but add towards the end just before sentinel
     Generic,
     SmallFiles,
     C,
@@ -760,7 +762,6 @@ pub enum ContentsKind {
     Html,
     Java,
     JavaScript,
-    Julia,
     JSON,
     ObjectiveC,
     Perl,
@@ -771,6 +772,7 @@ pub enum ContentsKind {
     Scala,
     Shell,
     TypeScript,
+    Julia,
 
     Sentinel // sentinel to denote number of content kinds
 }
@@ -846,7 +848,7 @@ impl ContentsKind {
 impl SplitKind for ContentsKind {
     const COUNT : u64 = ContentsKind::Sentinel as u64;
 
-    const EMPTY : ContentsKind = ContentsKind::Sentinel;
+    const EMPTY : ContentsKind = ContentsKind::None;
 
     fn to_number(& self) -> u64 {
         return *self as u64;

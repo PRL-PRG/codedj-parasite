@@ -88,6 +88,7 @@ fn execute_command() {
             SETTINGS.command.get(1).unwrap(), // source path
             SETTINGS.command.get(2).unwrap() // target substore
         ),
+        // maintenance commands
         // example commands
         "active-projects" => example_active_projects(
             SETTINGS.command.get(1).map(|x| { x.parse::<i64>().unwrap() }).unwrap_or(90 * 24 * 3600)
