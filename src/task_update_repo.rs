@@ -79,7 +79,7 @@ impl<'a> RepoUpdater<'a> {
                 project : ds.get_project(id).unwrap(),
                 force,
                 load_substore,
-                tentative_substore : StoreKind::Unspecified,
+                tentative_substore : StoreKind::None,
                 changed : false,
                 local_folder : format!("{}/repo_clones/{}", ds.root_folder(), u64::from(id)),
                 visited_commits : HashMap::new(),
@@ -266,22 +266,22 @@ impl<'a> RepoUpdater<'a> {
     fn update_repository_substore(& mut self, repo : & git2::Repository, current_substore : StoreKind) -> Result<StoreKind, git2::Error> {
         let mut substore = current_substore;
         // all ubspecified projects start as small projects
-        if substore == StoreKind::Unspecified {
+        if substore == StoreKind::None {
             substore = StoreKind::SmallProjects; 
         }
         // if the substore is that of small projects, we must verify that the project still has no more than N commits
         if substore == StoreKind::SmallProjects {
             if self.get_repo_commits(repo, Datastore::SMALL_PROJECT_THRESHOLD)? >= Datastore::SMALL_PROJECT_THRESHOLD {
-                substore = StoreKind::Unspecified;
+                substore = StoreKind::None;
             }
         }
         // if the substore is not small project at this point, it is open to change
         if substore != StoreKind::SmallProjects {
             // if tentative substore has been found out, set the substore accordingly
-            if self.tentative_substore != StoreKind::Unspecified {
+            if self.tentative_substore != StoreKind::None {
                 substore = self.tentative_substore;
             // otherwise if the substore is unspecified, we must pick a substore, so determine one. 
-            } else if substore == StoreKind::Unspecified || substore == StoreKind::Generic {
+            } else if substore == StoreKind::None || substore == StoreKind::Generic {
                 // TODO Determine some better substore than this
                 substore = StoreKind::Generic;
             }

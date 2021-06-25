@@ -8,9 +8,9 @@
             "name": "(gdb) parasite",
             "type": "lldb",
             "request": "launch",
-            "program": "${workspaceFolder}/target/debug/parasite",
+            "program": "${workspaceFolder}/target/debug/mistletoe",
             //"args": ["-i", "-ds", "/home/peta/test-julia"],
-            "args": ["-ds", "/home/peta/test-julia", "convert-1", "/mnt/data/v1","/mnt/data/v3"],
+            "args": ["--datastore", "/home/peta/validation_nse", "export-project", "--id","0", "--with-contents"],
             "cwd": "${workspaceFolder}",
             "env" : {
                 "RUST_BACKTRACE" : "1"

@@ -20,7 +20,7 @@ pub (crate) fn task_update_substore(updater : & Updater, store : StoreKind, mode
             let id = ProjectId::from(i as u64);
             let pstore = updater.ds.get_project_substore(id);
             // errors take *all* stores at once, and updates if the store is loaded
-            if pstore == store || pstore == StoreKind::Unspecified || mode == UpdateMode::Errors {
+            if pstore == store || pstore == StoreKind::None || mode == UpdateMode::Errors {
                 // its a possibly valid project, so determine the last time it was updated
                 if let Some(last_update) = updater.ds.get_project_last_update(id) {
                     if ! last_update.is_error() || mode == UpdateMode::Errors {
@@ -62,10 +62,10 @@ pub (crate) fn task_update_substore(updater : & Updater, store : StoreKind, mode
     // now that we have finished we can start update of other datastore. Technically we can do this earlier too, as long as the queue is empty and there are some idle threads, but that would require the necessity to have two substore mappings loaded in memory which we want to avoid. So this is less efficient but more robust solution
     if mode != UpdateMode::Single {
         let mut next_substore = StoreKind::from_number(store.to_number() + 1);
-        if next_substore == StoreKind::Unspecified && mode == UpdateMode::Continuous {
+        if next_substore == StoreKind::None && mode == UpdateMode::Continuous {
             next_substore = StoreKind::from_number(0);
         }
-        if next_substore != StoreKind::Unspecified && mode != UpdateMode::Errors {
+        if next_substore != StoreKind::None && mode != UpdateMode::Errors {
             updater.schedule(Task::UpdateSubstore{store : next_substore, mode});
         }
     }

@@ -272,7 +272,8 @@ impl<T : Indexable + Serializable<Item = T>, ID : Id> Indexer<T, ID> {
         if id.into() < self.size {
             self.f.seek(SeekFrom::Start(T::SIZE * id.into())).unwrap();
             let result = T::deserialize(& mut self.f);
-            if result != T::EMPTY {
+            let x = T::EMPTY;
+            if result != x {
                 return Some(result); 
             } else {
                 return None;
@@ -1359,7 +1360,15 @@ impl<T : Serializable<Item = T>, ID : Id> SplitStorePart<T, ID> {
         let path = format!("{}/{}-{:?}.splitstore", root, name, kind);
         let f;
         if readonly {
-            f = OpenOptions::new().read(true).open(path).unwrap();
+            if let Ok(ff) = OpenOptions::new().read(true).open(path.clone()) {
+                f = ff;
+            } else {
+                println!("Unable to open split store for {}, attempting to repair - you need write access for this to success", & path);
+                {
+                    let _ff = OpenOptions::new().read(true).write(true).create(true).open(path.clone()).unwrap();
+                }
+                f = OpenOptions::new().read(true).open(path).unwrap();
+            }
         } else {
             f = OpenOptions::new().read(true).write(true).create(true).open(path).unwrap();
         }
@@ -1419,6 +1428,7 @@ impl<T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>, ID : Id> Table fo
             Some(offset) => {
                 self.file_index = offset.kind.to_number() as usize;
                 let f = self.files.get_mut(self.file_index).unwrap();
+                println!("Seeking offset to {}", offset.offset);
                 f.f.seek(SeekFrom::Start(offset.offset)).unwrap();
                 // we can use default store reader
                 let (record_id, value) = Store::<T, ID>::read_record(& mut f.f).unwrap();

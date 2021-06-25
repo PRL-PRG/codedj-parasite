@@ -310,7 +310,7 @@ impl Datastore {
     }
 
     pub fn get_project_substore(& self, id : ProjectId) -> StoreKind {
-        return self.project_substores.lock().unwrap().get(id).or(Some(StoreKind::Unspecified)).unwrap();
+        return self.project_substores.lock().unwrap().get(id).or(Some(StoreKind::None)).unwrap();
     }
 
     /** Updates project substore information. 

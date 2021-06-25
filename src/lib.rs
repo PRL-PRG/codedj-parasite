@@ -210,7 +210,7 @@ impl Project {
         // we have to start with urls as these are the only ones guaranteed to exist
         LOG!("Loading latest project urls...");
         for (id, url) in ds.project_urls() {
-            projects.insert(id, Project::new(url, StoreKind::Unspecified));
+            projects.insert(id, Project::new(url, StoreKind::None));
         }
         LOG!("    {} projects found", projects.len());
         LOG!("Loading project substores...");

@@ -172,6 +172,8 @@ impl std::fmt::Display for UserId {
 #[repr(u16)]
 #[derive(Clone, Copy, Debug, std::cmp::PartialEq, std::cmp::Eq, std::hash::Hash, FromPrimitive)]
 pub enum StoreKind {
+    // when adding items here, *MUST* be added at the end before the sentinel, not alphabetically
+    None, // we need the none item at the beginning so that it has stable index
     Generic,
     SmallProjects,
     C,
@@ -185,7 +187,6 @@ pub enum StoreKind {
     Html,
     Java,
     JavaScript,
-    Julia,
     ObjectiveC,
     Perl,
     Php,
@@ -194,8 +195,9 @@ pub enum StoreKind {
     Scala,
     Shell,
     TypeScript,
+    Julia,
 
-    Unspecified // sentinel to denote number of store kinds
+    Sentinel // sentinel to denote number of store kinds
 }
 
 impl StoreKind {
@@ -203,7 +205,7 @@ impl StoreKind {
      */
     pub fn is_specified(& self) -> bool {
         match self {
-            StoreKind::Unspecified => return false,
+            StoreKind::None => return false,
             _ => return true
         };
     }
@@ -253,7 +255,7 @@ pub struct StoreKindIterator {
 impl Iterator for StoreKindIterator {
     type Item = StoreKind;
     fn next(& mut self) -> Option<StoreKind> {
-        if self.i >= StoreKind::Unspecified.to_number() {
+        if self.i >= StoreKind::Sentinel.to_number() {
             return None;    
         } else {
             let result = StoreKind::from_number(self.i);
@@ -266,6 +268,7 @@ impl Iterator for StoreKindIterator {
 impl Display for StoreKind {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
+            StoreKind::None => write!(f, "None"),
             StoreKind::Generic => write!(f, "Generic"),
             StoreKind::SmallProjects => write!(f, "Small"),
             StoreKind::C => write!(f, "C"),
@@ -288,15 +291,15 @@ impl Display for StoreKind {
             StoreKind::Scala => write!(f, "Scala"),
             StoreKind::Shell => write!(f, "Shell"),
             StoreKind::TypeScript => write!(f, "TypeScript"),
-            StoreKind::Unspecified => write!(f, "Unspecified"),
+            StoreKind::Sentinel => write!(f, "Sentinel"),
         }
     }
 }
 
 impl SplitKind for StoreKind {
-    const COUNT : u64 = StoreKind::Unspecified as u64;
+    const COUNT : u64 = StoreKind::Sentinel as u64;
 
-    const EMPTY : StoreKind = StoreKind::Unspecified;
+    const EMPTY : StoreKind = StoreKind::None;
 
     fn to_number(& self) -> u64 {
         return *self as u64;
