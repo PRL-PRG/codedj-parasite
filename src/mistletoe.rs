@@ -1,7 +1,8 @@
-use std::time::{SystemTime, UNIX_EPOCH, Duration};
+use std::time::{UNIX_EPOCH, Duration};
 use std::collections::*;
 use std::fs::{OpenOptions, File};
 use std::io::{Write};
+use std::path::{Path};
 extern crate clap;
 use clap::{Arg, App, SubCommand};
 
@@ -61,6 +62,11 @@ fn main() {
                 .required(false)
                 .takes_value(true)
                 .help("Commit hash to be checked out (or its beginning)"))
+            .arg(Arg::with_name("with-contents")
+                .long("--with-contents")
+                .required(false)
+                .takes_value(false)
+                .help("Exports also the contents of the project"))
         )
         .get_matches();
     match cmdline.subcommand() {
@@ -146,8 +152,16 @@ fn show_project(cmdline : & clap::ArgMatches, args : & clap::ArgMatches) {
 fn export_project(cmdline : & clap::ArgMatches, args : & clap::ArgMatches) {
     // create the datastore and savepoint
     let ds = DatastoreView::from(cmdline.value_of("datastore").unwrap_or("."));
-    let mut output = OpenOptions::new().write(true).create(true).open(args.value_of("into").unwrap_or("export-project.csv")).unwrap();
-    writeln!(output, "pid,path,hash_id").unwrap();
+    let o_dir : String;
+    let mut o_file : File;
+    if args.is_present("with-contents") {
+        o_dir = args.value_of("into").unwrap_or(".").to_owned();
+        o_file = OpenOptions::new().write(true).create(true).open(format!("{}/{}", &o_dir, "export-project.csv")).unwrap();
+    } else {
+        o_dir = String::new();
+        o_file = OpenOptions::new().write(true).create(true).open(args.value_of("into").unwrap_or("export-project.csv")).unwrap();        
+    }
+    writeln!(o_file, "pid,path,hash_id").unwrap();
     if let Some(projects) = args.value_of("projects") {
         println!("Exporting projects from {}", projects);
         // read the csv 
@@ -161,13 +175,13 @@ fn export_project(cmdline : & clap::ArgMatches, args : & clap::ArgMatches) {
             let record = x.unwrap();
             let pid = ProjectId::from(record[col_id].parse::<u64>().unwrap());
             println!("{}", pid);
-            export_single_project(&ds, pid, & mut output);
+            export_single_project(&ds, pid, & mut o_file, & o_dir);
         }
         return;
     } else {
         let project = get_project_id(& ds, args);
         if let Some(pid) = project {
-            export_single_project(& ds, pid, & mut output);
+            export_single_project(& ds, pid, & mut o_file, & o_dir);
             return;
         } 
     }
@@ -198,7 +212,6 @@ fn get_project_url(ds : & DatastoreView, id : ProjectId) -> ProjectUrl {
 }
 
 fn get_project_main_branch(ds : & DatastoreView, pid : ProjectId) -> Option<String> {
-    let metadata = ds.project_metadata();
     // since we do may not have an index available, just scan linearly
     if let Some(metadata) = ds.project_metadata().filter(|(id, metadata)| {
         return *id == pid && metadata.key == Metadata::GITHUB_METADATA;
@@ -215,7 +228,7 @@ fn get_project_main_branch(ds : & DatastoreView, pid : ProjectId) -> Option<Stri
     return None;
 }
 
-fn export_single_project(ds : & DatastoreView, pid : ProjectId, output : & mut File) {
+fn export_single_project(ds : & DatastoreView, pid : ProjectId, output : & mut File, out_dir : & String) {
     // get the project
     // determine the project's substore
     let substore = ds.project_substores().filter(|(id, _)| *id == pid).map(|(_, s)| s).last().unwrap();
@@ -235,8 +248,19 @@ fn export_single_project(ds : & DatastoreView, pid : ProjectId, output : & mut F
     // we have the commit to checkout, perform the checkout
     if let Some(id) = commit {
         let changes = checkout_commit(& ds, id, substore);
+        let mut contents = ds.contents(substore);
         for (path, hash) in changes {
             writeln!(output, "{},\"{}\",{}", pid, path, hash).unwrap();
+            // if given the output directory, we should also check if we have the contents and if so, store them appropriately
+            if ! out_dir.is_empty() {
+                if let Some(bytes) = contents.get(hash) {
+                    let pstr = format!("{}/{}/{}", out_dir, pid, path);
+                    let p = Path::new(pstr.as_str());
+                    std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+                    let mut f = File::create(p).unwrap();
+                    f.write_all(& bytes.1).unwrap();
+                }
+            }
         }
     }
 }
