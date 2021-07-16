@@ -754,6 +754,7 @@ pub enum ContentsKind {
     Html,
     Java,
     JavaScript,
+    Julia,
     JSON,
     ObjectiveC,
     Perl,
@@ -844,7 +845,7 @@ impl SplitKind for ContentsKind {
     }
 
     fn from_number(value : u64) -> ContentsKind {
-        return num::FromPrimitive::from_u64(value).unwrap();
+        return num::FromPrimitive::from_u64(value).unwrap_or(ContentsKind::Sentinel);
     }
 }
 
