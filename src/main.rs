@@ -1,4 +1,6 @@
 use std::collections::*;
+use std::fs::{OpenOptions};
+use std::io::{Seek, SeekFrom};
 
 #[macro_use]
 extern crate lazy_static;
@@ -30,6 +32,9 @@ use reporter::*;
 
 use settings::SETTINGS;
 use task_update_repo::*;
+
+use crate::db::Serializable;
+use crate::db::Indexable;
 
 /** The incremental downloader and command-line interface
  
@@ -88,6 +93,9 @@ fn execute_command() {
             SETTINGS.command.get(1).unwrap(), // source path
             SETTINGS.command.get(2).unwrap() // target substore
         ),
+        /* Detects the version of the dataset so that we can figure out how to repair it */
+        "detect-version" => detect_version(
+        ),
         // example commands
         "active-projects" => example_active_projects(
             SETTINGS.command.get(1).map(|x| { x.parse::<i64>().unwrap() }).unwrap_or(90 * 24 * 3600)
@@ -122,6 +130,41 @@ fn datastore_size() {
     println!("users,{}", ds.users_size());
     println!("total,{}", ds.datastore_size());
     */
+}
+
+fn detect_version() {
+    if std::path::Path::new(& format!("{}/Julia", & SETTINGS.datastore_root)).exists() {
+        println!("Julia substore found.");
+    }
+    // now get the substore's split store indexer and look at its format
+    for substore in StoreKind::all() {
+        println!("Analyzing contents for {:?}", substore);
+        let mut f = OpenOptions::new().read(true).open(format!("{}/{:?}/{:?}-contents.idx", & SETTINGS.datastore_root, & substore, & substore)).unwrap();
+        let size = f.seek(SeekFrom::End(0)).unwrap();
+        let mut i = f.seek(SeekFrom::Start(0)).unwrap();
+        let mut sentinel_value : u16 = std::u16::MAX;
+        let mut max_kind : u16 = 0;
+        while i < size {
+            let offset = u64::deserialize(& mut f);
+            let kind = u16::deserialize(& mut f);
+            // if the offset is empty, we can check the kind. If it is sentinel 
+            if offset == u64::EMPTY && kind != 0 {
+                if sentinel_value == std::u16::MAX {
+                    println!("    sentinel value detected: {}", kind);
+                    sentinel_value = kind;
+                } else if sentinel_value != kind {
+                    println!("    multiple sentinel values detected: {}", kind);
+                }
+            } else {
+                if kind > max_kind {
+                    max_kind = kind;
+                }
+            }
+            i += 10;
+        }
+        println!("    maximum kind: {}", max_kind);
+    }
+
 }
 
 fn datastore_savepoints() {

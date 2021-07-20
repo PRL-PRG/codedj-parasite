@@ -754,7 +754,6 @@ pub enum ContentsKind {
     Html,
     Java,
     JavaScript,
-    Julia,
     JSON,
     ObjectiveC,
     Perl,
