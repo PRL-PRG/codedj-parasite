@@ -1600,6 +1600,21 @@ impl<T : Serializable<Item = T>, KIND: SplitKind<Item = KIND>, ID : Id> SplitSto
         });
     }
 
+    pub (crate) fn set_raw(& mut self, id : ID, kind : KIND, length : usize, data: & [u8]) {
+        match self.indexer.get(id) {
+            Some(offset) => {
+                assert_eq!(kind, offset.kind, "Cannot change kind of already stored value");
+            },
+            None => {}
+        }
+        let f = self.files.get_mut(kind.to_number() as usize).unwrap();
+        let offset = f.f.seek(SeekFrom::End(0)).unwrap();
+        self.indexer.set(id, & SplitOffset{offset, kind});
+        f.f.write_u64::<LittleEndian>(id.into()).unwrap();
+        f.f.write_u64::<LittleEndian>(length as u64).unwrap();
+        f.f.write(data).unwrap();
+    }
+
     pub fn len(&self) -> usize {
         return self.indexer.len();
     }

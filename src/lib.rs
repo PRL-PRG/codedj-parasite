@@ -1,5 +1,9 @@
 use std::collections::*;
 
+use std::fs::{OpenOptions};
+use byteorder::*;
+use std::io::{Read, BufReader};
+
 #[macro_use]
 extern crate lazy_static;
 
@@ -30,6 +34,7 @@ pub use db::Table;
 pub use db::TableOwningIterator;
 pub use db::SplitTable;
 pub use crate::records::*;
+use db::*;
 
 use crate::settings::SETTINGS;
 use crate::datastore::*;
@@ -267,6 +272,7 @@ impl DatastoreMerger {
         This may be the same substore, or multiple source substores can be joined in a single target substore by repeatedly calling the method for different source substores. 
     */
     pub fn merge_substore<T : MergeValidator>(& mut self, target_substore : StoreKind, source_substore : StoreKind, validator : T) {
+        println!("Merging substore {:?} into {:?}", source_substore, target_substore);
         let mut context = MergeContext::new(& self.target, target_substore, source_substore, validator);
         self.merge_users(& mut context);
         self.merge_paths(& mut context);
@@ -361,6 +367,10 @@ impl DatastoreMerger {
         println!("    new:      {}", context.hashes_count.new);
     }
 
+    /** Merges file contents. 
+
+        Instead of using the default access API, we use a hack that allows us to copy the compressed contents as is without the need to decompress & compress again when inserting.        
+     */
     fn merge_contents<T : MergeValidator>(& mut self, context : & mut MergeContext<T>) {
         println!("merging contents...");
         // add the contents if they have been selected *and* are new
@@ -368,6 +378,44 @@ impl DatastoreMerger {
         let mut contents = target_substore.contents.lock().unwrap();
         // added contents
         let mut added_contents = HashMap::<HashId, HashId>::new();
+        for i in 0..ContentsKind::COUNT {
+            let contents_kind = ContentsKind::from_number(i);
+            println!("    {:?}", contents_kind);
+            let mut f = /*BufReader::new(*/ OpenOptions::new().read(true).open(format!("{}/{:?}/{:?}-contents-{:?}.splitstore", self.source.root, context.source_substore,context.source_substore, contents_kind)).unwrap() /*)*/;
+            while let Ok(id) = f.read_u64::<LittleEndian>() {
+                // if the id was ok, get the compressed contents and its length
+                let source_id = HashId::from(id);
+                let len = f.read_u64::<LittleEndian>().unwrap() as usize;
+                let mut data = vec![0; len];
+                f.read(& mut data).unwrap();
+                context.contents_count.total += 1;
+                match context.hashes.get(& source_id) {
+                    Some((target_id, true)) => {
+                        // it's a valid contents and a new hash, so it definitely does not exist in target
+                        contents.set_raw(*target_id, contents_kind, len, & data);
+                        added_contents.insert(source_id, *target_id);
+                        context.contents_count.new += 1;
+                    },
+                    Some((target_id, false)) => {
+                        // it's a valid hash that already exists, we have to check first if the contents exists in target, and only add the contents if it does not
+                        if ! contents.has(*target_id) {
+                            contents.set_raw(*target_id, contents_kind, len, & data);
+                            added_contents.insert(source_id, *target_id);
+                            context.contents_count.new += 1;
+                        } else {
+                            context.contents_count.existing += 1;
+                        }
+                    },
+                    None => {
+                        context.contents_count.existing += 1;
+                        // this is an inconsistency, we said this is a valid contents id, but not a hash id, so at this point it can't be added
+                        println!("Cannot add contents id {} as the hash not selected. Target will be inconsistent", source_id);
+                    }
+                }
+            }
+        }
+
+        /*
         for (source_id, (contents_kind, raw_contents)) in self.source.contents(context.source_substore) {
             context.contents_count.total += 1;
             if context.validator.valid_contents(source_id) {
@@ -395,7 +443,7 @@ impl DatastoreMerger {
                     }
                 }
             }
-        }
+        } */
         println!("    total:    {}", context.contents_count.total);
         println!("    existing: {}", context.contents_count.existing);
         println!("    new:      {}", context.contents_count.new);
