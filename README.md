@@ -49,6 +49,28 @@ parasite --datastore /data/djcode/example-dataset/ add https://github.com/3b1b/m
 parasite --datastore /data/djcode/example-dataset/ add https://github.com/s0md3v/photon.git
 ```
 
+Alternatively, you can create a CSV file with the header `repository` and each repository specififed in a separate line:
+
+```
+repository
+https://github.com/nodejs/node.git
+https://github.com/pixijs/pixi.js.git
+https://github.com/angular/angular.git
+https://github.com/apache/airflow.git
+https://github.com/facebook/react.git
+https://github.com/vuejs/vue.git
+https://github.com/xonsh/xonsh.git
+https://github.com/meteor/meteor.git
+https://github.com/3b1b/manim.git
+https://github.com/s0md3v/photon.git
+```
+
+And then add the file into the dataset: 
+
+```
+parasite --datastore /data/djcode/example-dataset/ add repos.csv
+```
+
 Create a GitHub token file, eg:
 
 `vim /data/djcode/ghtokens.csv`
