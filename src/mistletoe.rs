@@ -355,10 +355,31 @@ fn checkout_commit(ds : & DatastoreView, commit : CommitId, substore : StoreKind
 fn show_commits(cmdline : & clap::ArgMatches, args : & clap::ArgMatches) {
     // create the datastore and savepoint
     let ds = DatastoreView::from(cmdline.value_of("datastore").unwrap_or("."));
+    let substore = StoreKind::JavaScript;
     if args.is_present("id") {
         let id = CommitId::from(args.value_of("id").unwrap().parse::<u64>().unwrap());
-        match ds.commits(StoreKind::JavaScript).get(id) {
-            Some(hash) => println!("Commit id: {}, hash {}", id, hash),
+        match ds.commits(substore).get(id) {
+            Some(hash) => {
+                println!("Commit id: {}, hash {}", id, hash);
+                let mut commit_hashes = ds.commits(substore);
+                let mut users = ds.users(substore);
+                let mut paths = ds.paths_strings(substore);
+                let mut hashes = ds.hashes(substore);
+                let commit = ds.commits_info(substore).get(id).unwrap();
+                println!("        committer: {} (id {}), time {}", users.get(commit.committer).unwrap(), commit.committer, pretty_timestamp(commit.committer_time));
+                println!("        author: {} (id {}), time {}", users.get(commit.author).unwrap(), commit.author, pretty_timestamp(commit.author_time));
+                print!("        parents:");
+                for pid in commit.parents {
+                    print!(" {} (id {})", commit_hashes.get(pid).unwrap(), pid);
+                }
+                println!("");
+                println!("        message: {}", commit.message);
+                println!("        changes:");
+                for (path_id, hash_id) in commit.changes {
+                    let hash = hashes.get(hash_id).unwrap();
+                    println!("            {} : {} (id {} : id {})", & paths.get(path_id).unwrap(), hash, path_id, hash_id);
+                }
+            },
             None => println!("Commit {} not found", id),
         }
     } else {
