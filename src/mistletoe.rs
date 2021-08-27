@@ -68,6 +68,17 @@ fn main() {
                 .takes_value(false)
                 .help("Exports also the contents of the project"))
         )
+        .subcommand(SubCommand::with_name("show-commits")
+            .about("Outputs information about all specified commits or a single commit determined by either its hash or id")
+            .arg(Arg::with_name("id")
+                .long("id")
+                .takes_value(true)
+                .help("Id of the project to be exported"))
+            .arg(Arg::with_name("hash")
+                .long("hash")
+                .takes_value(true)
+                .help("Hash of the commit to be displayed"))
+        )
         .get_matches();
     match cmdline.subcommand() {
         ("show-project",  Some(args)) => {
@@ -76,6 +87,9 @@ fn main() {
         ("export-project",  Some(args)) => {
             export_project(& cmdline, args);
         },
+        ("show-commits", Some(args)) => {
+            show_commits(& cmdline, args);
+        }
         _                       => {}, // Either no subcommand or one not tested for...
     }        
 }
@@ -121,7 +135,7 @@ fn show_project(cmdline : & clap::ArgMatches, args : & clap::ArgMatches) {
             let mut hashes = ds.hashes(substore);
             for (commit_id, commit) in ProjectCommitsIterator::new(& heads, ds.commits_info(substore)) {
                 let commit_hash = commit_hashes.get(commit_id).unwrap();
-                println!("    {}", purl.get_commit_terminal_link(commit_hash));
+                println!("    {} (id {})", purl.get_commit_terminal_link(commit_hash), commit_id);
                 println!("        committer: {} (id {}), time {}", users.get(commit.committer).unwrap(), commit.committer, pretty_timestamp(commit.committer_time));
                 println!("        author: {} (id {}), time {}", users.get(commit.author).unwrap(), commit.author, pretty_timestamp(commit.author_time));
                 print!("        parents:");
@@ -299,3 +313,21 @@ fn checkout_commit(ds : & DatastoreView, commit : CommitId, substore : StoreKind
         .map(|(path_id, hash_id)| (path_strings.get(path_id).unwrap(), hash_id))
         .collect();
 }
+
+/** Shows the commits */
+fn show_commits(cmdline : & clap::ArgMatches, args : & clap::ArgMatches) {
+    // create the datastore and savepoint
+    let ds = DatastoreView::from(cmdline.value_of("datastore").unwrap_or("."));
+    if args.is_present("id") {
+        let id = CommitId::from(args.value_of("id").unwrap().parse::<u64>().unwrap());
+        match ds.commits(StoreKind::JavaScript).get(id) {
+            Some(hash) => println!("Commit id: {}, hash {}", id, hash),
+            None => println!("Commit {} not found", id),
+        }
+    } else {
+        for (commit_id, hash) in ds.commits(StoreKind::JavaScript) {
+            println!("Commit id: {}, hash {}", commit_id, hash);
+        }
+    }
+}
+
