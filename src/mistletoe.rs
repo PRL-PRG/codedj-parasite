@@ -79,6 +79,9 @@ fn main() {
                 .takes_value(true)
                 .help("Hash of the commit to be displayed"))
         )
+        .subcommand(SubCommand::with_name("check-heads")
+            .about("Checks the head mappings")
+        )
         .get_matches();
     match cmdline.subcommand() {
         ("show-project",  Some(args)) => {
@@ -89,9 +92,43 @@ fn main() {
         },
         ("show-commits", Some(args)) => {
             show_commits(& cmdline, args);
-        }
+        },
+        ("check-heads", Some(args)) => {
+            check_heads(& cmdline, args);
+        },
+        
         _                       => {}, // Either no subcommand or one not tested for...
     }        
+}
+
+
+
+fn check_heads(cmdline : & clap::ArgMatches, args : & clap::ArgMatches) {
+    // create the datastore and savepoint
+    let ds = DatastoreView::from(cmdline.value_of("datastore").unwrap_or("."));
+    let mut commits = ds.commits(StoreKind::Generic);
+    let mut total = 0;
+    let mut errors = 0;
+
+    for (pid, heads) in ds.project_heads() {
+        total += 1;
+        for (_, (id, hash)) in heads {
+            match commits.get(id) {
+                Some(actual_hash) => {
+                    if actual_hash != hash {
+                        errors += 1;
+                        println!("{}", pid);
+                        break;
+                    }
+                },
+                _ => {
+                    println!("NOT FOUND");
+                    break;
+                }
+            }
+        }
+    }        
+    println!("Total head records: {}, errors: {}", total, errors);
 }
 
 /* Shows full information about given project. 
