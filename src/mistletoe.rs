@@ -106,29 +106,29 @@ fn main() {
 fn check_heads(cmdline : & clap::ArgMatches, args : & clap::ArgMatches) {
     // create the datastore and savepoint
     let ds = DatastoreView::from(cmdline.value_of("datastore").unwrap_or("."));
-    let mut commits = ds.commits(StoreKind::Generic);
-    let mut total = 0;
-    let mut errors = 0;
-
-    for (pid, heads) in ds.project_heads() {
-        total += 1;
-        for (_, (id, hash)) in heads {
-            match commits.get(id) {
-                Some(actual_hash) => {
-                    if actual_hash != hash {
-                        errors += 1;
-                        println!("{}", pid);
-                        break;
+    let mut project_substores = HashMap::new();
+    for (pid, substore) in ds.project_substores() {
+        project_substores.insert(pid, substore);
+    }
+    println!("pid,substore,hash,id,actual_id");
+    for store_kind in StoreKind::all() {
+        let hashes : HashMap<SHA, CommitId> = ds.commits(store_kind).into_iter().map(|(id, hash)| (hash, id)).collect();
+        let commits = ds.commits(store_kind);
+        for (pid, heads) in ds.project_heads().filter(|(pid, _)| project_substores.get(pid).map(|x| *x == store_kind).unwrap_or(false)) {
+            for (_, (id, hash)) in heads {
+                match hashes.get(& hash) {
+                    Some(actual_id) => {
+                        if *actual_id != id {
+                            println!("{},{:?},{},{},{}", pid, store_kind, hash, id, actual_id);
+                        }
+                    },
+                    None => {
+                        println!("ERROR");
                     }
-                },
-                _ => {
-                    println!("NOT FOUND");
-                    break;
                 }
             }
         }
-    }        
-    println!("Total head records: {}, errors: {}", total, errors);
+    }
 }
 
 /* Shows full information about given project. 
