@@ -82,6 +82,9 @@ fn main() {
         .subcommand(SubCommand::with_name("check-heads")
             .about("Checks the head mappings")
         )
+        .subcommand(SubCommand::with_name("check-projects")
+            .about("Checks the projects, which are ok, and which are errors")
+        )
         .get_matches();
     match cmdline.subcommand() {
         ("show-project",  Some(args)) => {
@@ -96,12 +99,36 @@ fn main() {
         ("check-heads", Some(args)) => {
             check_heads(& cmdline, args);
         },
+        ("check-projects", Some(args)) => {
+            check_projects(& cmdline, args);
+        },
         
         _                       => {}, // Either no subcommand or one not tested for...
     }        
 }
 
-
+fn check_projects(cmdline : & clap::ArgMatches, args : & clap::ArgMatches) {
+    // create the datastore and savepoint
+    let ds = DatastoreView::from(cmdline.value_of("datastore").unwrap_or("."));
+    let updates = ds.project_updates();
+    let mut errors = HashSet::<ProjectId>::new();
+    let mut max_id = 0;
+    for (pid, update) in updates.into_iter() {
+        if (max_id < u64::from(pid)) {
+            max_id = u64::from(pid);
+        }
+        match update {
+            ProjectLog::Error{ .. } => {
+                errors.insert(pid);
+            },
+            _ => {
+                errors.remove(&pid);
+            }
+        }
+    }
+    println!("Total projects: {}", max_id);
+    println!("Errors:         {}", errors.len());
+}
 
 fn check_heads(cmdline : & clap::ArgMatches, args : & clap::ArgMatches) {
     // create the datastore and savepoint
