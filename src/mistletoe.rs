@@ -126,8 +126,8 @@ fn check_projects(cmdline : & clap::ArgMatches, args : & clap::ArgMatches) {
             }
         }
     }
-    println!("Total projects: {}", max_id);
-    println!("Errors:         {}", errors.len());
+    println!("total,errors");
+    println!("{},{}", max_id, errors.len());
 }
 
 fn check_heads(cmdline : & clap::ArgMatches, args : & clap::ArgMatches) {
