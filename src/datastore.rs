@@ -1,5 +1,5 @@
 use std::io;
-use std::io::{Seek, SeekFrom, Read, Write, BufWriter, BufReader};
+use std::io::{Seek, SeekFrom, Read, Write, BufWriter};
 use std::fs;
 use std::fs::{File, OpenOptions};
 use std::collections::HashMap;
@@ -52,21 +52,21 @@ struct TableWriter<RECORD : TableRecord> {
 impl<RECORD : TableRecord> TableWriter<RECORD> {
     /** Opens existing table in given datastore root, or if it does not exist, creates new table.
      */
-    pub fn open_or_create(root : & str) -> TableWriter<RECORD> {
+    pub fn open_or_create(root : & str) -> Result<TableWriter<RECORD>, io::Error> {
         let filename = format!("{}/{}", root, RECORD::TABLE_NAME);
         let mut f = OpenOptions::new().
                     write(true).
                     create(true).
-                    open(& filename).unwrap();
+                    open(& filename)?;
         // seek towards the end because (a) Rust won't do it for us and (b) determine the offset
-        let offset = f.seek(SeekFrom::End(0)).unwrap();
+        let offset = f.seek(SeekFrom::End(0))?;
         // create the append only table and return it
-        return TableWriter{
+        return Ok(TableWriter{
             filename,
             f : BufWriter::new(f),
             offset, 
             why_oh_why : std::marker::PhantomData{}
-        };
+        });
     }
 
     /** Appends the given key-value pair to the table and returns the offset at which it has been written. 

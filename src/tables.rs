@@ -123,6 +123,10 @@ impl<RECORD : TableRecord> TableWriter<RECORD> {
         return Ok(self.offset);
     }
 
+    /** Adds information about the table to given savepoint. 
+     
+        This first flushes and if successful, adds the size under the table name as dictated by the record.
+     */
     pub fn add_to_savepoint(& mut self, savepoint : & mut Savepoint) -> Result<(),std::io::Error> {
         let savepoint_size = self.flush()?;
         let savepoint_name = String::from(RECORD::TABLE_NAME);
@@ -132,6 +136,45 @@ impl<RECORD : TableRecord> TableWriter<RECORD> {
             savepoint.sizes.insert(savepoint_name, savepoint_size);
             return Ok(());
         }
+    }
+
+    /** Reverts the table to given savepoint. 
+     
+        Truncates the underlying file to the size specified by the savepoint record. If the file is not part of the savepoint, it is expected to be empty and will be truncated to zero. Updates the checkpoint to reflect the change and returns the new size.       
+     */
+    pub fn revert_to_savepoint(& mut self, savepoint : & Savepoint) -> Result<u64, std::io::Error> {
+        // if there is our record in the savepoint revert to the stored size, otherwise revert to empty file
+        let len = savepoint.sizes.get(& String::from(RECORD::TABLE_NAME)).unwrap_or(0);
+        let mut actual_size = fs::metadata(& self.filename)?.len();
+        // this is really bad, so fail badly
+        if actual_size < len {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("Savepoint is larger ({}) than current file size ({}) for file {}", len, actual_size, self.filename)));
+        }
+        // if the size is the same, we haven't changed since the savepoint, do nothing:)
+        if (actual_size == len) {
+            return Ok(len);
+        }
+        // close the buffer so that we can operate on the file
+        drop(self.f);
+        let mut f = OpenOptions::new().
+            write(true).
+            create(true).
+            open(& self.filename)?;
+        f.set_len(len)?;
+        drop(self.f); // we might not have to do this, but let's be super cautious
+        // reopen the file, wrap it in buffer and update ourselves
+        f = OpenOptions::new().
+            write(true).
+            create(true).
+            open(& self.filename)?;
+        self.offset = f.seek(SeekFrom::End(0))?;
+        self.f = BufWriter::new(f);
+        // update the checkpoint size to the savepoint and check that it is the size we expect
+        actual_size = self.flush()?;
+        if actual_size != len {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("Setting filesize to {} failed for file {}, with actual size {}", len, self.filename, actual_size)));
+        } 
+        return Ok(actual_size);
     }
 
     /** Returns the filename in which the checkpoint size is stored. 
