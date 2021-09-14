@@ -1,5 +1,5 @@
 use std::io;
-use std::io::{Seek, SeekFrom, Read, Write, BufWriter, BufReader};
+use std::io::{Seek, SeekFrom, Read, Write, BufWriter};
 use std::fs;
 use std::fs::{File, OpenOptions};
 use std::collections::HashMap;
@@ -13,7 +13,7 @@ use crate::serialization::*;
  
     Bare minimum is required from an ID, i.e. they must be able to convert themselves to and from u64, which is how they are stored in the datastore. Since they can convert to u64s, any id is trivially serializable. 
  */
-pub trait Id : Copy + Clone + Eq + PartialEq + std::fmt::Debug {
+pub trait Id : Copy + Clone + Eq + PartialEq {
     fn to_number(& self) -> u64;
     fn from_number(id : u64) -> Self;
 }
@@ -144,24 +144,24 @@ impl<RECORD : TableRecord> TableWriter<RECORD> {
      */
     pub fn revert_to_savepoint(& mut self, savepoint : & Savepoint) -> Result<u64, std::io::Error> {
         // if there is our record in the savepoint revert to the stored size, otherwise revert to empty file
-        let len = savepoint.sizes.get(& String::from(RECORD::TABLE_NAME)).unwrap_or(0);
+        let len = savepoint.sizes.get(& String::from(RECORD::TABLE_NAME)).map(|x| *x).unwrap_or(0);
         let mut actual_size = fs::metadata(& self.filename)?.len();
         // this is really bad, so fail badly
         if actual_size < len {
             return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("Savepoint is larger ({}) than current file size ({}) for file {}", len, actual_size, self.filename)));
         }
         // if the size is the same, we haven't changed since the savepoint, do nothing:)
-        if (actual_size == len) {
+        if actual_size == len {
             return Ok(len);
         }
         // close the buffer so that we can operate on the file
-        drop(self.f);
+        drop(& mut self.f);
         let mut f = OpenOptions::new().
             write(true).
             create(true).
             open(& self.filename)?;
         f.set_len(len)?;
-        drop(self.f); // we might not have to do this, but let's be super cautious
+        drop(& mut self.f); // we might not have to do this, but let's be super cautious
         // reopen the file, wrap it in buffer and update ourselves
         f = OpenOptions::new().
             write(true).
@@ -182,10 +182,17 @@ impl<RECORD : TableRecord> TableWriter<RECORD> {
     fn checkpoint_filename(& self) -> String {
         return format!("{}.checkpoint", self.filename);
     }
-
 }
 
+/** An indexer of append only table's contents. 
+ 
+    The indexer provides random-access to the append only table via an index into the latest record.
+  
+ */
+//struct TableIndexer<ID: Id> {
 
+
+//}
 
 
 
