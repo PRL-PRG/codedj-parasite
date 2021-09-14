@@ -2,8 +2,22 @@
 name = "parasite4"
 version = "0.1.0"
 edition = "2018"
-
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+# The parasite datastore implementation. This is only the implementation of the datastore access (R/W) and store handling functions without any actual function. 
+[lib]
+name = "parasite"
+path = "src/lib.rs"
+
+# Parasite is the actual perpetual updater of the datastore. It only accesses the global datastore. 
+[[bin]]
+name = "parasite"
+path = "src/parasite.rs"
+
+# mistletoe is the command-line viewer of the datastore using the savepoints and indices mechanism of the datastore view API. 
+[[bin]]
+name = "mistletoe"
+path = "src/mistletoe.rs"
 
 [dependencies]
 # logging and basic log configuration using environment variables
