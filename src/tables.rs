@@ -33,6 +33,8 @@ pub trait TableRecord {
     The savepoint simply contains the actual sizes of all tables within a datastore. 
  */
 pub struct Savepoint {
+    name : String, 
+    time : i64,
     sizes : HashMap<String, u64>,
 } 
 
@@ -42,7 +44,7 @@ pub struct Savepoint {
 
     NOTE that checkpoints provide guarantees of integrity for a single table at a time. If a table fails the checkpoint verification it can't revert back on its own as other tables that have passed the checkpoint verification might still point to the code from this table that would get reverted. In case of failed table verification, the entire datastore must be reverted to the latest savepoint. 
  */
-struct TableWriter<RECORD : TableRecord> {
+pub struct TableWriter<RECORD : TableRecord> {
     filename : String,
     f : BufWriter<File>,
     offset : u64,
@@ -218,3 +220,24 @@ impl<T : Id> Serializable for T {
 impl<T : Id> FixedSize for T {
     fn size_of() -> usize { 8 }
 }
+
+/** Serializable implementation for savepoints. 
+ */
+impl Serializable for Savepoint {
+    type Item = Savepoint;
+
+    fn read_from(f : & mut dyn Read, offset : & mut u64) -> io::Result<Savepoint> {
+        let name = String::read_from(f, offset)?;
+        let time = i64::read_from(f, offset)?;
+        let sizes = HashMap::<String, u64>::read_from(f, offset)?;
+        return Ok(Savepoint{name, time, sizes});
+    }
+
+    fn write_to(f : & mut dyn Write, item : & Savepoint, offset : & mut u64) -> io::Result<()> {
+        String::write_to(f, & item.name, offset)?;
+        i64::write_to(f, & item.time, offset)?;
+        HashMap::<String, u64>::write_to(f, & item.sizes, offset)?;
+        return Ok(());
+    }
+}
+

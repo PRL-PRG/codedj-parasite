@@ -1,5 +1,8 @@
+use std::io;
+use std::io::{Read, Write};
 use std::collections::{HashMap};
 
+use crate::serialization::*;
 use crate::tables::*;
 
 #[derive(Copy, Clone, Eq, PartialEq, std::hash::Hash)]
@@ -55,7 +58,9 @@ pub enum SubstoreKind {
     TODO This should allow relatively easy extension of the infrastructure by supporting other project sources, such as software heritage, etc. But deduplication using these stores might be a bit more involved. For now therefore only git & github are supported and deduplicated based on the clone url. 
  */
 pub enum Project {
-
+    Tombstone{},
+    Git{},
+    GitHub{},
 }
 
 /** Project heads. 
@@ -104,7 +109,6 @@ pub struct Tree {
 pub type Contents = Vec<u8>;
 
 
-
 // Implementation ----------------------------------------------------------------------------------
 
 
@@ -142,4 +146,39 @@ impl Id for UserId {
     fn to_number(&self) -> u64 { self.id }
     fn from_number(id : u64) -> Self { UserId{id} }
 }
+
+impl Serializable for Commit {
+    type Item = Commit;
+
+    fn read_from(_f : & mut dyn Read, _offset : & mut u64) -> io::Result<Self::Item> {
+        unimplemented!();
+    }
+
+    fn write_to(_f : & mut dyn Write, _item : & Self::Item, _offset : & mut u64) -> io::Result<()> {
+        unimplemented!();
+    }
+
+}
+
+impl Serializable for SHA {
+    type Item = SHA;
+
+    fn read_from(f : & mut dyn Read, offset : & mut u64) -> io::Result<Self::Item> {
+        let mut buffer = vec![0; 20];
+        f.read(& mut buffer)?;
+        *offset += 20;
+        match git2::Oid::from_bytes(& buffer) {
+            Ok(hash) => Ok(hash),
+            Err(_) => Err(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("Cannot convert to SHA hash")))
+        }
+    }
+
+    fn write_to(f : & mut dyn Write, item : & Self::Item, offset : & mut u64) -> io::Result<()> {
+        f.write(item.as_bytes())?;
+        *offset += 20;
+        return Ok(());
+    }
+
+}
+
 
