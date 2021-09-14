@@ -1,53 +1,27 @@
 [package]
-name = "parasite"
-version = "0.3.0"
-authors = ["peta <peta.maj82@gmail.com>"]
+name = "parasite4"
+version = "0.1.0"
 edition = "2018"
-
-# Datastore access and merging API to be used from other rust programs (namely djanco). 
-[lib]
-name = "parasite"
-path = "src/lib.rs"
-
-# The actual parasite executable that runs the incremental downloader and deals with datastore updates. 
-[[bin]]
-name = "parasite"
-path = "src/main.rs"
-
-# Basic viewer and commandline interface to a parasite datastore.
-[[bin]]
-name = "mistletoe"
-path = "src/mistletoe.rs"
-
-# Helper application that provides some basic filtering of project URLs from GHTorrent data as seeding urls for the parasite downloader. 
-[[bin]]
-name = "ght-filter"
-path = "src/ght_filter.rs"
-
-# Helper commands for the ECOOP 2021 artifact of the our CodeDJ paper. For more details, see the artifact repository at https://github.com/PRL-PRG/codedj-ecoop-artifact
-[[bin]]
-name = "ecoop-artifact"
-path = "src/ecoop_artifact.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-git2="0.13"
-csv="1.1"
-crossbeam="0.7"
-crossbeam-channel="0.5.0"
-curl="0.4"
-json="0.12"
-chrono="0.4"
-byteorder="1.3.4"
-rand="0.7"
-sha-1="0.9"
-flate2="1.0"
-num = "0.3"
-num-derive = "0.3"
-num-traits = "0.2"
-lazy_static = "1.4.0"
-clap = "2.33.3"
+# logging and basic log configuration using environment variables
+log="0.4.14" 
+env_logger="0.9.0" 
+# serialization for writing and reading numbers of different byte sizes and for compressing stuff
+byteorder="1.3.4" 
+zstd = "0.9.0" 
 
-[profile.release]
-debug = true
+
+
+
+#clap = "2.33.3" # command-line arguments
+#git-version = "0.3.4" # git-commit hash stamp 
+#variant_count = "1.1.0" # to have counts of enums ready
+#num-derive = "0.3" # for number to enum conversions and back
+#num-traits = "0.2"
+#chrono="0.4" # so that we can deal with time & printing it
+#git2="0.13" # access to git repositories
+#csv="1.1" # reading csv files (such as new projects to be added)
+#crossbeam="0.7" # scoped worker threads

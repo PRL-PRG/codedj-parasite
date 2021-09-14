@@ -6,8 +6,8 @@ use std::collections::HashMap;
 
 use byteorder::*;
 
-
 use crate::serialization::*;
+
 
 /** A simple trait for IDs. 
  
@@ -141,18 +141,6 @@ impl<RECORD : TableRecord> TableWriter<RECORD> {
     }
 
 }
-
-
-/** Datastore implementation.
- 
-    The datastore is a simple collection of append only tables that store information about entities. The datastore does not care about what entities it stores. All tables in the datastore are lock protected. 
- */
-struct Datastore {
-
-
-}
-
-
 
 
 
