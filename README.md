@@ -13,9 +13,10 @@ Parasite is responsible for the implementation & updates to the append only data
 
 
 
-## Updater
+## Parasite
+
+## Mistletoe
 
 
 ## TODO
 
-- nested datastores, how to deal with savepoints?  
