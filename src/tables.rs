@@ -1,5 +1,5 @@
 use std::io;
-use std::io::{Seek, SeekFrom, Read, Write, BufWriter};
+use std::io::{Seek, SeekFrom, Read, Write, BufWriter, BufReader};
 use std::fs;
 use std::fs::{File, OpenOptions};
 use std::collections::HashMap;
@@ -30,13 +30,33 @@ pub trait TableRecord {
 
 /** Datastore's savepoint.
  
-    The savepoint simply contains the actual sizes of all tables within a datastore. 
+    The savepoint simply contains the actual sizes of all tables within a datastore. And a name and a time at which it was taken. The guarantee of a savepoint is that the whole datastore is internally consistent up to it. Therefore, non-modidying access to datastore using the datastore view class are only provided up to a specified savepoint, ensuring data consistency. 
+
+    Furthermore, when data inconsistency on a table level is detected (via the table checkpoint mechanism), the whole datastore must be reverted to latest savepoint. 
  */
 pub struct Savepoint {
     name : String, 
     time : i64,
     sizes : HashMap<String, u64>,
 } 
+
+impl Savepoint {
+    pub fn new(name : String) -> Savepoint {
+        return Savepoint{
+            name, 
+            time : crate::now(),
+            sizes : HashMap::new(),
+        }
+    }
+
+    pub fn name(& self) -> & str { self.name.as_str() }
+
+    pub fn time(& self) -> i64 { self.time }
+
+    pub (crate) fn get_size_for<RECORD: TableRecord>(& self) -> u64 {
+        return self.sizes.get(& String::from(RECORD::TABLE_NAME)).map(|x| *x).unwrap_or(0);        
+    }
+}
 
 /** Append only table.
  
@@ -146,7 +166,7 @@ impl<RECORD : TableRecord> TableWriter<RECORD> {
      */
     pub fn revert_to_savepoint(& mut self, savepoint : & Savepoint) -> Result<u64, std::io::Error> {
         // if there is our record in the savepoint revert to the stored size, otherwise revert to empty file
-        let len = savepoint.sizes.get(& String::from(RECORD::TABLE_NAME)).map(|x| *x).unwrap_or(0);
+        let len = savepoint.get_size_for::<RECORD>();
         let mut actual_size = fs::metadata(& self.filename)?.len();
         // this is really bad, so fail badly
         if actual_size < len {
@@ -183,6 +203,65 @@ impl<RECORD : TableRecord> TableWriter<RECORD> {
      */
     fn checkpoint_filename(& self) -> String {
         return format!("{}.checkpoint", self.filename);
+    }
+}
+
+/** An iterator into the append only table. 
+ 
+    The iterator simply returns *all* entries in the table in the order they were written to it. If the underlying table supports updates to ids, it is the responsibility of the iterator client to make sure that only the latest value for any given id will be used, unless interested in history. The iterator can either go over entire table, or up to a given savepoint. 
+    
+    In practice, the raw table iterator is not expected to be used by general users, who should always use the datastore view which provides the indexed interators on demand. 
+
+    TODO that safest would be to only go to given checkpoint, but as the table is only ever used internally, I do not think we should bother as the checkpoints are really only for data integrity and end users should only ever see savepoints. 
+ */
+pub struct TableIterator<RECORD : TableRecord> {
+    f : BufReader<File>,
+    offset : u64, 
+    savepoint_limit : u64,
+    why_oh_why : std::marker::PhantomData<RECORD>
+}
+
+impl<RECORD : TableRecord> Iterator for TableIterator<RECORD> {
+    type Item = (RECORD::Id, RECORD::Value);
+
+    fn next(& mut self) -> Option<Self::Item> {
+        if self.offset >= self.savepoint_limit {
+            return None;
+        }
+        let id = RECORD::Id::read_from(& mut self.f, & mut self.offset).unwrap();
+        let value = RECORD::Value::read_from(& mut self.f, & mut self.offset).unwrap();
+        return Some((id, value));
+    }
+}
+
+impl<RECORD : TableRecord> TableIterator<RECORD> {
+    /** Returns table iterator that would iterate over the entire table. 
+     
+        Note that this is really dagnerous if the table is written to at the same time as the iterator may fail on the latest record if incomplete at the time of reading. 
+     */
+    pub (crate) fn for_all(root : & str) -> TableIterator<RECORD> {
+        let filename = format!("{}/{}", root, RECORD::TABLE_NAME);
+        let f = OpenOptions::new().
+                    read(true).
+                    open(& filename).unwrap();
+        // seek towards the end because (a) Rust won't do it for us and (b) determine the offset
+        // create the append only table and return it
+        return TableIterator{
+            f : BufReader::new(f),
+            offset : 0,
+            savepoint_limit : u64::MAX, 
+            why_oh_why : std::marker::PhantomData{}
+        };
+    }
+
+    /** Returns table iterator that will traverse the table up to the given savepoint. 
+     
+        This is safe even in the presence of continuous updates to the table. 
+     */
+    pub fn for_savepoint(root : & str, savepoint : & Savepoint) -> TableIterator<RECORD> {
+        let mut iter = Self::for_all(root);
+        iter.savepoint_limit = savepoint.get_size_for::<RECORD>();
+        return iter;
     }
 }
 
