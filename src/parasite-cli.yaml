@@ -1,0 +1,25 @@
+name: parasite
+version: "0.4"
+author: PRL-PRG
+about: Glorified github scrapper
+args:
+    - datastore:
+        short: ds
+        long: datastore
+        value_name: PATH
+        help: Path to the parasite datastore to use.  
+        takes_value: true
+    - verbose:
+        short: v
+        long: verbose
+        help: Makes the app output more info (maybe).
+    - force:
+        short: f
+        long: force
+        help: Forces parasite to perform the requested command even against its better judgement. Use this with *extreme* care. Most likely, forcing a command will irrepairably corrupt existing dataset. 
+subcommands:
+    - create:
+        about: Creates a new datastore at the provided path. 
+    - add:
+        about: Adds new project(s) to the datastore. 
+        
