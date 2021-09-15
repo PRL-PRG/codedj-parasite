@@ -16,6 +16,15 @@ pub trait Serializable {
     fn read_from(f : & mut dyn Read, offset : & mut u64) -> io::Result<Self::Item>;
     fn write_to(f : & mut dyn Write, item : & Self::Item, offset : & mut u64) -> io::Result<()>;
 
+    fn just_read_from(f : & mut dyn Read) -> io::Result<Self::Item> {
+        let mut offset = 0; // fake offset
+        return Self::read_from(f, & mut offset);
+    }
+
+    fn just_write_to(f : & mut dyn Write, item : & Self::Item) -> io::Result<()> {
+        let mut offset = 0; // fake offset
+        return Self::write_to(f, item, & mut offset);
+    }
 }
 
 /** A trait for serializable items with fixed size.

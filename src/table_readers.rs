@@ -1,8 +1,14 @@
+use std::io;
+use std::io::{Seek, SeekFrom, Read, Write, BufWriter, BufReader};
+use std::fs;
+use std::fs::{File, OpenOptions};
+
+use byteorder::*;
+
+use crate::serialization::*;
 use crate::savepoints::*;
 
 use crate::table_writer::*;
-
-
 
 /** An indexer of append only table's contents. 
  
@@ -10,12 +16,23 @@ use crate::table_writer::*;
 
     Note that to be usable, the indexer assumes continous ids to be present in the underlying table, otherwise there will be large holes in the index file making it very inefficient.
 
+    The index file contains some extra bookkeeping, so overall has the following structure:
+
+    8     size of the indexer (equivalent to largest indexed id + 1)
+    8 * N the indexer itself 
+    8     number of unique ids in the file
+    8     savepoint limit used for the index
+    X     serialized string that is the filename of the table from which the index was created
+
     TODO the indexfile can be memory mapped for increased speed is my thinking. Arguably so could the actual datastore file? 
  */
 struct IndexedReader<RECORD : TableRecord> {
 
     why_oh_why : std::marker::PhantomData<RECORD>
 }
+
+pub(crate) fn record_table_index_path<RECORD: TableRecord>(root : & str) -> String { format!("{}/{}.index", root, RECORD::TABLE_NAME) }
+
 
 impl<RECORD : TableRecord> IndexedReader<RECORD> {
 
@@ -37,8 +54,8 @@ impl<RECORD : TableRecord> IndexedReader<RECORD> {
 
     /** Builds the index file for the table.
      */
-    fn create(table_root : & str, index_root : & str, savepoint : & Savepoint) -> usize {
-        let index_filename = format!("{}/{}.index", index_root, RECORD::TABLE_NAME);
+    fn create(table_root : & str, index_root : & str, savepoint : & Savepoint) -> io::Result<usize> {
+        let index_filename = record_table_index_path::<RECORD>(index_root);
         let mut index = Vec::<u64>::new();
         let mut iter = TableIterator::<RECORD>::for_savepoint(table_root, savepoint);
         let mut unique_ids = 0;
@@ -58,9 +75,18 @@ impl<RECORD : TableRecord> IndexedReader<RECORD> {
             }
         }
         // we have the index built, time to save it
-        // TODO
-        unimplemented!();
-        return unique_ids;
+        let mut f = BufWriter::new(OpenOptions::new().
+                    write(true).
+                    create(true).
+                    open(& index_filename)?);
+        f.write_u64::<LittleEndian>(index.len() as u64)?;
+        for offset in index {
+            f.write_u64::<LittleEndian>(offset)?;
+        }
+        f.write_u64::<LittleEndian>(unique_ids as u64)?;
+        f.write_u64::<LittleEndian>(iter.savepoint_limit())?;
+        String::just_write_to(& mut f, & record_table_path::<RECORD>(table_root))?;
+        return Ok(unique_ids);
     }
 
 

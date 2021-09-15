@@ -47,6 +47,7 @@ pub trait TableRecord {
     type Id : Id;
     type Value : Serializable<Item = Self::Value>;
     const TABLE_NAME : &'static str;
+
 }
 
 /** Append only table.
@@ -62,11 +63,15 @@ pub struct TableWriter<RECORD : TableRecord> {
     why_oh_why : std::marker::PhantomData<RECORD>,
 }
 
+/** Given a record and a root folder returns the path of a file in which the table should live. 
+ */
+pub(crate) fn record_table_path<RECORD: TableRecord>(root : & str) -> String { format!("{}/{}", root, RECORD::TABLE_NAME) }
+
 impl<RECORD : TableRecord> TableWriter<RECORD> {
     /** Opens existing table in given datastore root, or if it does not exist, creates new table.
      */
     pub fn open_or_create(root : & str) -> TableWriter<RECORD> {
-        let filename = format!("{}/{}", root, RECORD::TABLE_NAME);
+        let filename = record_table_path::<RECORD>(root);
         let mut f = OpenOptions::new().
                     write(true).
                     create(true).
@@ -225,7 +230,7 @@ impl<RECORD : TableRecord> TableIterator<RECORD> {
         Note that this is really dagnerous if the table is written to at the same time as the iterator may fail on the latest record if incomplete at the time of reading. 
      */
     pub (crate) fn for_all(root : & str) -> TableIterator<RECORD> {
-        let filename = format!("{}/{}", root, RECORD::TABLE_NAME);
+        let filename = record_table_path::<RECORD>(root);
         let f = OpenOptions::new().
                     read(true).
                     open(& filename).unwrap();
@@ -250,6 +255,7 @@ impl<RECORD : TableRecord> TableIterator<RECORD> {
     }
 
     pub(crate) fn offset(& self) -> u64 { self.offset }
+    pub(crate) fn savepoint_limit(& self) -> u64 { self.savepoint_limit }
 
 }
 
