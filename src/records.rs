@@ -3,7 +3,7 @@ use std::io::{Read, Write};
 use std::collections::{HashMap};
 
 use crate::serialization::*;
-use crate::tables::*;
+use crate::table_writer::*;
 
 #[derive(Copy, Clone, Eq, PartialEq, std::hash::Hash)]
 pub struct ProjectId { id : u64 }

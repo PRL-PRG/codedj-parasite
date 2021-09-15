@@ -2,11 +2,11 @@ use std::io;
 use std::io::{Seek, SeekFrom, Read, Write, BufWriter, BufReader};
 use std::fs;
 use std::fs::{File, OpenOptions};
-use std::collections::HashMap;
 
 use byteorder::*;
 
 use crate::serialization::*;
+use crate::savepoints::*;
 
 
 /** A simple trait for IDs. 
@@ -18,6 +18,27 @@ pub trait Id : Copy + Clone + Eq + PartialEq {
     fn from_number(id : u64) -> Self;
 }
 
+/** Serializable implementation for any ID. IDs trivially serialize as the u64 numbers they convert to/from.
+ */
+impl<T : Id> Serializable for T {
+    type Item = T;
+    fn read_from(f : & mut dyn Read, offset : & mut u64) -> io::Result<Self::Item> {
+        *offset += 8;
+        return Ok(T::from_number(f.read_u64::<LittleEndian>()?));
+    }
+
+    fn write_to(f : & mut dyn Write, item : & Self::Item, offset : & mut u64) -> io::Result<()> {
+        *offset += 8;
+        return f.write_u64::<LittleEndian>(item.to_number());
+    }
+}
+
+/** Since IDs serialize as u64s, they also have fixed size of 8.
+ */
+impl<T : Id> FixedSize for T {
+    fn size_of() -> usize { 8 }
+}
+
 /** A record in a datastore. 
  
     A record specifies the type of its ID, the type of its value and importantly, the filename under which it is to be stored in the datastore. This architecture allows new tables to be added to the datastore easily with almost no overhead (hashmap lookup on the table name). Name clashes can also be checked at runtime. 
@@ -26,36 +47,6 @@ pub trait TableRecord {
     type Id : Id;
     type Value : Serializable<Item = Self::Value>;
     const TABLE_NAME : &'static str;
-}
-
-/** Datastore's savepoint.
- 
-    The savepoint simply contains the actual sizes of all tables within a datastore. And a name and a time at which it was taken. The guarantee of a savepoint is that the whole datastore is internally consistent up to it. Therefore, non-modidying access to datastore using the datastore view class are only provided up to a specified savepoint, ensuring data consistency. 
-
-    Furthermore, when data inconsistency on a table level is detected (via the table checkpoint mechanism), the whole datastore must be reverted to latest savepoint. 
- */
-pub struct Savepoint {
-    name : String, 
-    time : i64,
-    sizes : HashMap<String, u64>,
-} 
-
-impl Savepoint {
-    pub fn new(name : String) -> Savepoint {
-        return Savepoint{
-            name, 
-            time : crate::now(),
-            sizes : HashMap::new(),
-        }
-    }
-
-    pub fn name(& self) -> & str { self.name.as_str() }
-
-    pub fn time(& self) -> i64 { self.time }
-
-    pub (crate) fn get_size_for<RECORD: TableRecord>(& self) -> u64 {
-        return self.sizes.get(& String::from(RECORD::TABLE_NAME)).map(|x| *x).unwrap_or(0);        
-    }
 }
 
 /** Append only table.
@@ -151,13 +142,7 @@ impl<RECORD : TableRecord> TableWriter<RECORD> {
      */
     pub fn add_to_savepoint(& mut self, savepoint : & mut Savepoint) -> Result<(),std::io::Error> {
         let savepoint_size = self.flush()?;
-        let savepoint_name = String::from(RECORD::TABLE_NAME);
-        if savepoint.sizes.contains_key(& savepoint_name) {
-            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("Savepoint already defined for {}", savepoint_name)));
-        } else {
-            savepoint.sizes.insert(savepoint_name, savepoint_size);
-            return Ok(());
-        }
+        return savepoint.set_size_for::<RECORD>(savepoint_size);
     }
 
     /** Reverts the table to given savepoint. 
@@ -263,112 +248,8 @@ impl<RECORD : TableRecord> TableIterator<RECORD> {
         iter.savepoint_limit = savepoint.get_size_for::<RECORD>();
         return iter;
     }
-}
 
-/** An indexer of append only table's contents. 
- 
-    The indexer facilitates the random access to the stored contents by keeping for each id the last offset at which the id's value is set. Indexed readers only work up to a given savepoint limit. 
+    pub(crate) fn offset(& self) -> u64 { self.offset }
 
-    Note that to be usable, the indexer assumes continous ids to be present in the underlying table, otherwise there will be large holes in the index file making it very inefficient.
-
-    TODO the indexfile can be memory mapped for increased speed is my thinking. Arguably so could the actual datastore file? 
- */
-struct IndexedReader<RECORD : TableRecord> {
-
-    why_oh_why : std::marker::PhantomData<RECORD>
-}
-
-impl<RECORD : TableRecord> IndexedReader<RECORD> {
-
-    pub fn has(& mut self, id : & RECORD::Id) -> bool {
-        unimplemented!();
-    }
-
-    pub fn get(& mut self, id : & RECORD::Id) -> Option<RECORD::Value> {
-        unimplemented!();
-    }
-
-    /** Number of indexed entries. 
-     */
-    pub fn len(& self) -> usize {
-        unimplemented!();
-    }
-
-
-
-    /** Builds the index file for the table.
-     */
-    fn create(table_root : & str, index_root : & str, savepoint : & Savepoint) -> usize {
-        let index_filename = format!("{}/{}.index", index_root, RECORD::TABLE_NAME);
-        let mut index = Vec::<u64>::new();
-        let mut iter = TableIterator::<RECORD>::for_savepoint(table_root, savepoint);
-        let mut unique_ids = 0;
-        loop {
-            let offset = iter.offset;
-            if let Some((id, _)) = iter.next() {
-                let idx = id.to_number() as usize;
-                while index.len() <= idx {
-                    index.push(u64::MAX);
-                }
-                if index[idx] == u64::MAX {
-                    unique_ids += 1;
-                }
-                index[idx] = offset;
-            } else {
-                break;
-            }
-        }
-        // we have the index built, time to save it
-        // TODO
-        unimplemented!();
-        return unique_ids;
-    }
-
-
-}
-
-
-
-// ------------------------------------------------------------------------------------------------
-
-/** Serializable implementation for any ID. IDs trivially serialize as the u64 numbers they convert to/from.
- */
-impl<T : Id> Serializable for T {
-    type Item = T;
-    fn read_from(f : & mut dyn Read, offset : & mut u64) -> io::Result<Self::Item> {
-        *offset += 8;
-        return Ok(T::from_number(f.read_u64::<LittleEndian>()?));
-    }
-
-    fn write_to(f : & mut dyn Write, item : & Self::Item, offset : & mut u64) -> io::Result<()> {
-        *offset += 8;
-        return f.write_u64::<LittleEndian>(item.to_number());
-    }
-}
-
-/** Since IDs serialize as u64s, they also have fixed size of 8.
- */
-impl<T : Id> FixedSize for T {
-    fn size_of() -> usize { 8 }
-}
-
-/** Serializable implementation for savepoints. 
- */
-impl Serializable for Savepoint {
-    type Item = Savepoint;
-
-    fn read_from(f : & mut dyn Read, offset : & mut u64) -> io::Result<Savepoint> {
-        let name = String::read_from(f, offset)?;
-        let time = i64::read_from(f, offset)?;
-        let sizes = HashMap::<String, u64>::read_from(f, offset)?;
-        return Ok(Savepoint{name, time, sizes});
-    }
-
-    fn write_to(f : & mut dyn Write, item : & Savepoint, offset : & mut u64) -> io::Result<()> {
-        String::write_to(f, & item.name, offset)?;
-        i64::write_to(f, & item.time, offset)?;
-        HashMap::<String, u64>::write_to(f, & item.sizes, offset)?;
-        return Ok(());
-    }
 }
 
