@@ -202,3 +202,12 @@ impl<RECORD : TableRecord> IndexedReader<RECORD> {
     }
 
 }
+
+/** Linked reader provides indexed access to a table with links preserved between records for the same id. 
+ 
+    This will be likely done via double index - first index is id to offset to second index, second index is just offsets to values in some order. 
+
+ */
+struct Linkedreader<RECORD : TableRecord> {
+    why_oh_why : std::marker::PhantomData<RECORD>,
+}

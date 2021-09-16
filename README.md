@@ -17,6 +17,7 @@ Code is in the `src` folder. Here is quick description of the files it contains:
 - `stamp.rs` - stamp (version, git commit, etc.) so that we can make sure that only code for which we have a record does modifications on datastores
 - `table_writer.rs` - basic infrastructure for the append only table and the append only table itself. 
 - `table_readers.rs` - various indexed readers of an append only table
+- `codedj.rs` - the super store that is a set of datastores for the various languages we keep as well as other bookkeeping and metadata required for reliability and maintenance (command logs, etc.) and extra information from other sources, such as the downloader's metadata and indices, discovered projects, etc. Note that CodeDJ is only useful in write access mode, for reading purposes only, the datastoreViews should be used. 
 
 ## TL;DR: Major changes from version 3
 
@@ -33,6 +34,12 @@ Code is in the `src` folder. Here is quick description of the files it contains:
 
 ## Mistletoe
 
+
+## Questions
+
+Perhaps interesting idea that would get rid of merghing: We can override how projects are assigned to datastores and relax the requirement that a project belongs to one datastore at a time only. If we keep the guarantee that project ids are deduplicated for the CodeDJ superstore, then for instance we can store V8 in both JavaScript and C++ substores. This would mean that our datastores will be larger on disk, but maybe not by that much... 
+
+OTOH if you want projects with *any* number of files in given language, you still have to merge/process multiple... 
 
 ## TODO
 

@@ -32,14 +32,6 @@ pub struct UserId { id : u64 }
  */
 pub type SHA = git2::Oid;
 
-/** List of supported substores.
- 
-    New substores can be added 
- */
-pub enum SubstoreKind {
-
-}
-
 /** List of supported file contents. 
  
     TODO do we really want this?

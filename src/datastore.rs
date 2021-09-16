@@ -7,22 +7,22 @@ use crate::table_writer::*;
 use crate::records::*;
 
 
-struct Projects { }
+pub struct Projects { }
 
-struct Commits { } impl TableRecord for Commits {
+pub struct Commits { } impl TableRecord for Commits {
     type Id = CommitId;
     type Value = Commit;
     const TABLE_NAME : &'static str = "commits";
 
 }
 
-struct CommitHashes { } impl TableRecord for CommitHashes { 
+pub struct CommitHashes { } impl TableRecord for CommitHashes { 
     type Id = CommitId; 
     type Value = SHA; 
     const TABLE_NAME : &'static str = "commit-hashes";
 }
 
-struct Users { }
+pub struct Users { }
 
 
 struct Savepoints {} impl TableRecord for Savepoints {
@@ -37,7 +37,7 @@ struct Savepoints {} impl TableRecord for Savepoints {
 
     The datastore is extremely simple and very generic structure. It is basically only a collection of append only tables and basic maintenance infrastucture around them. 
  */
-struct Datastore {
+pub struct Datastore {
     folder : String,
 
     commits : Mutex<TableWriter<Commits>>,

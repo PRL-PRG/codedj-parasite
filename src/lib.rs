@@ -21,6 +21,9 @@ mod datastore;
 #[allow(dead_code)]
 mod datastore_view;
 
+#[allow(dead_code)]
+mod codedj;
+
 /** Returns current time in seconds
  */
 pub fn now() -> i64 {
