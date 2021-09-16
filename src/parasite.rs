@@ -1,10 +1,11 @@
-use log::*;
+//use log::*;
 
 
 #[macro_use]
 extern crate clap;
 use clap::{App, ArgMatches};
 
+#[allow(dead_code)]
 mod stamp;
 
 fn main() {
