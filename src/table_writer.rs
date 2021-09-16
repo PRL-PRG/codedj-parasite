@@ -234,8 +234,6 @@ impl<RECORD : TableRecord> TableIterator<RECORD> {
         let f = OpenOptions::new().
                     read(true).
                     open(& filename).unwrap();
-        // seek towards the end because (a) Rust won't do it for us and (b) determine the offset
-        // create the append only table and return it
         return TableIterator{
             f : BufReader::new(f),
             offset : 0,

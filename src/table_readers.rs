@@ -3,6 +3,8 @@ use std::io::{Seek, SeekFrom, Read, Write, BufWriter, BufReader};
 use std::fs;
 use std::fs::{File, OpenOptions};
 
+use memmap::{Mmap};
+
 use byteorder::*;
 
 use crate::serialization::*;
@@ -23,11 +25,12 @@ use crate::table_writer::*;
     8     number of unique ids in the file
     8     savepoint limit used for the index
     X     serialized string that is the filename of the table from which the index was created
-
-    TODO the indexfile can be memory mapped for increased speed is my thinking. Arguably so could the actual datastore file? 
  */
 struct IndexedReader<RECORD : TableRecord> {
-
+    capacity : usize, 
+    valid_entries : usize, 
+    index : Mmap,
+    table : Mmap,
     why_oh_why : std::marker::PhantomData<RECORD>
 }
 
@@ -36,21 +39,58 @@ pub(crate) fn record_table_index_path<RECORD: TableRecord>(root : & str) -> Stri
 
 impl<RECORD : TableRecord> IndexedReader<RECORD> {
 
+    /** Creates an indexed reader for given table and savepoint. 
+     
+        If the index file already exists, makes sure that it corresponds to provided savepoint and if so uses it. If no index is found, new index file is generated first. If an index file exists, but does not conform to the specified source table or savepoint size, an error is generated. 
+     */
+    //pub fn get_or_create(index_root : & str, table_root : & str, savepoint : & Savepoint) -> io::Result<IndexedReader> {
+    //    unimplemented!();
+    //}
+
+    /** Returns the capacity of the indexer, that is the number of  */
+    pub fn capacity(& self) -> usize { self.capacity }
+
+    pub fn valid_entries(& self) -> usize { self.valid_entries }
+
     pub fn has(& mut self, id : & RECORD::Id) -> bool {
-        unimplemented!();
+        if self.get_offset_for(id) == u64::MAX { false } else { true }
     }
 
     pub fn get(& mut self, id : & RECORD::Id) -> Option<RECORD::Value> {
-        unimplemented!();
+        let offset = self.get_offset_for(id);
+        if offset != Self::EMPTY {
+            return Some(self.read_table(offset as usize));
+        } else {
+            return None;
+        }
     }
 
-    /** Number of indexed entries. 
-     */
-    pub fn len(& self) -> usize {
-        unimplemented!();
+    const EMPTY : u64 = u64::MAX;
+
+    fn savepoint_limit(& self) -> u64 {
+        return self.read_index(self.capacity * 8 + 16);
     }
 
+    fn table_filename(& self) -> String {
+        let mut buf = self.index.get(8 * (self.capacity + 3)..).unwrap();
+        return String::just_read_from(& mut buf).unwrap();
+    }
 
+    fn get_offset_for(& self, id : & RECORD::Id) -> u64 {
+        if id.to_number() as usize >= self.capacity {
+            return Self::EMPTY;
+        } else {
+            return self.read_index((id.to_number() * 8 + 8) as usize);
+        }
+    }
+
+    fn read_index(& self, offset : usize) -> u64 {
+        return self.index.get(offset..(offset + 8)).unwrap().read_u64::<LittleEndian>().unwrap();
+    }
+
+    fn read_table(& self, offset : usize) -> RECORD::Value {
+        unimplemented!();
+    }
 
     /** Builds the index file for the table.
      */
@@ -64,7 +104,7 @@ impl<RECORD : TableRecord> IndexedReader<RECORD> {
             if let Some((id, _)) = iter.next() {
                 let idx = id.to_number() as usize;
                 while index.len() <= idx {
-                    index.push(u64::MAX);
+                    index.push(Self::EMPTY);
                 }
                 if index[idx] == u64::MAX {
                     unique_ids += 1;
@@ -88,6 +128,5 @@ impl<RECORD : TableRecord> IndexedReader<RECORD> {
         String::just_write_to(& mut f, & record_table_path::<RECORD>(table_root))?;
         return Ok(unique_ids);
     }
-
 
 }
