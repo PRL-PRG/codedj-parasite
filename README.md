@@ -13,6 +13,7 @@ Code is in the `src` folder. Here is quick description of the files it contains:
 - `datastore_view.rs` - the readonly datastore view implementation
 - `records.rs` - structs that the datastore keeps
 - `savepoints.rs` - savepoints
+- `folder_lock.rs` - simple RAII folder lock that makes sure only one instance has write access to a folder
 - `serialization.rs` - serialization trait used by the datastore to save and read data
 - `stamp.rs` - stamp (version, git commit, etc.) so that we can make sure that only code for which we have a record does modifications on datastores
 - `table_writer.rs` - basic infrastructure for the append only table and the append only table itself. 
