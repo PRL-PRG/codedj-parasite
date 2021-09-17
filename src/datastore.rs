@@ -168,10 +168,10 @@ impl Datastore {
 /** Fake id used for savepoints and other id-less structures so that we can store them in a table. 
  */
 #[derive(Copy, Clone, Eq, PartialEq, std::hash::Hash)]
-struct FakeId { id : u64 }
+pub(crate) struct FakeId { id : u64 }
 
 impl FakeId {
-    const ID : FakeId = FakeId{ id : 0 };
+    pub (crate) const ID : FakeId = FakeId{ id : 0 };
 }
 
 impl Id for FakeId {

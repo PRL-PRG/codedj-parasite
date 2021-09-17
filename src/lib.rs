@@ -4,6 +4,9 @@ use std::time::{SystemTime};
 mod serialization;
 
 #[allow(dead_code)]
+mod stamp;
+
+#[allow(dead_code)]
 mod folder_lock;
 
 #[allow(dead_code)]
@@ -31,4 +34,11 @@ mod codedj;
  */
 pub fn now() -> i64 {
     return SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).expect("Invalid time detected").as_secs() as i64;
+}
+
+pub fn is_file(filename : & str) -> bool {
+    match std::fs::metadata(filename) {
+        Err(_) => false,
+        Ok(m) => m.is_file()
+    }
 }
