@@ -4,6 +4,9 @@ use std::time::{SystemTime};
 mod serialization;
 
 #[allow(dead_code)]
+mod folder_lock;
+
+#[allow(dead_code)]
 mod savepoints;
 
 #[allow(dead_code)]

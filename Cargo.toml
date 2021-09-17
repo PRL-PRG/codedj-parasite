@@ -32,10 +32,16 @@ zstd = "0.9.0"
 memmap = "0.7.0" 
 # manipulating git repositories
 git2="0.13"
+# extra features we use
+variant_count = "1.1.0" # to have counts of enums ready
 
-#variant_count = "1.1.0" # to have counts of enums ready
-#num-derive = "0.3" # for number to enum conversions and back
+
+
+#num = "0.4" # for number to enum conversions and back
+#num-derive = "0.3" 
 #num-traits = "0.2"
+
+
 #chrono="0.4" # so that we can deal with time & printing it
 #csv="1.1" # reading csv files (such as new projects to be added)
 #crossbeam="0.7" # scoped worker threads

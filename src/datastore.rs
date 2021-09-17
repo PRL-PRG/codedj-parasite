@@ -2,6 +2,7 @@ use std::io;
 use std::fs;
 use std::sync::Mutex;
 
+use crate::folder_lock::*;
 use crate::savepoints::*;
 use crate::table_writer::*;
 use crate::records::*;
@@ -38,7 +39,7 @@ struct Savepoints {} impl TableRecord for Savepoints {
     The datastore is extremely simple and very generic structure. It is basically only a collection of append only tables and basic maintenance infrastucture around them. 
  */
 pub struct Datastore {
-    folder : String,
+    folder_lock : FolderLock,
 
     commits : Mutex<TableWriter<Commits>>,
     commit_hashes : Mutex<TableWriter<CommitHashes>>,
@@ -50,15 +51,16 @@ pub struct Datastore {
 }
 
 impl Datastore {
-    pub fn open_or_create(folder : & str) -> io::Result<Datastore> {
+    pub fn open_or_create(folder : String) -> io::Result<Datastore> {
         // create the folder if it does not exist
-        fs::create_dir_all(folder)?;
+        fs::create_dir_all(& folder)?;
+        let folder_lock = FolderLock::lock(folder)?;
         // create or open the datastore
         let result = Datastore{
-            folder: folder.to_owned(),
-            commits : Mutex::new(TableWriter::open_or_create(folder)),
-            commit_hashes : Mutex::new(TableWriter::open_or_create(folder)),
-            savepoints : Mutex::new(TableWriter::open_or_create(folder)),
+            commits : Mutex::new(TableWriter::open_or_create(folder_lock.folder())),
+            commit_hashes : Mutex::new(TableWriter::open_or_create(folder_lock.folder())),
+            savepoints : Mutex::new(TableWriter::open_or_create(folder_lock.folder())),
+            folder_lock,
         };
         // verify the datastore's consistency
         result.commits().verify()?;
@@ -95,7 +97,7 @@ impl Datastore {
      */
     pub fn get_closest_savepoint(& self, time : i64) -> Option<Savepoint> {
         let _g = self.savepoints.lock().unwrap(); // let no-one interfere as we are iterating over the entire file
-        return TableIterator::<Savepoints>::for_all(& self.folder)
+        return TableIterator::<Savepoints>::for_all(& self.folder_lock.folder())
             .filter(|(_id, sp)| sp.time() <= time)
             .map(|(_id, sp)| sp)
             .last();
@@ -107,7 +109,7 @@ impl Datastore {
      */
     pub fn get_savepoint_by_name(& self, name : & str) -> Option<Savepoint> {
         let _g = self.savepoints.lock().unwrap(); // let no-one interfere as we are iterating over the entire file
-        return TableIterator::<Savepoints>::for_all(& self.folder)
+        return TableIterator::<Savepoints>::for_all(& self.folder_lock.folder())
             .filter(|(_id, sp)| sp.name() == name)
             .map(|(_id, sp)| sp)
             .last();
@@ -117,7 +119,7 @@ impl Datastore {
      */
     pub fn get_latest_savepoint(& self) -> Option<Savepoint> {
         let _g = self.savepoints.lock().unwrap(); // let no-one interfere as we are iterating over the entire file
-        return TableIterator::<Savepoints>::for_all(& self.folder)
+        return TableIterator::<Savepoints>::for_all(& self.folder_lock.folder())
             .map(|(_id, sp)| sp)
             .last();
     }
