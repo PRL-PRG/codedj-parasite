@@ -33,7 +33,9 @@ memmap = "0.7.0"
 # manipulating git repositories
 git2="0.13"
 # extra features we use
-variant_count = "1.1.0" # to have counts of enums ready
+strum = "0.21"
+strum_macros = "0.21"
+#variant_count = "1.1.0" # to have counts of enums ready
 
 
 

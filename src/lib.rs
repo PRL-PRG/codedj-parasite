@@ -36,9 +36,16 @@ pub fn now() -> i64 {
     return SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).expect("Invalid time detected").as_secs() as i64;
 }
 
-pub fn is_file(filename : & str) -> bool {
-    match std::fs::metadata(filename) {
+pub fn is_file(path : & str) -> bool {
+    match std::fs::metadata(path) {
         Err(_) => false,
         Ok(m) => m.is_file()
+    }
+}
+
+pub fn is_dir(path : & str) -> bool {
+    match std::fs::metadata(path) {
+        Err(_) => false,
+        Ok(m) => m.is_dir()
     }
 }
