@@ -1,6 +1,7 @@
 use std::io;
 use std::fs;
 use std::fs::{OpenOptions};
+use log::*;
 
 use crate::serialization::*;
 
@@ -22,6 +23,7 @@ impl FolderLock {
         If the folder is already locked, or cannot be locked by current process, returns an error. 
      */
     pub fn lock(folder : String) -> io::Result<FolderLock> {
+        debug!("Locking folder {}", folder);
         let result = FolderLock{ folder };
         let lock_file = result.lock_file();
         // if the file already exists, can't lock 
@@ -52,12 +54,6 @@ impl FolderLock {
         return & self.folder;
     }
 
-    /** Releases the lock when we go out of scope.
-     */
-    fn drop(& mut self) {
-        fs::remove_file(self.lock_file()).unwrap();
-    }
-
     /** The name of the lock file (.lock in the locked folder) */
     fn lock_file(& self) -> String { format!("{}/.lock", self.folder) }
 
@@ -82,4 +78,13 @@ impl FolderLock {
         return Ok(());
     }
 
+}
+
+impl Drop for FolderLock {
+    /** Releases the lock when we go out of scope.
+     */
+    fn drop(& mut self) {
+        debug!("Unlocking folder {}", self.folder);
+        fs::remove_file(self.lock_file()).unwrap();
+    }
 }

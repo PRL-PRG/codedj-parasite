@@ -77,7 +77,7 @@ pub enum Log {
  
     
  */
-struct CodeDJ {
+pub struct CodeDJ {
 
     /** The root folder of the CodeDJ superstore. 
      

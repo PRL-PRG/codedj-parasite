@@ -12,6 +12,7 @@ args:
     - verbose:
         short: v
         long: verbose
+        multiple: true
         help: Makes the app output more info (maybe).
     - force:
         short: f

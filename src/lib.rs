@@ -4,7 +4,7 @@ use std::time::{SystemTime};
 mod serialization;
 
 #[allow(dead_code)]
-mod stamp;
+pub mod stamp;
 
 #[allow(dead_code)]
 mod folder_lock;
@@ -19,16 +19,16 @@ mod table_writer;
 mod table_readers;
 
 #[allow(dead_code)]
-mod records;
+pub mod records;
 
 #[allow(dead_code)]
-mod datastore;
+pub mod datastore;
 
 #[allow(dead_code)]
-mod datastore_view;
+pub mod datastore_view;
 
 #[allow(dead_code)]
-mod codedj;
+pub mod codedj;
 
 /** Returns current time in seconds
  */
