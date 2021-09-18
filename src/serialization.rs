@@ -147,8 +147,9 @@ impl Serializable for String {
         let len = u32::read_from(f, offset)?;
         let mut buf = vec![0; len as usize];
         if f.read(& mut buf)? as u32 != len {
-            panic!("Corrupted binary format");
+            panic!("Corrupted binary format, expected size {} around offset {}", len, offset);
         }
+        *offset += len as u64;
         return Ok(String::from_utf8(buf).unwrap());
     }
 

@@ -97,6 +97,8 @@ impl CodeDJ {
     pub fn open(folder : String) -> io::Result<CodeDJ> {
         // open the datastore at given addess
         let mut result = Self::new(folder)?;
+        // verify own tables
+        result.log.verify()?;
         // check that there is no current command
         if let Some(current_command) = result.current_command()? {
             return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("Cannot create CodeDJ store in {} as there is unclosed command {:?}", result.folder(), current_command)));
@@ -199,9 +201,10 @@ impl CodeDJ {
                 read(true).
                 open(record_table_path::<CodeDJLog>(self.folder_lock.folder()))?;
             log.seek(SeekFrom::Start(offset))?;
+            FakeId::just_read_from(& mut log)?;
             return Ok(Some(Log::just_read_from(& mut log)?));
         } else {            
-            return Ok(None);
+        return Ok(None);
         }
     }
 
@@ -209,7 +212,7 @@ impl CodeDJ {
      
         We use mutable self to almost make sure that no-one else is playing with the superstore while we get the iterator as iterators not bounded by savepoints are generally unsafe. 
      */
-    pub fn log(& mut self) -> impl Iterator<Item = Log> {
+    pub fn command_log(& mut self) -> impl Iterator<Item = Log> {
         return TableIterator::<CodeDJLog>::for_all(self.folder_lock.folder()).map(|(_, entry)| entry);
     }
 
@@ -219,7 +222,7 @@ impl CodeDJ {
         return Datastore::open_or_create(self.datastore_folder(kind));
     }
 
-    /** Simply creates the CodeDJ superstore without any extra checks. 
+    /** Simply creates the CodeDJ superstore without any checks. 
      */
     fn new(folder : String) -> io::Result<CodeDJ> {
         let folder_lock = FolderLock::lock(folder)?;

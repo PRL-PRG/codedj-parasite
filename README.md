@@ -20,18 +20,31 @@ Code is in the `src` folder. Here is quick description of the files it contains:
 - `table_readers.rs` - various indexed readers of an append only table
 - `codedj.rs` - the super store that is a set of datastores for the various languages we keep as well as other bookkeeping and metadata required for reliability and maintenance (command logs, etc.) and extra information from other sources, such as the downloader's metadata and indices, discovered projects, etc. Note that CodeDJ is only useful in write access mode, for reading purposes only, the datastoreViews should be used. 
 
-## TL;DR: Major changes from version 3
-
-- complete overhaul of internal representation (append only tables and various indexers as opposed to stores, linked stores, split stores, etc.)
-- substores are independent datastores that just happen to share project ids across themselves, but each substore has its own savepoints, etc. 
-- much more resilient and robust
-- minimalist to the bone
-
 ## Datastore
 
 
 
 ## Parasite
+
+Usage:
+
+    parasite ARGS cmd CMD_ARGS
+
+where `ARGS` are:
+
+- `--datastore`, or `-ds` to specify the folder in which the CodeDJ datastore to be operated on exists/will be created
+- `--verbose`, or `-v`, or `-vv` to specify the verbosity level
+- `--force` to force parasite to perform the required command even against its better judgement. Use with extreme caution, most likely you will destroy the store irrepairably by using this option
+
+These arguments are followed by a command, which is followed by command specific options. The following commands are supported:
+
+#### `create`
+
+Creates a CodeDJ superstore in the specified folder. This can fail for numerous reasons, such as dirty build, already existing folder, etc. Can be forced.
+
+#### `log`
+
+Displays a full command log of an existing CodeDJ superstore.
 
 ## Mistletoe
 
