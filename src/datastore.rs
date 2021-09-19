@@ -20,6 +20,12 @@ pub struct ProjectHeads {} impl TableRecord for ProjectHeads {
     const TABLE_NAME : &'static str = "project-heads";
 }
 
+pub struct ProjectLogs {} impl TableRecord for ProjectLogs {
+    type Id = ProjectId;
+    type Value = ProjectLog;
+    const TABLE_NAME : &'static str = "project-logs";
+}
+
 pub struct Commits {} impl TableRecord for Commits {
     type Id = CommitId;
     type Value = Commit;
@@ -46,7 +52,7 @@ pub struct Contents {} impl TableRecord for Contents {
 
 pub struct Users {} impl TableRecord for Users {
     type Id = UserId;
-    type Value = String;
+    type Value = User;
     const TABLE_NAME : &'static str = "users";
 }
 
@@ -67,16 +73,48 @@ pub struct Datastore {
     folder_lock : FolderLock,
 
     /** Projects that are currently available in the datastore. 
+     
+        A project points to its kind (Git, GitHub) and url. A project may also be deleted, which means we keep its copy in the store, but it has been removed from upstream (such as projects deleted, or becoming private on GitHub). Finally a project can be tombstoned, which means the project is no longer part of the datastore (although we still need to keep the record and contents of the project in the datastore for historical accuracy, it will not be returned in searches).
      */
     projects : Mutex<TableWriter<Projects>>,
-    // project heads
-    // project log
 
+    /** Project heads. 
+     
+        Every successful update of a project that actually changed its contents will result in a new project heads entry for the project.
+     */
+    project_heads : Mutex<TableWriter<ProjectHeads>>,
+    
+    /** Project logs. 
+     
+        Everytime a project is moved to/from the datastore, renamed, or updated a log entry is added to the log table. Any errors during its update are also logged. 
+     */
+    project_logs : Mutex<TableWriter<ProjectLogs>>,
+
+    /** All commits belonging to projects in the datastore. 
+     
+        Note that contrary to previous versions, project has is part of the commit record and does not reside in a separate table.
+     */
     commits : Mutex<TableWriter<Commits>>,
-    commit_hashes : Mutex<TableWriter<CommitHashes>>,
 
-    // users
-    // contents
+    /** Paths to ids mapping. 
+     
+        A path is a string. 
+     */
+    paths : Mutex<TableWriter<Paths>>,
+    
+    /** Contents of files. 
+     
+        Compressed contents of a file, deduplicated by the SHA hash of the uncompressed contents. 
+     */
+    contents : Mutex<TableWriter<Contents>>,
+
+    /** Users.  
+     
+        Users are deduplicated based on their email. 
+
+        TODO have more than string here, like a full user description, etc. 
+     */
+    users : Mutex<TableWriter<Users>>,
 
     /** The savepoints specified for the datastore. 
      */
@@ -92,15 +130,23 @@ impl Datastore {
         // create or open the datastore
         let result = Datastore{
             projects : Mutex::new(TableWriter::open_or_create(folder_lock.folder())),
+            project_heads : Mutex::new(TableWriter::open_or_create(folder_lock.folder())),
+            project_logs : Mutex::new(TableWriter::open_or_create(folder_lock.folder())),
             commits : Mutex::new(TableWriter::open_or_create(folder_lock.folder())),
-            commit_hashes : Mutex::new(TableWriter::open_or_create(folder_lock.folder())),
+            paths : Mutex::new(TableWriter::open_or_create(folder_lock.folder())),
+            contents : Mutex::new(TableWriter::open_or_create(folder_lock.folder())),
+            users : Mutex::new(TableWriter::open_or_create(folder_lock.folder())),
+
             savepoints : Mutex::new(TableWriter::open_or_create(folder_lock.folder())),
             folder_lock,
         };
         // verify the datastore's consistency
         result.projects().verify()?;
+        result.project_heads().verify()?;
         result.commits().verify()?;
-        result.commit_hashes().verify()?;
+        result.paths().verify()?;
+        result.contents().verify()?;
+        result.users().verify()?;
 
         result.savepoints.lock().unwrap().verify()?;
 
@@ -115,12 +161,22 @@ impl Datastore {
      */
     pub fn create_savepoint(& self, name : String) -> io::Result<()> {
         let mut savepoint = Savepoint::new(name);
+        let mut lprojects = self.projects();
+        let mut lproject_heads = self.project_heads();
+        let mut lproject_logs = self.project_logs();
         let mut lcommits = self.commits();
-        let mut lcommit_hashes = self.commit_hashes();
+        let mut lpaths = self.paths();
+        let mut lcontents = self.contents();
+        let mut lusers = self.users();
         let mut lsavepoints = self.savepoints.lock().unwrap();
 
+        lprojects.add_to_savepoint(& mut savepoint)?;
+        lproject_heads.add_to_savepoint(& mut savepoint)?;
+        lproject_logs.add_to_savepoint(& mut savepoint)?;
         lcommits.add_to_savepoint(& mut savepoint)?;
-        lcommit_hashes.add_to_savepoint(& mut savepoint)?;
+        lpaths.add_to_savepoint(& mut savepoint)?;
+        lcontents.add_to_savepoint(& mut savepoint)?;
+        lusers.add_to_savepoint(& mut savepoint)?;
         lsavepoints.add_to_savepoint(& mut savepoint)?;
 
         lsavepoints.append(FakeId::ID, & savepoint);
@@ -165,12 +221,22 @@ impl Datastore {
         Acquires locks to all tables and reverts them to given savepoint. May deadlock if someone else is using the datastore as well. 
      */
     pub fn revert_to_savepoint(& self, savepoint : & Savepoint) -> io::Result<()> {
+        let mut lprojects = self.projects();
+        let mut lproject_heads = self.project_heads();
+        let mut lproject_logs = self.project_logs();
         let mut lcommits = self.commits();
-        let mut lcommit_hashes = self.commit_hashes();
+        let mut lpaths = self.paths();
+        let mut lcontents = self.contents();
+        let mut lusers = self.users();
         let mut lsavepoints = self.savepoints.lock().unwrap();
 
+        lprojects.revert_to_savepoint(& savepoint)?;
+        lproject_heads.revert_to_savepoint(& savepoint)?;
+        lproject_logs.revert_to_savepoint(& savepoint)?;
         lcommits.revert_to_savepoint(& savepoint)?;
-        lcommit_hashes.revert_to_savepoint(& savepoint)?;
+        lpaths.revert_to_savepoint(& savepoint)?;
+        lcontents.revert_to_savepoint(& savepoint)?;
+        lusers.revert_to_savepoint(& savepoint)?;
         lsavepoints.revert_to_savepoint(& savepoint)?;
 
         return Ok(());
@@ -182,17 +248,42 @@ impl Datastore {
         return self.projects.lock().unwrap();
     }
 
+    /** Returns the locked project heads records. 
+     */
+    pub fn project_heads<'a>(&'a self) -> std::sync::MutexGuard<'a, TableWriter<ProjectHeads>> {
+        return self.project_heads.lock().unwrap();
+    }
+
+    /** returns the locked project logs table. 
+     */
+    pub fn project_logs<'a>(&'a self) -> std::sync::MutexGuard<'a, TableWriter<ProjectLogs>> {
+        return self.project_logs.lock().unwrap();
+    }
+
     /** Returns the locked commits table. 
      */
     pub fn commits<'a>(&'a self) -> std::sync::MutexGuard<'a, TableWriter<Commits>> {
         return self.commits.lock().unwrap();
     }
 
-    /** Returns the locked commit_hashes table.
+    /** Returns the locked paths table. 
      */
-    pub fn commit_hashes<'a>(&'a self) -> std::sync::MutexGuard<'a, TableWriter<CommitHashes>> {
-        return self.commit_hashes.lock().unwrap();
+    pub fn paths<'a>(&'a self) -> std::sync::MutexGuard<'a, TableWriter<Paths>> {
+        return self.paths.lock().unwrap();
     }
+
+    /** Returns the locked contents table. 
+     */
+    pub fn contents<'a>(&'a self) -> std::sync::MutexGuard<'a, TableWriter<Contents>> {
+        return self.contents.lock().unwrap();
+    }
+
+    /** returns the locked users table. 
+     */
+    pub fn users<'a>(&'a self) -> std::sync::MutexGuard<'a, TableWriter<Users>> {
+        return self.users.lock().unwrap();
+    }
+
 
 }
 

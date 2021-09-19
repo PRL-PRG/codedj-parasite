@@ -68,12 +68,46 @@ pub enum Project {
 pub type Heads = HashMap<String, CommitId>;
 
 
+/** Log of project update record inside a datastore. 
+ */
+pub enum ProjectLog {
+    /** An error occured while trying to update the project. This is usually followed by the Deleted message, but does not always have to be (some errors might be internal)
+     */
+    Error{time : i64, msg : String },
+    /** A project has been deleted upstream. 
+     */
+    Deleted{time : i64},
+    /** The project has moved into the datastore. We keep a link to the previous datastore the project belonged to in case we ever need it. 
+     */
+    New{time : i64, old_datastore : String },
+    /** The project has been tombstoned, i.e. moved to different datastore. We keep which datastore in case it is ever needed.
+     */
+    Tombstone{ time : i64, new_datastore : String },
+    /** The project has been renamed. We keep the old *and* the new urls here as quick references. 
+     */
+    Rename{time : i64, old : Project, new : Project },
+    /** The project has been checked for updates, but changes have been found since last check. 
+     */
+    NoChange{time : i64},
+    /** The project has been updated successfully. 
+     */
+    Ok{time : i64},
+}
+
 /** Commit information. 
  
     Commits are identified by their hash and therefore immutable. All information can thus be stored in the same table. 
  */
 pub struct Commit {
-
+    pub hash : SHA,
+    pub committer : UserId,
+    pub committer_time : i64,
+    pub author : UserId,
+    pub author_time : i64,
+    pub message : String,
+    pub tree : TreeId,
+    pub parents : Vec<CommitId>,
+    pub changes : Vec<Change>,
 }
 
 /** A single change made by a commit.
@@ -102,6 +136,11 @@ pub struct Tree {
  */
 pub type FileContents = Vec<u8>;
 
+/** Information about a user. 
+ */
+pub struct User {
+    pub email : String,
+}
 
 // Implementation ----------------------------------------------------------------------------------
 
@@ -203,7 +242,6 @@ impl Serializable for Project {
         match kind {
             Self::TOMBSTONE => {
                 return Ok(Project::Tombstone{});
-
             },
             Self::DELETED => {
                 let url = String::read_from(f, offset)?;
@@ -249,17 +287,173 @@ impl Serializable for Project {
     }
 }
 
+impl ProjectLog {
+    const ERROR : u8 = 0;
+    const DELETED : u8 = 1;
+    const NEW : u8 = 2;
+    const TOMBSTONE : u8 = 3;
+    const RENAME : u8 = 4;
+    const NO_CHANGE : u8 = 5;
+    const OK : u8 = 6;
+}
+
+impl Serializable for ProjectLog {
+    type Item = ProjectLog;
+
+    fn read_from(f : & mut dyn Read, offset : & mut u64) -> io::Result<ProjectLog> {
+        let kind = f.read_u8()?; 
+        *offset += 1;
+        match kind {
+            Self::ERROR => {
+                let time = i64::read_from(f, offset)?;
+                let msg = String::read_from(f, offset)?;
+                return Ok(Self::Error{time, msg});
+            },
+            Self::DELETED => {
+                let time = i64::read_from(f, offset)?;
+                return Ok(Self::Deleted{time});
+            },
+            Self::NEW => {
+                let time = i64::read_from(f, offset)?;
+                let old_datastore = String::read_from(f, offset)?;
+                return Ok(Self::New{time, old_datastore});
+
+            },
+            Self::TOMBSTONE => {
+                let time = i64::read_from(f, offset)?;
+                let new_datastore = String::read_from(f, offset)?;
+                return Ok(Self::Tombstone{time, new_datastore});
+            },
+            Self::RENAME => {
+                let time = i64::read_from(f, offset)?;
+                let old = Project::read_from(f, offset)?;
+                let new = Project::read_from(f, offset)?;
+                return Ok(Self::Rename{time, old, new});
+
+            },
+            Self::NO_CHANGE => {
+                let time = i64::read_from(f, offset)?;
+                return Ok(Self::NoChange{time});
+            },
+            Self::OK => {
+                let time = i64::read_from(f, offset)?;
+                return Ok(Self::Ok{time});
+            },
+            _ => unreachable!()
+        }
+    }
+
+    fn write_to(f : & mut dyn Write, item : & ProjectLog, offset : & mut u64) -> io::Result<()> {
+        match item {
+            Self::Error{time, msg } => {
+                f.write_u8(Self::ERROR)?;
+                *offset += 1;
+                i64::write_to(f, time, offset)?;
+                String::write_to(f, msg, offset)?;
+            },
+            Self::Deleted{time} => {
+                f.write_u8(Self::DELETED)?;
+                *offset += 1;
+                i64::write_to(f, time, offset)?;
+            }
+            Self::New{time, old_datastore} => {
+                f.write_u8(Self::NEW)?;
+                *offset += 1;
+                i64::write_to(f, time, offset)?;
+                String::write_to(f, old_datastore, offset)?;
+            },
+            Self::Tombstone{time, new_datastore} => {
+                f.write_u8(Self::TOMBSTONE)?;
+                *offset += 1;
+                i64::write_to(f, time, offset)?;
+                String::write_to(f, new_datastore, offset)?;
+            },
+            Self::Rename{time, old, new} => {
+                f.write_u8(Self::RENAME)?;
+                *offset += 1;
+                i64::write_to(f, time, offset)?;
+                Project::write_to(f, old, offset)?;
+                Project::write_to(f, new, offset)?;
+            },
+            Self::NoChange{time} => {
+                f.write_u8(Self::NO_CHANGE)?;
+                *offset += 1;
+                i64::write_to(f, time, offset)?;
+            },
+            Self::Ok{time} => {
+                f.write_u8(Self::OK)?;
+                *offset += 1;
+                i64::write_to(f, time, offset)?;
+            }
+        }
+        return Ok(());
+    }
+}
+
 impl Serializable for Commit {
     type Item = Commit;
 
-    fn read_from(_f : & mut dyn Read, _offset : & mut u64) -> io::Result<Self::Item> {
-        unimplemented!();
+    fn read_from(f : & mut dyn Read, offset : & mut u64) -> io::Result<Self::Item> {
+        let hash = SHA::read_from(f, offset)?;
+        let committer = UserId::read_from(f, offset)?;
+        let committer_time = i64::read_from(f, offset)?;
+        let author = UserId::read_from(f, offset)?;
+        let author_time = i64::read_from(f, offset)?;
+        let message = String::read_from(f, offset)?;
+        let tree = TreeId::read_from(f, offset)?;
+        let parents = Vec::<CommitId>::read_from(f, offset)?;
+        let changes = Vec::<Change>::read_from(f, offset)?;
+        return Ok(Commit{
+            hash, 
+            committer, 
+            committer_time, 
+            author,
+            author_time,
+            message,
+            tree,
+            parents,
+            changes,
+        });
     }
 
-    fn write_to(_f : & mut dyn Write, _item : & Self::Item, _offset : & mut u64) -> io::Result<()> {
-        unimplemented!();
+    fn write_to(f : & mut dyn Write, item : & Self::Item, offset : & mut u64) -> io::Result<()> {
+        SHA::write_to(f, & item.hash, offset)?;
+        UserId::write_to(f, & item.committer, offset)?;
+        i64::write_to(f, & item.committer_time, offset)?;
+        UserId::write_to(f, & item.author, offset)?;
+        i64::write_to(f, & item.author_time, offset)?;
+        String::write_to(f, & item.message, offset)?;
+        TreeId::write_to(f, & item.tree, offset)?;
+        Vec::<CommitId>::write_to(f, & item.parents, offset)?;
+        Vec::<Change>::write_to(f, & item.changes, offset)?;
+        return Ok(());
+    }
+}
+
+impl Change {
+    const DELETED : ContentsId = ContentsId{id : u64::MAX};
+}
+
+impl Serializable for Change {
+    type Item = Change;
+
+    fn read_from(f : & mut dyn Read, offset : & mut u64) -> io::Result<Self::Item> {
+        let path = PathId::read_from(f, offset)?;
+        let contents = ContentsId::read_from(f, offset)?;
+        if contents == Self::DELETED {
+            return Ok(Change{path, contents : None});
+        } else {
+            return Ok(Change{path, contents : Some(contents)});
+        }
     }
 
+    fn write_to(f : & mut dyn Write, item : & Self::Item, offset : & mut u64) -> io::Result<()> {
+        PathId::write_to(f, & item.path, offset)?;
+        match item.contents {
+            Some(id) => ContentsId::write_to(f, & id, offset),
+            None => ContentsId::write_to(f, & Change::DELETED, offset),
+        }
+    }
 }
 
 impl Serializable for SHA {
@@ -279,6 +473,19 @@ impl Serializable for SHA {
         f.write(item.as_bytes())?;
         *offset += 20;
         return Ok(());
+    }
+}
+
+impl Serializable for User {
+    type Item = User;
+
+    fn read_from(f : & mut dyn Read, offset : & mut u64) -> io::Result<Self::Item> {
+        let email = String::read_from(f, offset)?;
+        return Ok(User{email});
+    }
+
+    fn write_to(f : & mut dyn Write, item : & Self::Item, offset : & mut u64) -> io::Result<()> {
+        return String::write_to(f, & item.email, offset);
     }
 
 }

@@ -283,7 +283,7 @@ impl Serializable for Log {
                 let time = i64::read_from(f, offset)?;
                 return Ok(Log::CommandEnd{time});
             },
-            _ => { panic!("Invalid log kind: {}", kind); }
+            _ => unreachable!()
         }
     }
 

@@ -2,6 +2,25 @@
 
 Parasite is responsible for the implementation & updates to the append only datastore of software repositories. This is the fourth version, which hopefully will be final, for some time...
 
+# Setup 
+
+Install prerequisites.
+
+> Note this list is not exhaustive as I haven't tried to build on a clean machine, if you do, please add any required packages here too. 
+
+    sudo apt install git libssl-dev
+    
+Then install rust:
+
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+After which it is recommended to reboot (a logoff/login should be enough in theory). Then build:
+
+    cargo build --release
+
+(or omit release for debug build). The resulting binaries will be found in `target/release` or `target/debug`. 
+
+
 ## Code Overview
 
 Code is in the `src` folder. Here is quick description of the files it contains:
