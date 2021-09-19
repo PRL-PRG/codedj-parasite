@@ -1,11 +1,41 @@
 
+use crate::serialization::*;
+use crate::table_writer::*;
+//use crate::table_readers::*;
 use crate::savepoints::*;
+
+/** A view into an append-only table as a trait that is presented to the users od the API. 
+ 
+    This is to be as compatible with V3 as possible, but minor changes are inevitable. 
+ 
+ */
+pub trait TableView : IntoIterator<Item = (Self::Id, Self::Value)> {
+    type Id : Id;
+    type Value : Serializable;
+
+    fn get(& mut self, id : & Self::Id) -> Option<Self::Value>;
+}
 
 /** Datastore viewer.
  
     Very much different from the datastore itself the viewer provides a multi-threaded read-only access to existing datastore at a given savepoint. The viewer keeps indices for read-only or latest-only information access to the underlying datastore. These indices are created and cached on demand. 
 
-    The datastore view can be copied & moved around in its entirety as long as the absolute path to the original dataset remains the same. 
+    The datastore view can be copied & moved around in its entirety as long as the absolute path to the original dataset remains the same.
+    
+    The V3 API we should support-ish:
+
+    projects -> Table
+    project_heads -> Iterator
+    project_logs -> Iterator
+
+    commits -> Table
+    hashes -> Table
+    contents -> Table
+    paths -> Table
+    users -> Table
+
+
+    Iterator simply iterates, Table allows random access to latest values and can transform itself into an iterator...
  */
 struct DatastoreView {
 

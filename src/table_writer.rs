@@ -204,7 +204,6 @@ impl<RECORD : TableRecord> Drop for TableWriter<RECORD> {
     }
 }
 
-
 /** An iterator into the append only table. 
  
     The iterator simply returns *all* entries in the table in the order they were written to it. If the underlying table supports updates to ids, it is the responsibility of the iterator client to make sure that only the latest value for any given id will be used, unless interested in history. The iterator can either go over entire table, or up to a given savepoint. 

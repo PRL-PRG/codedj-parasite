@@ -21,6 +21,31 @@ After which it is recommended to reboot (a logoff/login should be enough in theo
 (or omit release for debug build). The resulting binaries will be found in `target/release` or `target/debug`. 
 
 
+## Parasite
+
+Usage:
+
+    parasite ARGS cmd CMD_ARGS
+
+where `ARGS` are:
+
+- `--datastore`, or `-ds` to specify the folder in which the CodeDJ datastore to be operated on exists/will be created
+- `--verbose`, or `-v`, or `-vv` to specify the verbosity level
+- `--force` to force parasite to perform the required command even against its better judgement. Use with extreme caution, most likely you will destroy the store irrepairably by using this option
+
+These arguments are followed by a command, which is followed by command specific options. The following commands are supported:
+
+#### `create`
+
+Creates a CodeDJ superstore in the specified folder. This can fail for numerous reasons, such as dirty build, already existing folder, etc. Can be forced.
+
+#### `log`
+
+Displays a full command log of an existing CodeDJ superstore.
+
+## Mistletoe
+
+
 ## Code Overview
 
 Code is in the `src` folder. Here is quick description of the files it contains:
@@ -47,32 +72,14 @@ And finally the `mistletoe` folder contains files used by mistletoe only:
 
 - `mistletoe.rs` - command-line read-only client for reading raw datastore contents. Any commands that only read the stored information about projects go here. 
 
+## CodeDJ super store
 
-## Datastore
+## Datastores
 
-## Parasite
+## Repository Update
 
-Usage:
 
-    parasite ARGS cmd CMD_ARGS
 
-where `ARGS` are:
-
-- `--datastore`, or `-ds` to specify the folder in which the CodeDJ datastore to be operated on exists/will be created
-- `--verbose`, or `-v`, or `-vv` to specify the verbosity level
-- `--force` to force parasite to perform the required command even against its better judgement. Use with extreme caution, most likely you will destroy the store irrepairably by using this option
-
-These arguments are followed by a command, which is followed by command specific options. The following commands are supported:
-
-#### `create`
-
-Creates a CodeDJ superstore in the specified folder. This can fail for numerous reasons, such as dirty build, already existing folder, etc. Can be forced.
-
-#### `log`
-
-Displays a full command log of an existing CodeDJ superstore.
-
-## Mistletoe
 
 
 ## Questions
