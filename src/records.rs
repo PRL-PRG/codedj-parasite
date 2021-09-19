@@ -2,6 +2,8 @@ use std::io;
 use std::io::{Read, Write};
 use std::collections::{HashMap};
 
+use byteorder::*;
+
 use crate::serialization::*;
 use crate::table_writer::*;
 
@@ -32,28 +34,28 @@ pub struct UserId { id : u64 }
  */
 pub type SHA = git2::Oid;
 
-/** List of supported file contents. 
- 
-    TODO do we really want this?
- */
-/*pub enum ContentsKind {
-
-
-}
-*/
-
-
 /** Project information. 
  
     Different project sources are possible, such as plain git, or Github and this enum lists them all. The implementation then specializes the basic interface to the supported kinds. 
 
     TODO This should allow relatively easy extension of the infrastructure by supporting other project sources, such as software heritage, etc. But deduplication using these stores might be a bit more involved. For now therefore only git & github are supported and deduplicated based on the clone url. 
  */
+#[derive(Eq, PartialEq, Hash)]
 pub enum Project {
+    /** Tombstone project means that a project of this id existed in the datastore previously, but has been moved, to other datastore. 
+     */
     Tombstone{},
-    Git{},
-    GitHub{},
+    /** Indicates a project that has been deleted from upstream. Such project still remains in the datastore. 
+     */
+    Deleted{url : String },
+    /** A generic git project. Upstream is a git clone url. 
+     */
+    Git{url : String },
+    /** A Github project, upstream is a github hosted repository. 
+     */
+    GitHub{ user : String, repo : String },
 }
+
 
 /** Project heads. 
  
@@ -63,7 +65,7 @@ pub enum Project {
 
     TODO ^- maybe revisit the above? 
  */
-pub type ProjectHeads = HashMap<String, CommitId>;
+pub type Heads = HashMap<String, CommitId>;
 
 
 /** Commit information. 
@@ -98,7 +100,7 @@ pub struct Tree {
  
     Stored as a byte vector.
  */
-pub type Contents = Vec<u8>;
+pub type FileContents = Vec<u8>;
 
 
 // Implementation ----------------------------------------------------------------------------------
@@ -137,6 +139,114 @@ impl Id for TreeId {
 impl Id for UserId {
     fn to_number(&self) -> u64 { self.id }
     fn from_number(id : u64) -> Self { UserId{id} }
+}
+
+impl Project {
+    const TOMBSTONE : u8 = 0;
+    const DELETED : u8 = 1;
+    const GIT : u8 = 2;
+    const GITHUB : u8 = 3;
+
+    /** Attempts to construct a project from given string. 
+     
+        The string is assumed to be an url. Only https is supported. 
+
+        TODO is the https only a problem?
+     */
+    pub fn from_string(url : & str) -> Option<Project> {
+        if url.starts_with("https://github.com/") {
+            if url.ends_with(".git") {
+                return Self::from_github_user_and_repo(& url[19..(url.len() - 4)]);
+            } else {
+                return Self::from_github_user_and_repo(& url[19..]);
+            };
+        } else if url.starts_with("https://api.github.com/repos/") {
+            return Self::from_github_user_and_repo(& url[29..]);
+        } else if url.ends_with(".git") && url.starts_with("https://") {
+            return Some(Project::Git{ url : url[8..(url.len() - 4)].to_owned() });
+        } 
+        return None;
+    }
+
+    /** Returns the clone url of the project.
+     
+        Note that this function panics is called on tombstone project as these are not expected to be ever returned to user.
+     */
+    pub fn clone_url(& self) -> String {
+        match self {
+            Self::Deleted{url} => format!("https://{}.git", url),
+            Self::Git{url} => format!("https://{}.git", url),
+            Self::GitHub{user, repo} => format!("https://github.com/{}/{}.git", user, repo),
+            _ => panic!("Tombstoned projects do not have clone urls!")
+        }
+    }
+
+    /** Just a helper that creates a GitHub project from given user and repo part of url.
+     */
+    fn from_github_user_and_repo(u_and_r : & str) -> Option<Project> {
+        // an ugly hack to move the strings from the vector when reconstructing
+        let mut user_and_repo : Vec<Option<String>> = u_and_r.split("/").map(|x| Some(x.to_owned())).collect();
+        if user_and_repo.len() == 2 {
+            return Some(Project::GitHub{user : user_and_repo[0].take().unwrap(), repo : user_and_repo[1].take().unwrap()});
+        } else {
+            return None;
+        }
+    }
+}
+
+impl Serializable for Project {
+    type Item = Project;
+
+    fn read_from(f : & mut dyn Read, offset: & mut u64) -> io::Result<Project> {
+        let kind = f.read_u8()?;
+        *offset += 1;
+        match kind {
+            Self::TOMBSTONE => {
+                return Ok(Project::Tombstone{});
+
+            },
+            Self::DELETED => {
+                let url = String::read_from(f, offset)?;
+                return Ok(Project::Deleted{url});
+            },
+            Self::GIT => {
+                let url = String::read_from(f, offset)?;
+                return Ok(Project::Git{url});
+            },
+            Self::GITHUB => {
+                let user = String::read_from(f, offset)?;
+                let repo = String::read_from(f, offset)?;
+                return Ok(Project::GitHub{user, repo});
+            },
+            _ => { unreachable!() }
+        }
+    }
+
+    fn write_to(f : & mut dyn Write, item : & Project, offset : & mut u64) -> io::Result<()> {
+        match item {
+            Self::Tombstone{} => {
+                f.write_u8(Self::TOMBSTONE)?;
+                *offset += 1;
+            },
+            Self::Deleted{url} => {
+                f.write_u8(Self::DELETED)?;
+                *offset += 1;
+                String::write_to(f, url, offset)?;
+            },
+            Self::Git{url} => {
+                f.write_u8(Self::GIT)?;
+                *offset += 1;
+                String::write_to(f, url, offset)?;
+            },
+            Self::GitHub{user, repo} => {
+                f.write_u8(Self::GITHUB)?;
+                *offset += 1;
+                String::write_to(f, user, offset)?;
+                String::write_to(f, repo, offset)?;
+            }
+        }
+        return Ok(());
+    }
 }
 
 impl Serializable for Commit {

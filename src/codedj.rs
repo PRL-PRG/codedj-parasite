@@ -23,6 +23,7 @@ use crate::stamp::*;
     The expectation is that the datastor kinds will correspond to major programming languages used by the repositories contained within, but arguably, this does not have to be the case. 
     
     Another expectation is that a project exists in only one datastore within CodeDJ at a time, but technically, this is not necessary, all that codeDJ really should guarantee is that project ids are unique across all datastores. 
+
  */
 #[derive(EnumIter, Copy, Clone, Debug)]
 pub enum DatastoreKind {

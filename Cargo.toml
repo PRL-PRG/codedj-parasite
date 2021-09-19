@@ -12,12 +12,12 @@ path = "src/lib.rs"
 # Parasite is the actual perpetual updater of the datastore. It only accesses the global datastore. 
 [[bin]]
 name = "parasite"
-path = "src/parasite.rs"
+path = "src/parasite/parasite.rs"
 
 # mistletoe is the command-line viewer of the datastore using the savepoints and indices mechanism of the datastore view API. 
 [[bin]]
 name = "mistletoe"
-path = "src/mistletoe.rs"
+path = "src/mistletoe/mistletoe.rs"
 
 [dependencies]
 # command-line arguments, logging and executable stamps

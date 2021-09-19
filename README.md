@@ -7,8 +7,6 @@ Parasite is responsible for the implementation & updates to the append only data
 Code is in the `src` folder. Here is quick description of the files it contains:
 
 - `lib.rs` - the parasite library that provides read and write access functions to the datastores. Stuff useful for parasite, mistletoe and djanco goes here. 
-- `parasite.rs` - command-line utility for dataset maintenance and updater. Any commands that require write-access to the datastore go here. 
-- `mistletoe.rs` - command-line read-only client for reading raw datastore contents. Any commands that only read the stored information about projects go here. 
 - `datastore.rs` - datastore implementation and basic maintenance
 - `datastore_view.rs` - the readonly datastore view implementation
 - `records.rs` - structs that the datastore keeps
@@ -20,9 +18,18 @@ Code is in the `src` folder. Here is quick description of the files it contains:
 - `table_readers.rs` - various indexed readers of an append only table
 - `codedj.rs` - the super store that is a set of datastores for the various languages we keep as well as other bookkeeping and metadata required for reliability and maintenance (command logs, etc.) and extra information from other sources, such as the downloader's metadata and indices, discovered projects, etc. Note that CodeDJ is only useful in write access mode, for reading purposes only, the datastoreViews should be used. 
 
+The `parasite` subfolder contains files used by parasite only, these are:
+
+- `parasite-cli.yaml` - YAML description of parasite's command line interface
+- `parasite.rs` - command-line utility for dataset maintenance and updater. Any commands that require write-access to the datastore go here. 
+- `updater.rs` - the updater task responsible for updating a repository in a datastore
+
+And finally the `mistletoe` folder contains files used by mistletoe only:
+
+- `mistletoe.rs` - command-line read-only client for reading raw datastore contents. Any commands that only read the stored information about projects go here. 
+
+
 ## Datastore
-
-
 
 ## Parasite
 
@@ -51,9 +58,9 @@ Displays a full command log of an existing CodeDJ superstore.
 
 ## Questions
 
-Perhaps interesting idea that would get rid of merghing: We can override how projects are assigned to datastores and relax the requirement that a project belongs to one datastore at a time only. If we keep the guarantee that project ids are deduplicated for the CodeDJ superstore, then for instance we can store V8 in both JavaScript and C++ substores. This would mean that our datastores will be larger on disk, but maybe not by that much... 
+Perhaps interesting idea that would get rid of merghing: We can override how projects are assigned to datastores and relax the requirement that a project belongs to one datastore at a time only. If we keep the guarantee that project ids are deduplicated for the CodeDJ superstore, then for instance we can store V8 in both JavaScript and C++ substores. This would mean that our datastores will be larger on disk, but maybe not by that much... OTOH if you want projects with *any* number of files in given language, you still have to merge/process multiple... 
 
-OTOH if you want projects with *any* number of files in given language, you still have to merge/process multiple... 
+Shoudl CodeDJ also manage all datastore views to provided savepoints, or should we have this on the datastore users themselves? I am slightly leaning towards the themselves option, but only very slightly...
 
 ## TODO
 

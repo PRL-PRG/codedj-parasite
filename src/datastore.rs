@@ -8,22 +8,47 @@ use crate::table_writer::*;
 use crate::records::*;
 
 
-pub struct Projects { }
+pub struct Projects {} impl TableRecord for Projects {
+    type Id = ProjectId;
+    type Value = Project;
+    const TABLE_NAME : &'static str = "projects";
+}
 
-pub struct Commits { } impl TableRecord for Commits {
+pub struct ProjectHeads {} impl TableRecord for ProjectHeads {
+    type Id = ProjectId;
+    type Value = Heads;
+    const TABLE_NAME : &'static str = "project-heads";
+}
+
+pub struct Commits {} impl TableRecord for Commits {
     type Id = CommitId;
     type Value = Commit;
     const TABLE_NAME : &'static str = "commits";
-
 }
 
-pub struct CommitHashes { } impl TableRecord for CommitHashes { 
+pub struct CommitHashes {} impl TableRecord for CommitHashes { 
     type Id = CommitId; 
     type Value = SHA; 
     const TABLE_NAME : &'static str = "commit-hashes";
 }
 
-pub struct Users { }
+pub struct Paths {} impl TableRecord for Paths {
+    type Id = PathId;
+    type Value = String;
+    const TABLE_NAME : &'static str = "paths";
+}
+
+pub struct Contents {} impl TableRecord for Contents {
+    type Id = ContentsId;
+    type Value = FileContents;
+    const TABLE_NAME : &'static str = "contents";
+}
+
+pub struct Users {} impl TableRecord for Users {
+    type Id = UserId;
+    type Value = String;
+    const TABLE_NAME : &'static str = "users";
+}
 
 
 struct Savepoints {} impl TableRecord for Savepoints {
@@ -41,8 +66,17 @@ struct Savepoints {} impl TableRecord for Savepoints {
 pub struct Datastore {
     folder_lock : FolderLock,
 
+    /** Projects that are currently available in the datastore. 
+     */
+    projects : Mutex<TableWriter<Projects>>,
+    // project heads
+    // project log
+
     commits : Mutex<TableWriter<Commits>>,
     commit_hashes : Mutex<TableWriter<CommitHashes>>,
+
+    // users
+    // contents
 
     /** The savepoints specified for the datastore. 
      */
@@ -57,12 +91,14 @@ impl Datastore {
         let folder_lock = FolderLock::lock(folder)?;
         // create or open the datastore
         let result = Datastore{
+            projects : Mutex::new(TableWriter::open_or_create(folder_lock.folder())),
             commits : Mutex::new(TableWriter::open_or_create(folder_lock.folder())),
             commit_hashes : Mutex::new(TableWriter::open_or_create(folder_lock.folder())),
             savepoints : Mutex::new(TableWriter::open_or_create(folder_lock.folder())),
             folder_lock,
         };
         // verify the datastore's consistency
+        result.projects().verify()?;
         result.commits().verify()?;
         result.commit_hashes().verify()?;
 
@@ -138,6 +174,12 @@ impl Datastore {
         lsavepoints.revert_to_savepoint(& savepoint)?;
 
         return Ok(());
+    }
+
+    /** Returns the locked projects table. 
+     */
+    pub fn projects<'a>(&'a self) -> std::sync::MutexGuard<'a, TableWriter<Projects>> {
+        return self.projects.lock().unwrap();
     }
 
     /** Returns the locked commits table. 
