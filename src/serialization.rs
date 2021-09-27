@@ -257,4 +257,86 @@ impl Serializable for Vec<u8> {
     }
 }
 
+#[cfg(test)]
+mod tests{
+    /// to run tests over this module you can either run:
+    /// with println! statements: cargo test serialization:: -- --nocapture 
+    /// without println! statements: cargo test serialization::
+    use super::*;
+    use std::io::Cursor;
+    use std::num;
 
+    /// Tests to see if a datatype returns the correct size (FixedSize implementation)
+    #[test]
+    fn fixed_size_test(){
+        assert_eq!(u64::size_of(), 8);
+        assert_eq!(u32::size_of(), 4);
+        assert_eq!(u16::size_of(), 2);
+        assert_eq!(i64::size_of(), 8);
+    }
+
+    /// tests for Serializable::read_from and Serializable::write_to for numeric datatypes
+    macro_rules! serializable_test {
+        ($type:ty, $size:literal) => {{        
+            let mut current_offset : u64 = 0;
+            let mut buffer = Vec::new();
+    
+            for value in 1..100 {
+                let _a = <$type>::write_to(&mut buffer, &value, &mut current_offset).unwrap();
+                assert_eq!(current_offset, (value*$size) as u64);    
+            }
+    
+            let mut cursor = Cursor::new(buffer);
+            
+            current_offset = 0;
+            
+            for value in 1..100 {
+                let result = <$type>::read_from(&mut cursor, &mut current_offset).unwrap();
+                assert_eq!(current_offset as u64, (value*$size) as u64 );  
+                assert_eq!(result as u64,value as u64);
+            }
+
+        }};
+    }
+
+    #[test]
+    fn serializable_tests_numeric() {
+        serializable_test!(u64, 8);
+        serializable_test!(u32, 4);
+        serializable_test!(u16, 2);
+        serializable_test!(i64, 8);
+        serializable_test!(i64, 8)
+    }
+
+    #[test]
+    fn serializable_test_string() {
+        let mut current_offset : u64 = 0;
+        let mut buffer = Vec::new();
+        
+        let mut current_string = String::from("");
+        let mut offset_comparison : u64 = 0;
+        for value in 'a'..'z' {
+            current_string.push(value);
+            println!("{}", current_string);
+            let _a = String::write_to(&mut buffer, &current_string, &mut current_offset).unwrap();
+            offset_comparison += current_string.len() as u64;
+            println!("offset: {} {}",current_offset, offset_comparison+1);
+            assert_eq!(current_offset, offset_comparison+1);    
+        }
+
+        let mut cursor = Cursor::new(buffer);
+            
+        current_offset = 0;
+        
+        for value in 'a'..'z' {
+            let result = String::read_from(&mut cursor, &mut current_offset).unwrap();
+            println!("asd: {}", result);
+        }
+    }
+
+    #[test]
+    fn serializable_test_vec() {
+        
+    }
+
+}
