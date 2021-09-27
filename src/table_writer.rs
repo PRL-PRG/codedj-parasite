@@ -196,6 +196,14 @@ impl<RECORD : TableRecord> TableWriter<RECORD> {
     }
 }
 
+impl<RECORD : TableRecord> Drop for TableWriter<RECORD> {
+    /** When a table is dropped, flush its contents so that a checkpoint is created. 
+     */
+    fn drop(& mut self) {
+        self.flush().unwrap();
+    }
+}
+
 /** An iterator into the append only table. 
  
     The iterator simply returns *all* entries in the table in the order they were written to it. If the underlying table supports updates to ids, it is the responsibility of the iterator client to make sure that only the latest value for any given id will be used, unless interested in history. The iterator can either go over entire table, or up to a given savepoint. 
@@ -237,7 +245,7 @@ impl<RECORD : TableRecord> TableIterator<RECORD> {
         return TableIterator{
             f : BufReader::new(f),
             offset : 0,
-            savepoint_limit : u64::MAX, 
+            savepoint_limit : fs::metadata(& filename).unwrap().len(), 
             why_oh_why : std::marker::PhantomData{}
         };
     }

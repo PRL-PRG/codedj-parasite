@@ -12,12 +12,12 @@ path = "src/lib.rs"
 # Parasite is the actual perpetual updater of the datastore. It only accesses the global datastore. 
 [[bin]]
 name = "parasite"
-path = "src/parasite.rs"
+path = "src/parasite/parasite.rs"
 
 # mistletoe is the command-line viewer of the datastore using the savepoints and indices mechanism of the datastore view API. 
 [[bin]]
 name = "mistletoe"
-path = "src/mistletoe.rs"
+path = "src/mistletoe/mistletoe.rs"
 
 [dependencies]
 # command-line arguments, logging and executable stamps
@@ -32,10 +32,17 @@ zstd = "0.9.0"
 memmap = "0.7.0" 
 # manipulating git repositories
 git2="0.13"
+# extra features we use
+strum = "0.21" # enum iterators & counts
+strum_macros = "0.21"
+chrono="0.4" # pretty time displays
 
-#variant_count = "1.1.0" # to have counts of enums ready
-#num-derive = "0.3" # for number to enum conversions and back
+
+#num = "0.4" # for number to enum conversions and back
+#num-derive = "0.3" 
 #num-traits = "0.2"
+
+
 #chrono="0.4" # so that we can deal with time & printing it
 #csv="1.1" # reading csv files (such as new projects to be added)
 #crossbeam="0.7" # scoped worker threads

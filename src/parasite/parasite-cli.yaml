@@ -12,14 +12,16 @@ args:
     - verbose:
         short: v
         long: verbose
+        multiple: true
         help: Makes the app output more info (maybe).
     - force:
-        short: f
         long: force
         help: Forces parasite to perform the requested command even against its better judgement. Use this with *extreme* care. Most likely, forcing a command will irrepairably corrupt existing dataset. 
 subcommands:
     - create:
         about: Creates a new datastore at the provided path. 
+    - log:
+        about: Displays the log of commands performed on the store. 
     - add:
         about: Adds new project(s) to the datastore. 
         
