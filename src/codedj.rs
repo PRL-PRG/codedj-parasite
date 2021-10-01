@@ -13,7 +13,7 @@ use byteorder::*;
 use crate::folder_lock::*;
 use crate::serialization::*;
 use crate::datastore::*;
-use crate::table_writer::*;
+use crate::table_writers::*;
 use crate::stamp::*;
 
 /** Kinds of datastores that CodeDJ supports. 

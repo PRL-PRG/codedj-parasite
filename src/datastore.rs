@@ -4,7 +4,7 @@ use std::sync::Mutex;
 
 use crate::folder_lock::*;
 use crate::savepoints::*;
-use crate::table_writer::*;
+use crate::table_writers::*;
 use crate::records::*;
 
 

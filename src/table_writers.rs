@@ -265,3 +265,8 @@ impl<RECORD : TableRecord> TableIterator<RECORD> {
 
 }
 
+/** Writer to a table that keeps an updated index file in sync. 
+ */
+pub struct IndexedTableWriter {
+
+}

@@ -8,6 +8,10 @@ use parasite::codedj::*;
     V3 changes : use local git instance in own process to clone repositories as opposed to libgit so that we can timeout the downloads. 
 
 
+    Extra Tables
+
+    For the updater to work we need extra tables and indices available for a dataset. These live in a different folder than the dataset itself and provide fast access to the latest information so incremental updates can be performed and deduplication information. 
+
  
  */
 pub struct Updater {
@@ -32,4 +36,3 @@ impl Updater {
     pub fn should_terminate(& self) -> bool { self.terminate.load(Ordering::SeqCst) }
 
 }
-
