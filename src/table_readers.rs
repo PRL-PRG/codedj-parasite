@@ -97,7 +97,7 @@ impl<RECORD : TableRecord> IndexedReader<RECORD> {
 
     /** Returns true if the table has a value for given id. 
      */
-    pub fn has(& mut self, id : & RECORD::Id) -> bool {
+    pub fn has(& mut self, id : RECORD::Id) -> bool {
         if self.get_offset_for(id) == u64::MAX { false } else { true }
     }
 
@@ -105,7 +105,7 @@ impl<RECORD : TableRecord> IndexedReader<RECORD> {
      
         If the id is outside of the specified range, or contains an empty offset, returns None. 
      */
-    pub fn get(& mut self, id : & RECORD::Id) -> Option<RECORD::Value> {
+    pub fn get(& mut self, id : RECORD::Id) -> Option<RECORD::Value> {
         let offset = self.get_offset_for(id);
         if offset != Self::EMPTY {
             return Some(self.read_table(offset as usize));
@@ -144,7 +144,7 @@ impl<RECORD : TableRecord> IndexedReader<RECORD> {
 
     fn savepoint_limit(& self) -> u64 { self.savepoint_limit }
 
-    fn get_offset_for(& self, id : & RECORD::Id) -> u64 {
+    fn get_offset_for(& self, id : RECORD::Id) -> u64 {
         if id.to_number() as usize >= self.capacity {
             return Self::EMPTY;
         } else {

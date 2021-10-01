@@ -100,7 +100,7 @@ impl<RECORD : TableRecord> TableWriter<RECORD> {
      
         The flush also serves as a barrier that verifies the expected and actual size of the table on disk and stores the number so that unexpected shutdowns can be handled more gracefully.  
      */
-    pub fn flush(& mut self) -> Result<u64,std::io::Error> {
+    pub fn flush(& mut self) -> io::Result<u64> {
         self.f.flush().unwrap();
         let actual_size = fs::metadata(& self.filename)?.len();
         if actual_size == self.offset {
@@ -123,7 +123,7 @@ impl<RECORD : TableRecord> TableWriter<RECORD> {
      
         This is a rather simple check that makes sure that the actual size of the table is equivalent to the last saved checkpoint. If this were not the case, it means that some data has been written after last checkpoint for which we have no guarantee of integrity and we must roll back to nearest savepoint. 
      */
-    pub fn verify(& mut self) -> Result<u64, std::io::Error> {
+    pub fn verify(& mut self) -> io::Result<u64> {
         if let Ok(mut f) = OpenOptions::new().read(true).open(self.checkpoint_filename()) {
             let actual_size = f.read_u64::<LittleEndian>()?;
             let actual_size_alt = f.read_u64::<LittleEndian>()?;
@@ -262,11 +262,5 @@ impl<RECORD : TableRecord> TableIterator<RECORD> {
 
     pub(crate) fn offset(& self) -> u64 { self.offset }
     pub(crate) fn savepoint_limit(& self) -> u64 { self.savepoint_limit }
-
-}
-
-/** Writer to a table that keeps an updated index file in sync. 
- */
-pub struct IndexedTableWriter {
 
 }

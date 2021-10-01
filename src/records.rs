@@ -7,25 +7,25 @@ use byteorder::*;
 use crate::serialization::*;
 use crate::table_writers::*;
 
-#[derive(Copy, Clone, Eq, PartialEq, std::hash::Hash)]
+#[derive(Copy, Clone, Eq, PartialEq, std::hash::Hash, Debug)]
 pub struct ProjectId { id : u64 }
 
-#[derive(Copy, Clone, Eq, PartialEq, std::hash::Hash)]
+#[derive(Copy, Clone, Eq, PartialEq, std::hash::Hash, Debug)]
 pub struct CommitId { id : u64 }
 
-#[derive(Copy, Clone, Eq, PartialEq, std::hash::Hash)]
+#[derive(Copy, Clone, Eq, PartialEq, std::hash::Hash, Debug)]
 pub struct ContentsId { id : u64 }
 
-#[derive(Copy, Clone, Eq, PartialEq, std::hash::Hash)]
+#[derive(Copy, Clone, Eq, PartialEq, std::hash::Hash, Debug)]
 pub struct PathId { id : u64 }
 
-#[derive(Copy, Clone, Eq, PartialEq, std::hash::Hash)]
+#[derive(Copy, Clone, Eq, PartialEq, std::hash::Hash, Debug)]
 pub struct NameId { id : u64 }
 
-#[derive(Copy, Clone, Eq, PartialEq, std::hash::Hash)]
+#[derive(Copy, Clone, Eq, PartialEq, std::hash::Hash, Debug)]
 pub struct TreeId { id : u64 }
 
-#[derive(Copy, Clone, Eq, PartialEq, std::hash::Hash)]
+#[derive(Copy, Clone, Eq, PartialEq, std::hash::Hash, Debug)]
 pub struct UserId { id : u64 }
 
 /** Throughout parasite, SHA hashes are used to identify entities.

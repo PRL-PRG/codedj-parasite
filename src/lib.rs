@@ -13,10 +13,10 @@ mod folder_lock;
 mod savepoints;
 
 #[allow(dead_code)]
-mod table_writers;
+pub mod table_writers;
 
 #[allow(dead_code)]
-mod table_readers;
+pub mod table_readers;
 
 #[allow(dead_code)]
 pub mod records;

@@ -1,12 +1,12 @@
 use log::*;
 use std::io;
 use std::process::{Command, Stdio};
+use std::collections::{HashMap};
 
-//use git2;
+use git2;
 
 use parasite::*;
 use parasite::records::*;
-use parasite::datastore::*;
 
 use crate::updater::*;
 
@@ -18,7 +18,7 @@ pub struct ProjectUpdater<'a> {
      */
     updater : &'a Updater,
 
-    ds : &'a Datastore,
+    ds : &'a UpdaterDatastore,
 
     /** The id and project url of the project we are updating. 
      */
@@ -28,10 +28,11 @@ pub struct ProjectUpdater<'a> {
     /** Path to which the project should be cloned / may already exist.
      */
     clone_path : String, 
+    tmp_path : String,
 
     /** Heads of the project as of the latest update. 
      */
-    latest_heads : Heads,
+    latest_heads : TranslatedHeads, // String -> (SHA, Id)
 
 }
 
@@ -42,13 +43,70 @@ impl<'a> ProjectUpdater<'a> {
         This means determining whether the project indeed needs to be updated in the first place, downloading any new content, analyzing the content and adding it to the appropriate datastore. 
      */
     pub fn update(& mut self) -> io::Result<()> {
-        // first determine the latest state of the project
+        // first determine the latest state of the project and figure out if we should proceed with update at all
+        match self.ds.get_latest_log(self.project_id) {
+            Some(ProjectLog::Error{time : _, msg : _}) => {
+                debug!("Skipping project {:?} - last update failed", self.project_id);
+                return Ok(());
+            }
+            _ => {},
+        }
+        // the project should attempt update, get the latest heads
+        if let Some(heads) = self.ds.get_latest_heads(self.project_id) {
+            self.latest_heads = heads;
+        } 
+        // let's see if heads have changed since the last time we checked the project
+        let changed_heads = Self::git_to_io_error(self.get_changed_heads())?;
+        // if there are any heads that need changing, we must clone or update the repository first and then update the branches
+        if ! changed_heads.is_empty() {
+            self.clone_or_update()?;
+            // TODO should we also check if there is a change in the datastore? 
+            for (head, known_sha) in changed_heads.iter() {
+                Self::git_to_io_error(self.update_branch(head, *known_sha))?;
+
+            }
+        }
+
 
         unimplemented!();
     }
 
-    fn load_latest_state(& mut self) {
+    fn git_to_io_error<T>( result : Result<T, git2::Error>) -> Result<T, io::Error> {
+        unimplemented!();
+    }
 
+    /** Creates a fake repository and obtains the latest heads for the project from the origin, compares this to the heads we already have and returns a list of heads that must be updated. 
+     
+        Note that it is possible that this function returns an empty list, but the update must still be recorded. This corresponds to a branch deletion in the remote without any new commits made.
+     */
+    fn get_changed_heads(& mut self) -> Result<HashMap<String, SHA>, git2::Error> {
+        let repo = git2::Repository::init_bare(& self.tmp_path)?;
+        let mut remote = repo.remote("codedj", & self.project.clone_url())?;
+        remote.connect(git2::Direction::Fetch)?;
+        // get the remote heads now
+        let mut remote_heads = HashMap::<String, SHA>::new();
+        for x in remote.list()? {
+            // TODO this is an issue in libgit2 it seems that a branch must be valid utf8, otherwise we will fail. For now that seems ok as it affects only a really small amount of projects
+            let name = x.name().to_owned();
+            if name.starts_with("refs/heads/") {
+                remote_heads.insert(name, x.oid());
+            }
+        }        
+        // now figure out any heads that have changed 
+        let mut result = HashMap::<String, SHA>::new();
+        for x in remote_heads.iter() {
+            match self.latest_heads.get(x.0) {
+                Some((sha, _)) => {
+                    if sha != x.1 {
+                        result.insert(x.0.clone(), *sha);
+                    }
+                }
+                _ => { 
+                    result.insert(x.0.clone(), git2::Oid::zero());
+                },
+            }
+        }
+        return Ok(result);
     }
 
     /** Clones or updates the project to its target folder. 
@@ -76,6 +134,29 @@ impl<'a> ProjectUpdater<'a> {
             .arg("-o")
             .arg(& self.clone_path);
         return self.execute_process(cmd);
+    }
+
+    /** Updates a single branch of the project. 
+     
+        This is mildly complicated by the fact that we must ensure that all updates to the datastore are done in valid order, namely:
+
+        - all parent commits must be already analyzed and stored in the datastore before analyzing a child commit
+        - before writing commit, all its paths, contents and users must be alredy stored in the datastore. 
+
+        To do so, we first go back and create a queue of commits to analyze. Then analyze each commit. 
+     */
+    fn update_branch(& mut self, branch_name : & str, last_known_commit_hash : SHA) -> Result<(), git2::Error> {
+        debug!("Analyzing branch {} for project {}, building branch commit queue", branch_name, self.project.clone_url());
+        
+
+
+        unimplemented!();
+    }
+
+    /** Analyzes the given commit (assuming its parents are alredy analyzed and stored)
+     */
+    fn update_commit(& mut self) -> Result<(), git2::Error> {
+        unimplemented!();
     }
 
     /** Executes the given process. 
