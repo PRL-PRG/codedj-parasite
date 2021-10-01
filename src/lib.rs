@@ -13,7 +13,7 @@ mod folder_lock;
 mod savepoints;
 
 #[allow(dead_code)]
-mod table_writer;
+mod table_writers;
 
 #[allow(dead_code)]
 mod table_readers;

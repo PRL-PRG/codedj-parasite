@@ -11,7 +11,7 @@ use byteorder::*;
 use crate::serialization::*;
 use crate::savepoints::*;
 
-use crate::table_writer::*;
+use crate::table_writers::*;
 
 /** An indexer of append only table's contents. 
  
@@ -19,25 +19,29 @@ use crate::table_writer::*;
 
     Note that to be usable, the indexer assumes continous ids to be present in the underlying table, otherwise there will be large holes in the index file making it very inefficient.
 
-    The index file contains some extra bookkeeping, so overall has the following structure:
+    The index file is simply an array of offsets, where offset at given position corresponds to the offset of the latest record for given id. 
+
+    Extra metadata about the index file is kept in a separate file - `index.info`, which consists of the following:
 
     8     size of the indexer (equivalent to largest indexed id + 1)
-    8 * N the indexer itself 
     8     number of unique ids in the file
     8     savepoint limit used for the index
     X     serialized string that is the filename of the table from which the index was created
  */
 struct IndexedReader<RECORD : TableRecord> {
-    capacity : usize, 
-    valid_entries : usize, 
     f_index : File,
     index : Mmap,
     f_table : File,
     table : Mmap,
+    capacity : usize, 
+    valid_entries : usize, 
+    savepoint_limit : u64,
     why_oh_why : std::marker::PhantomData<RECORD>
 }
 
 pub(crate) fn record_table_index_path<RECORD: TableRecord>(root : & str) -> String { format!("{}/{}.index", root, RECORD::TABLE_NAME) }
+
+pub(crate) fn record_table_index_info_path<RECORD: TableRecord>(root : & str) -> String { format!("{}/{}.index.info", root, RECORD::TABLE_NAME) }
 
 
 impl<RECORD : TableRecord> IndexedReader<RECORD> {
@@ -64,16 +68,17 @@ impl<RECORD : TableRecord> IndexedReader<RECORD> {
         let index = unsafe { Mmap::map(& f_index)? };
         // create the indexer, then initialize & verify its contents
         let mut result = IndexedReader{
-            capacity : 0, 
-            valid_entries : 0,
             f_index, 
             index, 
             f_table, 
             table,
+            capacity : 0,
+            valid_entries : 0,
+            savepoint_limit : 0,
             why_oh_why : std::marker::PhantomData{},
         };
         let savepoint_limit = savepoint.get_size_for::<RECORD>();
-        result.initialize_and_verify(& table_filename, 0)?;
+        result.initialize_and_verify(index_root, & table_filename, savepoint_limit)?;
         info!("Index table for {} loaded, capacity {}, valid entries {}, savepoint limit {}", RECORD::TABLE_NAME, result.capacity, result.valid_entries, savepoint_limit);
         return Ok(result);
     }
@@ -115,42 +120,37 @@ impl<RECORD : TableRecord> IndexedReader<RECORD> {
 
     /** Initializes the capacity and valid entries, which we cache in the indexed reader and verifies that the index file is what we expect it to be. 
      */
-    fn initialize_and_verify(& mut self, expected_table_filename : & str, expected_savepoint_limit : u64) -> io::Result<()> {
-        if self.table_filename() != expected_table_filename {
-            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("Index table origin differs: expected {}, found {}", expected_table_filename, self.table_filename())));            
+    fn initialize_and_verify(& mut self, index_root : & str, expected_table_filename : & str, expected_savepoint_limit : u64) -> io::Result<()> {
+        let info_filename = record_table_index_info_path::<RECORD>(index_root);
+        let mut f_info = OpenOptions::new().
+            read(true).
+            open(& info_filename)?;
+        let capacity = u64::just_read_from(& mut f_info)? as usize;
+        let valid_entries = u64::just_read_from(& mut f_info)? as usize;
+        let savepoint_limit = u64::just_read_from(& mut f_info)?;
+        let table_filename = String::just_read_from(& mut f_info)?;
+
+        if table_filename != expected_table_filename {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("Index table origin differs: expected {}, found {}", expected_table_filename, table_filename)));            
         }
-        if self.savepoint_limit() != expected_savepoint_limit {
-            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("Savepoint limit differs: expected {}, found {}", expected_savepoint_limit, self.savepoint_limit())));            
+        if savepoint_limit != expected_savepoint_limit {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("Savepoint limit differs: expected {}, found {}", expected_savepoint_limit, savepoint_limit)));            
         }
-        self.capacity = self.read_index(0) as usize;
-        self.valid_entries = self.read_index(1 + self.capacity) as usize;
+        self.capacity = capacity;
+        self.valid_entries = valid_entries;
+        self.savepoint_limit = savepoint_limit;
         return Ok(());
     }
 
-    fn savepoint_limit(& self) -> u64 {
-        return self.read_index(self.capacity + 2);
-    }
-
-    fn table_filename(& self) -> String {
-        let mut buf = self.index.get((self.capacity + 3)..).unwrap();
-        return String::just_read_from(& mut buf).unwrap();
-    }
+    fn savepoint_limit(& self) -> u64 { self.savepoint_limit }
 
     fn get_offset_for(& self, id : & RECORD::Id) -> u64 {
         if id.to_number() as usize >= self.capacity {
             return Self::EMPTY;
         } else {
-            return self.read_index((id.to_number() + 1) as usize);
+            let offset = (id.to_number() as usize) * 8;
+            return self.index.get(offset..).unwrap().read_u64::<LittleEndian>().unwrap();
         }
-    }
-
-    /** Reads the index-th index stored in the indexer. 
-     
-        Note that first index is effectively the capacity of the indexer (so for actual IDs we need +1) and the actual index file is followed by two more u64s, the number of valid entries in the index file and the savepoint limit. All these values are readable using this method.
-     */
-    fn read_index(& self, mut offset : usize) -> u64 {
-        offset *= 8; // we store u64s
-        return self.index.get(offset..).unwrap().read_u64::<LittleEndian>().unwrap();
     }
 
     /** Reads a value from the table at given offset. 
@@ -167,7 +167,6 @@ impl<RECORD : TableRecord> IndexedReader<RECORD> {
         Calculates the indices and stores them in the index file together with the extra metdata (see indexer struct info for more details).
      */
     fn create(table_root : & str, index_root : & str, savepoint : & Savepoint) -> io::Result<usize> {
-        let index_filename = record_table_index_path::<RECORD>(index_root);
         let mut index = Vec::<u64>::new();
         let mut iter = TableIterator::<RECORD>::for_savepoint(table_root, savepoint);
         let mut unique_ids = 0;
@@ -186,18 +185,29 @@ impl<RECORD : TableRecord> IndexedReader<RECORD> {
                 break;
             }
         }
-        // we have the index built, time to save it
-        let mut f = BufWriter::new(OpenOptions::new().
-                    write(true).
-                    create(true).
-                    open(& index_filename)?);
-        f.write_u64::<LittleEndian>(index.len() as u64)?;
-        for offset in index {
-            f.write_u64::<LittleEndian>(offset)?;
+        // save the info file first to silence borrow checker
+        {
+            let info_filename = record_table_index_info_path::<RECORD>(index_root);
+            let mut f = BufWriter::new(OpenOptions::new().
+                        write(true).
+                        create(true).
+                        open(& info_filename)?);
+            f.write_u64::<LittleEndian>(index.len() as u64)?;
+            f.write_u64::<LittleEndian>(unique_ids as u64)?;
+            f.write_u64::<LittleEndian>(iter.savepoint_limit())?;
+            String::just_write_to(& mut f, & record_table_path::<RECORD>(table_root))?;
         }
-        f.write_u64::<LittleEndian>(unique_ids as u64)?;
-        f.write_u64::<LittleEndian>(iter.savepoint_limit())?;
-        String::just_write_to(& mut f, & record_table_path::<RECORD>(table_root))?;
+        // we have the index built, time to save it
+        {
+            let index_filename = record_table_index_path::<RECORD>(index_root);
+            let mut f = BufWriter::new(OpenOptions::new().
+                        write(true).
+                        create(true).
+                        open(& index_filename)?);
+            for offset in index {
+                f.write_u64::<LittleEndian>(offset)?;
+            }
+        }
         return Ok(unique_ids);
     }
 
@@ -208,6 +218,6 @@ impl<RECORD : TableRecord> IndexedReader<RECORD> {
     This will be likely done via double index - first index is id to offset to second index, second index is just offsets to values in some order. 
 
  */
-struct Linkedreader<RECORD : TableRecord> {
+struct LinkedReader<RECORD : TableRecord> {
     why_oh_why : std::marker::PhantomData<RECORD>,
 }

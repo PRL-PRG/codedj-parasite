@@ -3,7 +3,7 @@ use std::io;
 use std::io::{Read, Write};
 
 use crate::serialization::*;
-use crate::table_writer::*;
+use crate::table_writers::*;
 
 
 /** Datastore's savepoint.

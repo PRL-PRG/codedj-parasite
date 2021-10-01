@@ -5,7 +5,7 @@ use std::collections::{HashMap};
 use byteorder::*;
 
 use crate::serialization::*;
-use crate::table_writer::*;
+use crate::table_writers::*;
 
 #[derive(Copy, Clone, Eq, PartialEq, std::hash::Hash)]
 pub struct ProjectId { id : u64 }

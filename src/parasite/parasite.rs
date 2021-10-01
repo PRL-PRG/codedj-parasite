@@ -6,6 +6,13 @@ extern crate clap;
 use clap::{App, ArgMatches};
 
 
+#[allow(dead_code)]
+mod updater;
+
+#[allow(dead_code)]
+mod project_updater;
+
+
 use parasite::stamp;
 use parasite::codedj::*;
 

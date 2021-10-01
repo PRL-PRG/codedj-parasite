@@ -1,6 +1,6 @@
 
 use crate::serialization::*;
-use crate::table_writer::*;
+use crate::table_writers::*;
 //use crate::table_readers::*;
 use crate::savepoints::*;
 
