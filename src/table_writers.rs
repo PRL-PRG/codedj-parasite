@@ -16,6 +16,12 @@ use crate::savepoints::*;
 pub trait Id : Copy + Clone + Eq + PartialEq {
     fn to_number(& self) -> u64;
     fn from_number(id : u64) -> Self;
+
+    /** A simple placeholder for an empty invalid id. 
+     */
+    fn empty() -> Self {
+        return Self::from_number(u64::MAX);
+    }
 }
 
 /** Serializable implementation for any ID. IDs trivially serialize as the u64 numbers they convert to/from.

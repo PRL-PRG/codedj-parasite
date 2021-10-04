@@ -1,7 +1,7 @@
 use log::*;
 use std::io;
 use std::process::{Command, Stdio};
-use std::collections::{HashMap};
+use std::collections::{HashMap, VecDeque, HashSet};
 
 use git2;
 
@@ -34,6 +34,14 @@ pub struct ProjectUpdater<'a> {
      */
     latest_heads : TranslatedHeads, // String -> (SHA, Id)
 
+    /** Cache for already known information.
+     
+        This limits the need for interaction with the datastore while creating commit updates. We cache the commits, users and paths we have seen so far. This allows us to terminate brancha analyses sooner and speeds up the analysis of commits as their parents are guaranteed to already exist in the known_commits map when we get to them. 
+     */
+    known_commits : HashMap<SHA, CommitId>,
+    known_users : HashMap<String, UserId>,
+    known_paths: HashMap<String, PathId>,
+
 }
 
 impl<'a> ProjectUpdater<'a> {
@@ -51,9 +59,12 @@ impl<'a> ProjectUpdater<'a> {
             }
             _ => {},
         }
-        // the project should attempt update, get the latest heads
+        // the project should attempt update, get the latest heads and add them to the known commits
         if let Some(heads) = self.ds.get_latest_heads(self.project_id) {
             self.latest_heads = heads;
+            for (name_, (sha, commit_id)) in self.latest_heads.iter() {
+                self.known_commits.insert(*sha, *commit_id);
+            }
         } 
         // let's see if heads have changed since the last time we checked the project
         let changed_heads = Self::git_to_io_error(self.get_changed_heads())?;
@@ -61,8 +72,8 @@ impl<'a> ProjectUpdater<'a> {
         if ! changed_heads.is_empty() {
             self.clone_or_update()?;
             // TODO should we also check if there is a change in the datastore? 
-            for (head, known_sha) in changed_heads.iter() {
-                Self::git_to_io_error(self.update_branch(head, *known_sha))?;
+            for (head, newest_sha) in changed_heads.iter() {
+                Self::git_to_io_error(self.update_branch(head, *newest_sha))?;
 
             }
         }
@@ -78,6 +89,8 @@ impl<'a> ProjectUpdater<'a> {
     /** Creates a fake repository and obtains the latest heads for the project from the origin, compares this to the heads we already have and returns a list of heads that must be updated. 
      
         Note that it is possible that this function returns an empty list, but the update must still be recorded. This corresponds to a branch deletion in the remote without any new commits made.
+
+        For each head to be updated, its newest commit hash is returned.
      */
     fn get_changed_heads(& mut self) -> Result<HashMap<String, SHA>, git2::Error> {
         let repo = git2::Repository::init_bare(& self.tmp_path)?;
@@ -98,11 +111,11 @@ impl<'a> ProjectUpdater<'a> {
             match self.latest_heads.get(x.0) {
                 Some((sha, _)) => {
                     if sha != x.1 {
-                        result.insert(x.0.clone(), *sha);
+                        result.insert(x.0.clone(), *x.1);
                     }
                 }
                 _ => { 
-                    result.insert(x.0.clone(), git2::Oid::zero());
+                    result.insert(x.0.clone(), *x.1);
                 },
             }
         }
@@ -137,27 +150,99 @@ impl<'a> ProjectUpdater<'a> {
     }
 
     /** Updates a single branch of the project. 
-     
-        This is mildly complicated by the fact that we must ensure that all updates to the datastore are done in valid order, namely:
 
-        - all parent commits must be already analyzed and stored in the datastore before analyzing a child commit
-        - before writing commit, all its paths, contents and users must be alredy stored in the datastore. 
-
-        To do so, we first go back and create a queue of commits to analyze. Then analyze each commit. 
      */
-    fn update_branch(& mut self, branch_name : & str, last_known_commit_hash : SHA) -> Result<(), git2::Error> {
-        debug!("Analyzing branch {} for project {}, building branch commit queue", branch_name, self.project.clone_url());
-        
+    fn update_branch(& mut self, branch_name : & str, newest_hash : SHA) -> Result<(), git2::Error> {
+        debug!("PID: {:?}, Analyzing branch {}", self.project_id, branch_name);
+        // get a handle to the repo
+        let repo = git2::Repository::open(& self.clone_path)?;
+        // get a list of new commits on the branch, i.e. commits from the current head to any of the already known commits (which are at this point heads of previous update and possibly any commits already analyzed in different branches of this update)
+        let new_commits = self.get_new_commits(& repo, newest_hash)?;
+        debug!("PID: {:?}, {} possibly new commits found in branch {}", self.project_id, new_commits.len(), branch_name);
+        // as an optimization let's first check if any of the commits we already have in the datastore. The idea is this will be very useful when analyzing a cloned/forked repository where we already have the commits from other repo
+        {
+            let already_known = self.ds.get_known_commits(& new_commits);
+            debug!("PID: {:?}, {} already known", self.project_id, already_known.len());
+            // and add them to known commits... That's all that needs to be done at this point
+            self.known_commits.extend(already_known.into_iter());
+        }
+        // now analyze the commits 
+        for sha in new_commits {
+            debug!("PID: {:?}, analyzing commit {}", self.project_id, sha);
+            self.update_commit(& repo, sha)?;
+        }
+        debug!("PID: {:?}, done analyzing branch {}", self.project_id, branch_name);
+        return Ok(());
+    }
 
 
-        unimplemented!();
+    /** Returns the new commits in topological order. 
+
+        That is we are guaranteed to see a project in the resulting vector only *after* all its parents have been seen as well. 
+
+        NOTE this is perhaps/likely not the fastest algorithm out there, but it's rather simple. For incremental updates this should not matter that much as the graph of commits for which we make topo list will be small.
+     */
+    fn get_new_commits(& mut self, repo : & git2::Repository, newest_hash : SHA)  -> Result<Vec<SHA>, git2::Error> {
+        let mut in_result = HashSet::<SHA>::new();
+        let mut result = Vec::<SHA>::new();
+        let mut q = vec!((newest_hash, false)); // actually a stack
+        while let Some((sha, is_ready)) = q.pop() {
+            // if ready, that means we have already analyzed all parents and therefore can add ourselves, if not added before already
+            if is_ready {
+                if ! in_result.contains(& sha) {
+                    in_result.insert(sha);
+                    result.push(sha);
+                }
+            // otherwise we must add the current commit to the queue in the ready state and then add all parents (since it is really a stack, we'll make sure that when we get back to the ready state'd commit, all the parents would have been analyzed properly)
+            } else {
+                q.push((sha, true));
+                let commit = repo.find_commit(sha)?;
+                for parent_sha in commit.parent_ids() {
+                    q.push((parent_sha, false));
+                }
+            }
+        }
+        return Ok(result);
     }
 
     /** Analyzes the given commit (assuming its parents are alredy analyzed and stored)
      */
-    fn update_commit(& mut self) -> Result<(), git2::Error> {
+    fn update_commit(& mut self, repo: & git2::Repository, hash : SHA) -> Result<(), git2::Error> {
+        // don't do anything if we already know the commit (i.e. the commit is already in the datastore from different project/update or it has been already analyzed in this update as part of other branch)
+        if self.known_commits.contains_key(& hash) {
+            return Ok(());
+        }
+        // proceed as if the commit is not known, create the commit object, fill in the details, analyze the contents the commit changes and 
+        let git_commit = repo.find_commit(hash)?;
+        let mut commit = Commit::new(hash);
+        let committer = git_commit.committer();
+        let author = git_commit.author();
+        let (committer_id, author_id) = self.get_or_create_users(& committer, & author);
+        commit.committer = committer_id;
+        commit.author = author_id;
+        commit.committer_time = git_commit.time().seconds();
+        commit.author_time = author.when().seconds();
+        commit.message = parasite::encode_to_string(git_commit.message_bytes());
+        // all parents must already be in the known commits by now so we can unwrap
+        commit.parents.extend(git_commit.parent_ids().map(|x| self.known_commits.get(& x).unwrap()));
+        // calculate commit changes now
+        // TODO
+        // and finally submit the finished commit to the datastore
+        // TODO
         unimplemented!();
     }
+
+    /** Converts the given git users to user ids. 
+     
+        Takes two arguments as it it expected to be used on a commit and therefore we need committer and author at the cost of a single lock of the users table. 
+     */
+    fn get_or_create_users(& mut self, u1 : & git2::Signature, u2 : & git2::Signature) -> (UserId, UserId) {
+        unimplemented!();
+    }
+
+
+
+
 
     /** Executes the given process. 
      

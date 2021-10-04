@@ -88,6 +88,12 @@ impl UpdaterDatastore {
         unimplemented!();
     }
 
+    /** Takes a vector of commit hashes and returns a hashmap of those commits from the vector that are already known to the datastore together with their assigned IDs. 
+     */
+    pub fn get_known_commits(& self, hashes : & Vec<SHA>) -> HashMap<SHA, CommitId> {
+        unimplemented!();
+    }
+
     /*
     pub fn update_heads(& self, id : ProjectId, heads : & Heads) {
 

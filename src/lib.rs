@@ -1,4 +1,5 @@
 use std::time::{SystemTime, Duration, UNIX_EPOCH};
+use std::str;
 
 #[allow(dead_code)]
 mod serialization;
@@ -70,5 +71,29 @@ pub fn is_dir(path : & str) -> bool {
     match std::fs::metadata(path) {
         Err(_) => false,
         Ok(m) => m.is_dir()
+    }
+}
+
+pub fn encode_to_string(bytes: & [u8]) -> String {
+    let mut result = String::new();
+    let mut x = bytes;
+    loop {
+        match str::from_utf8(x) {
+            // if successful, replace any bel character with double bel, add to the buffer and exit
+            Ok(s) => {
+                result.push_str(& s.replace("%", "%%"));
+                return result;
+            },
+            Err(e) => {
+                let (ok, bad) = x.split_at(e.valid_up_to());
+                if !ok.is_empty() {
+                    result.push_str(& str::from_utf8(ok).unwrap().replace("%","%%"));
+                }
+                // encode the bad character
+                result.push_str(& format!("%{:x}", bad[0]));
+                // move past the offending character
+                x = & bad[1..];
+            }
+        }
     }
 }

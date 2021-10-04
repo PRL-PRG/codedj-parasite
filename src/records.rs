@@ -110,6 +110,22 @@ pub struct Commit {
     pub changes : Vec<Change>,
 }
 
+impl Commit {
+    pub fn new(hash : SHA) -> Commit {
+        return Commit{
+            hash, 
+            committer : UserId::empty(),
+            committer_time : 0, 
+            author : UserId::empty(),
+            author_time : 0, 
+            message : String::new(),
+            tree : TreeId::empty(),
+            parents : Vec::new(),
+            changes : Vec::new(),
+        }
+    }
+}
+
 /** A single change made by a commit.
   
     A change consists of path id and an optional contents id. If the contents id is none, it means the file was deleted by the commit. 
