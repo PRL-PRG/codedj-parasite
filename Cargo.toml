@@ -19,6 +19,11 @@ path = "src/main.rs"
 name = "mistletoe"
 path = "src/mistletoe.rs"
 
+# Github project scrapper (downloads project urls from GH directly, bypassing GHT)
+[[bin]]
+name = "scrapper"
+path = "src/scrapper.rs"
+
 # Helper application that provides some basic filtering of project URLs from GHTorrent data as seeding urls for the parasite downloader. 
 [[bin]]
 name = "ght-filter"

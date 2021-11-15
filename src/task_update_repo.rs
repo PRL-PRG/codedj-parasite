@@ -168,7 +168,8 @@ impl<'a> RepoUpdater<'a> {
              */
             ProjectUrl::GitHub{user_and_repo} => {
                 self.task.info("checking metadata...");
-                let mut metadata = self.gh.get_repo(user_and_repo, & self.task)?;
+                let mut metadata = self.gh.get_repo(user_and_repo, Some(& self.task))
+                ?;
                 // check project rename
                 let new_url = format!("{}.git",metadata["html_url"]).to_lowercase();
                 self.check_url_change(& new_url)?;

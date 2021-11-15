@@ -2,7 +2,7 @@ use std::collections::*;
 
 use std::fs::{OpenOptions};
 use byteorder::*;
-use std::io::{Read, BufReader};
+use std::io::{Read};
 
 #[macro_use]
 extern crate lazy_static;

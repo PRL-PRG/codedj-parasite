@@ -107,14 +107,14 @@ fn main() {
     }        
 }
 
-fn check_projects(cmdline : & clap::ArgMatches, args : & clap::ArgMatches) {
+fn check_projects(cmdline : & clap::ArgMatches, _args : & clap::ArgMatches) {
     // create the datastore and savepoint
     let ds = DatastoreView::from(cmdline.value_of("datastore").unwrap_or("."));
     let updates = ds.project_updates();
     let mut errors = HashSet::<ProjectId>::new();
     let mut max_id = 0;
     for (pid, update) in updates.into_iter() {
-        if (max_id < u64::from(pid)) {
+        if max_id < u64::from(pid) {
             max_id = u64::from(pid);
         }
         match update {
@@ -130,7 +130,7 @@ fn check_projects(cmdline : & clap::ArgMatches, args : & clap::ArgMatches) {
     println!("{},{}", max_id, errors.len());
 }
 
-fn check_heads(cmdline : & clap::ArgMatches, args : & clap::ArgMatches) {
+fn check_heads(cmdline : & clap::ArgMatches, _args : & clap::ArgMatches) {
     // create the datastore and savepoint
     let ds = DatastoreView::from(cmdline.value_of("datastore").unwrap_or("."));
     let mut project_substores = HashMap::new();
@@ -140,7 +140,7 @@ fn check_heads(cmdline : & clap::ArgMatches, args : & clap::ArgMatches) {
     println!("pid,substore,hash,id,actual_id");
     for store_kind in StoreKind::all() {
         let hashes : HashMap<SHA, CommitId> = ds.commits(store_kind).into_iter().map(|(id, hash)| (hash, id)).collect();
-        let commits = ds.commits(store_kind);
+        //let commits = ds.commits(store_kind);
         for (pid, heads) in ds.project_heads().filter(|(pid, _)| project_substores.get(pid).map(|x| *x == store_kind).unwrap_or(false)) {
             for (_, (id, hash)) in heads {
                 match hashes.get(& hash) {
