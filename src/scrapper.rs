@@ -37,7 +37,10 @@ use github::Github;
 fn main() {
     let (mut last_id, mut records) = get_latest_results();
     let mut f = OpenOptions::new().create(true).append(true).open(& SETTINGS.datastore_root).unwrap();
-    writeln!(& mut f, "id,name,language,created,fork,stars,forks,archived,disabled").unwrap();
+    if last_id == 0 {
+        //writeln!(& mut f, "id,name,language,created,fork,stars,forks,archived,disabled").unwrap();
+        writeln!(& mut f, "id,name,fork").unwrap();
+    }
     let gh = Github::new(& SETTINGS.github_tokens);
     loop {
         let request = format!("https://api.github.com/repositories?since={}", last_id);
@@ -49,7 +52,10 @@ fn main() {
                     let full_name = repo["full_name"].as_str().unwrap();
                     let fork = repo["fork"].as_bool().unwrap();
                     if last_id < id { last_id = id; }
+                    writeln!(& mut f, "{},\"{}\",{}", id, full_name, if fork { 1 } else { 0 }).unwrap();
+                    records += 1;
                     // we have the basic info, now it's time to get the languages as well, which sadly costs us an extra request
+                    /*
                     let metadata_request = repo["url"].as_str().unwrap();
                     match gh.request(metadata_request, None) {
                         Ok(json) => {
@@ -75,7 +81,7 @@ fn main() {
                         Err(_) => {
                             println!("Unable to load metadata for project {}", full_name);
                         }
-                    }
+                    } */
                 }
                 println!("Moving to last_id {}, total records {}", last_id, records);
             },
