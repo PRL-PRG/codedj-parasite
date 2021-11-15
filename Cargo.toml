@@ -24,6 +24,11 @@ path = "src/mistletoe.rs"
 name = "scrapper"
 path = "src/scrapper.rs"
 
+# Takes the input from the project url scrapper and starts randomly selecting projects and getting their metadata, such as language
+[[bin]]
+name = "metadata-scrapper"
+path = "src/metadata_scrapper.rs"
+
 # Helper application that provides some basic filtering of project URLs from GHTorrent data as seeding urls for the parasite downloader. 
 [[bin]]
 name = "ght-filter"
