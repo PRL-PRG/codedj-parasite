@@ -89,7 +89,7 @@ fn main() {
                 if json["message"].is_string() && json["message"].as_str().unwrap() == "Not Found" {
                     println!("No new projects found, exitting.");
                 } else {
-                    println!("unknown response format (query since {}) ", last_id);
+                    println!("unknown response format (query since {}): {} ", last_id, json);
                 }
                 break;
             }

@@ -36,23 +36,52 @@ mod task_update_repo;
 use settings::SETTINGS;
 use github::Github;
 
-
-
-
-
 fn main() {
     let metadata_filename = format!("{}.with_metadata", & SETTINGS.datastore_root);
     let previous_results = load_previous_results(& metadata_filename);
+    let write_header = previous_results.is_empty();
     let todo = Mutex::new(load_project_urls(& SETTINGS.datastore_root, previous_results));
+    let mut f = OpenOptions::new().create(true).append(true).open(& metadata_filename).unwrap();
+    if write_header {
+        writeln!(& mut f, "{}", ProjectInfo::csv_header()).unwrap();
+    }
     // now that we have todos, spawn the threads and start downloading the metadata
     let (tx, rx) = crossbeam_channel::unbounded::<UpdateInfo>();
+    let gh = Github::new(& SETTINGS.github_tokens);
     crossbeam::thread::scope(|s| {
-
-
         for _ in 0..SETTINGS.num_threads {
             s.spawn(|_| {
-                metadata_scrapper(& todo, tx.clone());
+                metadata_scrapper(& todo, & gh, tx.clone());
             });
+        }
+        let mut active_threads = SETTINGS.num_threads;
+        println!("Active threads: {}", active_threads);
+        let mut valid = 0;
+        let mut errors = 0;
+        while let Ok(msg) = rx.recv() {
+            match msg {
+                UpdateInfo::Ok{id : _ , csv_row} => {
+                    //println!("{}", id);
+                    writeln!(& mut f, "{}", csv_row).unwrap();
+                    valid += 1;
+                },
+                UpdateInfo::Fail{id, err} => {
+                    println!("{}: error {}", id, err);
+                    writeln!(& mut f, "{}", ProjectInfo::error_row(id, & err)).unwrap();
+                    errors += 1;
+                    
+                },
+                UpdateInfo::Done => {
+                    println!("Worker done.");
+                    active_threads -= 1;
+                    if active_threads == 0 {
+                        break;
+                    }
+                }
+            }
+            if (valid + errors) % 1000 == 0 {
+                println!("Valid: {}, errors: {}", valid, errors);
+            }
         }
     }).unwrap();
     println!("ALL DONE.");
@@ -61,26 +90,49 @@ fn main() {
 
 enum UpdateInfo {
     Ok{id : i64, csv_row : String},
-    Fail{id : i64},
+    Fail{id : i64, err: String},
     Done,
 }
 
 type Tx = crossbeam_channel::Sender<UpdateInfo>;
-type Rx = crossbeam_channel::Receiver<UpdateInfo>;
+//type Rx = crossbeam_channel::Receiver<UpdateInfo>;
 
 
-fn metadata_scrapper(projects : & Mutex<Vec<(i64, String)>>, tx : Tx) {
-    while let Some(id) = next_project_to_update(projects) {
-        // TODO update the project
-
+fn metadata_scrapper(projects : & Mutex<Vec<(i64, String)>>, gh : &Github, tx : Tx) {
+    while let Some((id, full_name)) = next_project_to_update(projects) { 
+        let metadata_request = format!("https://api.github.com/repos/{}", full_name);
+        std::thread::sleep(std::time::Duration::from_millis(1000));
+        match gh.request(& metadata_request, None) {
+            Ok(json) => {
+                if let Some(pinfo) = ProjectInfo::from_json(& json) {
+                    tx.send(UpdateInfo::Ok{id, csv_row : pinfo.to_csv()}).unwrap();
+                } else {
+                    tx.send(UpdateInfo::Fail{id, err : format!("{}",json)}).unwrap();
+                }
+            },
+            Err(e) =>{
+                tx.send(UpdateInfo::Fail{id, err : format!("{}",e)}).unwrap();
+            }
+        }
     }
-    tx.send(UpdateInfo::Done);
+    tx.send(UpdateInfo::Done).unwrap()
+    ;
 }
 
-fn next_project_to_update(projects : & Mutex<Vec<(i64, String)>>) -> Option<i64> {
-    let v = projects.lock().unwrap();
-    // 
-    return None;
+fn next_project_to_update(projects : & Mutex<Vec<(i64, String)>>) -> Option<(i64, String)> {
+    let mut v = projects.lock().unwrap();
+    let i = rand::random::<usize>() % v.len();
+    let mut idx = i;
+    loop {
+        if ! v[idx].1.is_empty() {
+            let tmp = std::mem::replace(& mut v[idx].1, String::new());
+            return Some((v[idx].0, tmp));
+        }
+        idx = (idx + 1) % v.len();
+        if idx == i {
+            return None;
+        }
+    }
 }
 
 struct ProjectInfo {
@@ -131,11 +183,15 @@ impl ProjectInfo {
         }
     }
 
-    fn cvs_header() -> &'static str {
+    fn csv_header() -> &'static str {
         "id,name,language,created,fork,disabled,archived,stars,forks,network_count,subscribers,size"
     }
 
-    fn to_csv(& self) {
+    fn error_row(id : i64, err: & str) -> String {
+        format!("{},\"\",\"{}\",0,0,0,0,0,0,0,0,0",id, err)
+    }
+
+    fn to_csv(& self) -> String {
         format!("{},\"{}\", \"{}\",{},{},{},{},{},{},{},{},{}",
             self.id,
             self.name,
@@ -149,7 +205,7 @@ impl ProjectInfo {
             self.network_count,
             self.subscribers,
             self.size
-        );
+        )
     }
 }
 

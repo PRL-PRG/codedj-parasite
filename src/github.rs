@@ -73,7 +73,19 @@ impl Github {
                     // move to next token
                     self.tokens.lock().unwrap().next_token(token.1);
                     task.map(|t| { t.info("moving to next Github API token") });
+                // check for the secondary rate limit:)
                 } else {
+                    let result = json::parse(& helpers::to_string(& response));
+                    match result {
+                        Ok(value) => {
+                            if value["message"].is_string() && value["message"].as_str().unwrap() == "You have exceeded a secondary rate limit. Please wait a few minutes before you try again." {
+                                println!("Secondary rate limit: sleep 1m");
+                                std::thread::sleep(std::time::Duration::from_millis(1000 * 60));
+                            }
+                        }
+                        Err(_) => {
+                        }
+                    }
                     return Err(std::io::Error::new(std::io::ErrorKind::Other, rhdr.split("\n").next().unwrap()));
                 }
             } else{
