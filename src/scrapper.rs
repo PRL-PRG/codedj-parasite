@@ -47,6 +47,10 @@ fn main() {
         match gh.request(& request, None) {
             Ok(json::JsonValue::Array(repos)) => {
                 for repo in repos {
+                    // there are nulls scarcely distributed in the results, skip them 
+                    if repo.is_null() {
+                        continue;
+                    }
                     let id = repo["id"].as_i64().unwrap();
                     //println!("id: {}", id);
                     let full_name = repo["full_name"].as_str().unwrap();
