@@ -54,34 +54,6 @@ fn main() {
                     if last_id < id { last_id = id; }
                     writeln!(& mut f, "{},\"{}\",{}", id, full_name, if fork { 1 } else { 0 }).unwrap();
                     records += 1;
-                    // we have the basic info, now it's time to get the languages as well, which sadly costs us an extra request
-                    /*
-                    let metadata_request = repo["url"].as_str().unwrap();
-                    match gh.request(metadata_request, None) {
-                        Ok(json) => {
-                            let language = json["language"].as_str().map(|x| x.to_owned()).unwrap_or(String::new());
-                            let created = chrono::NaiveDateTime::parse_from_str(json["created_at"].as_str().unwrap(), "%Y-%m-%dT%H:%M:%SZ").unwrap().timestamp();
-                            let stars = json["stargazers_count"].as_i64().unwrap();
-                            let forks = json["forks_count"].as_i64().unwrap();
-                            let archived = json["archived"].as_bool().unwrap();
-                            let disabled = json["disabled"].as_bool().unwrap();
-                            writeln!(& mut f,"{},\"{}\",\"{}\",{},{},{},{},{},{}",
-                                id,
-                                full_name,
-                                language,
-                                created,
-                                if fork { 1 } else { 0 },
-                                stars,
-                                forks,
-                                if archived { 1 } else { 0 },
-                                if disabled { 1 } else { 0 },
-                            ).unwrap();
-                            records += 1;
-                        },
-                        Err(_) => {
-                            println!("Unable to load metadata for project {}", full_name);
-                        }
-                    } */
                 }
                 println!("Moving to last_id {}, total records {}", last_id, records);
             },
@@ -114,7 +86,7 @@ fn get_latest_results() -> (i64, i64) {
         let mut records : i64 = 0;
         for x in reader.records() {
             records += 1;
-            if records % 10000 == 0 { print!(".") }
+            if records % 1000000 == 0 { print!(".") }
             let record = x.unwrap();
             last_id = record[0].parse::<i64>().unwrap();
         }
