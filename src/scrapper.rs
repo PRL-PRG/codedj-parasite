@@ -42,7 +42,8 @@ fn main() {
         writeln!(& mut f, "id,name,fork").unwrap();
     }
     let gh = Github::new(& SETTINGS.github_tokens);
-    loop {
+    let mut retries = 5;
+    while (retries > 0) {
         let request = format!("https://api.github.com/repositories?since={}", last_id);
         match gh.request(& request, None) {
             Ok(json::JsonValue::Array(repos)) => {
@@ -60,18 +61,23 @@ fn main() {
                     records += 1;
                 }
                 println!("Moving to last_id {}, total records {}", last_id, records);
+                retries = 5;
             },
             Ok(json) => {
                 if json["message"].is_string() && json["message"].as_str().unwrap() == "Not Found" {
                     println!("No new projects found, exitting.");
+                    break;
                 } else {
                     println!("unknown response format (query since {}): {} ", last_id, json);
                 }
-                break;
+                retries -= 1;
+                std::thread::sleep(std::time::Duration::from_millis(1000 * 60));
+
             }
             Err(e) => {
                 println!("error {} (query since {}) ", e, last_id);
-                break;
+                retries -= 1;
+                std::thread::sleep(std::time::Duration::from_millis(1000 * 60));
             }
         }
     }
