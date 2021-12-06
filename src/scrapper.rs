@@ -45,6 +45,7 @@ fn main() {
     let mut retries = 5;
     while retries > 0 {
         let request = format!("https://api.github.com/repositories?since={}", last_id);
+        //let request = format!("https://140.82.121.6/repositories?since={}", last_id);
         match gh.request(& request, None) {
             Ok(json::JsonValue::Array(repos)) => {
                 for repo in repos {
@@ -71,13 +72,13 @@ fn main() {
                     println!("unknown response format (query since {}): {} ", last_id, json);
                 }
                 retries -= 1;
-                std::thread::sleep(std::time::Duration::from_millis(1000 * 60));
+                std::thread::sleep(std::time::Duration::from_millis(1000 * 60 * 10));
 
             }
             Err(e) => {
                 println!("error {} (query since {}) ", e, last_id);
                 retries -= 1;
-                std::thread::sleep(std::time::Duration::from_millis(1000 * 60));
+                std::thread::sleep(std::time::Duration::from_millis(1000 * 60 * 10));
             }
         }
     }
