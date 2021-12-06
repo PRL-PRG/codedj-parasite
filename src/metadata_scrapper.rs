@@ -223,7 +223,7 @@ fn load_previous_results(filename : & str) -> HashSet<i64> {
         .escape(Some(b'\\'))
         .from_path(filename) {
         for x in reader.records() {
-            if result.len() % 10000 == 0 { print!(".") }
+            if result.len() % 1000000 == 0 { print!(".") }
             let record = x.unwrap();
             result.insert(record[0].parse::<i64>().unwrap());
         }
