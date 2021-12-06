@@ -43,7 +43,7 @@ fn main() {
     }
     let gh = Github::new(& SETTINGS.github_tokens);
     let mut retries = 5;
-    while (retries > 0) {
+    while retries > 0 {
         let request = format!("https://api.github.com/repositories?since={}", last_id);
         match gh.request(& request, None) {
             Ok(json::JsonValue::Array(repos)) => {
