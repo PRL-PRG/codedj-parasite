@@ -99,6 +99,7 @@ type Tx = crossbeam_channel::Sender<UpdateInfo>;
 
 
 fn metadata_scrapper(projects : & Mutex<Vec<(i64, String)>>, gh : &Github, tx : Tx) {
+    let mut limit = 10000;
     while let Some((id, full_name)) = next_project_to_update(projects) { 
         let metadata_request = format!("https://api.github.com/repos/{}", full_name);
         std::thread::sleep(std::time::Duration::from_millis(1000));
@@ -113,6 +114,11 @@ fn metadata_scrapper(projects : & Mutex<Vec<(i64, String)>>, gh : &Github, tx : 
             Err(e) =>{
                 tx.send(UpdateInfo::Fail{id, err : format!("{}",e)}).unwrap();
             }
+        }
+        limit -= 1;
+        if limit == 0 {
+            println!("limit reached!");
+            break;
         }
     }
     tx.send(UpdateInfo::Done).unwrap()
