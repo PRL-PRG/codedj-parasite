@@ -245,7 +245,7 @@ fn load_project_urls(filename : & str, previous_results : HashSet<i64> ) -> Vec<
         let mut total = 0;
         for x in reader.records() {
             total += 1;
-            if total % 10000 == 0 { print!(".") }
+            if total % 1000000 == 0 { print!(".") }
             let record = x.unwrap();
             let id = record[0].parse::<i64>().unwrap();
             if ! previous_results.contains(& id) {
