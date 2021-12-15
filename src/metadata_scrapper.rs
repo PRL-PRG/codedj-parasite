@@ -194,7 +194,7 @@ impl ProjectInfo {
     }
 
     fn error_row(id : i64, err: & str) -> String {
-        format!("{},\"\",\"{}\",0,0,0,0,0,0,0,0,0",id, err)
+        format!("{},\"\",\"{}\",0,0,0,0,0,0,0,0,0",id, str::replace(err, "\"", "\\\""))
     }
 
     fn to_csv(& self) -> String {
