@@ -99,7 +99,7 @@ type Tx = crossbeam_channel::Sender<UpdateInfo>;
 
 
 fn metadata_scrapper(projects : & Mutex<Vec<(i64, String)>>, gh : &Github, tx : Tx) {
-    let mut limit = 10000;
+    let mut limit = 100000;
     while let Some((id, full_name)) = next_project_to_update(projects) { 
         let metadata_request = format!("https://api.github.com/repos/{}", full_name);
         std::thread::sleep(std::time::Duration::from_millis(1000));
@@ -194,7 +194,7 @@ impl ProjectInfo {
     }
 
     fn error_row(id : i64, err: & str) -> String {
-        format!("{},\"\",\"{}\",0,0,0,0,0,0,0,0,0",id, str::replace(err, "\"", "\\\""))
+        format!("{},\"\",\"{}\",0,0,0,0,0,0,0,0,0",id, str::replace(err.trim(), "\"", "\\\""))
     }
 
     fn to_csv(& self) -> String {
